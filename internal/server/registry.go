@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,29 +25,103 @@ const (
 	RunCancelled RunStatus = "cancelled"
 )
 
+// Manifest is the on-disk metadata for a single run. Written when the
+// run is queued and updated again when it terminates so a server
+// restart can reconstruct the registry from disk alone.
+type Manifest struct {
+	ID            string    `json:"id"`
+	Status        RunStatus `json:"status"`
+	StartedAt     time.Time `json:"started_at"`
+	CompletedAt   time.Time `json:"completed_at,omitempty"`
+	GraphName     string    `json:"graph_name,omitempty"`
+	GraphGoal     string    `json:"graph_goal,omitempty"`
+	Outcome       string    `json:"outcome,omitempty"`
+	FailureReason string    `json:"failure_reason,omitempty"`
+	LogsRoot      string    `json:"logs_root"`
+}
+
 // runRegistry holds active and completed runs by ID.
 type runRegistry struct {
-	mu   sync.RWMutex
-	runs map[string]*Run
+	mu       sync.RWMutex
+	runs     map[string]*Run
+	baseDir  string
 }
 
-func newRunRegistry() *runRegistry {
-	return &runRegistry{runs: map[string]*Run{}}
+func newRunRegistry(baseDir string) *runRegistry {
+	r := &runRegistry{runs: map[string]*Run{}, baseDir: baseDir}
+	r.reload()
+	return r
 }
 
-func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, logsRoot string, makeHandlers HandlerFactory) *Run {
-	run := &Run{
-		ID:        newRunID(),
-		source:    source,
-		graph:     g,
-		prepared:  prepared,
-		logsRoot:  filepath.Join(logsRoot, time.Now().Format("20060102-150405")+"-"+newRunID()[:6]),
-		status:    RunQueued,
-		startedAt: time.Now(),
-		factory:   makeHandlers,
-		subscribers: map[chan engine.Event]struct{}{},
-		questions: map[string]*pendingQuestion{},
+// reload scans the base directory for prior runs and reconstructs the
+// in-memory index. Runs whose manifest reports `running` get marked
+// `cancelled` since the server obviously didn't survive the restart.
+func (r *runRegistry) reload() {
+	if r.baseDir == "" {
+		return
 	}
+	entries, err := os.ReadDir(r.baseDir)
+	if err != nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, ent := range entries {
+		if !ent.IsDir() {
+			continue
+		}
+		path := filepath.Join(r.baseDir, ent.Name(), "manifest.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var m Manifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			continue
+		}
+		status := m.Status
+		if status == RunRunning || status == RunQueued {
+			status = RunCancelled
+		}
+		run := &Run{
+			ID:          m.ID,
+			logsRoot:    m.LogsRoot,
+			status:      status,
+			startedAt:   m.StartedAt,
+			completedAt: m.CompletedAt,
+			subscribers: map[chan engine.Event]struct{}{},
+			questions:   map[string]*pendingQuestion{},
+			persisted:   true,
+		}
+		if m.Outcome != "" {
+			run.outcome = &engine.Outcome{
+				Status:        engine.ParseStatus(m.Outcome),
+				StatusString:  m.Outcome,
+				FailureReason: m.FailureReason,
+			}
+		}
+		r.runs[m.ID] = run
+	}
+}
+
+func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory) *Run {
+	id := newRunID()
+	logsRoot := filepath.Join(baseDir, id)
+	run := &Run{
+		ID:          id,
+		source:      source,
+		graph:       g,
+		prepared:    prepared,
+		logsRoot:    logsRoot,
+		status:      RunQueued,
+		startedAt:   time.Now(),
+		factory:     makeHandlers,
+		subscribers: map[chan engine.Event]struct{}{},
+		questions:   map[string]*pendingQuestion{},
+		persisted:   true,
+	}
+	run.writeSource()
+	run.writeManifest()
 	r.mu.Lock()
 	r.runs[run.ID] = run
 	r.mu.Unlock()
@@ -58,6 +133,19 @@ func (r *runRegistry) Get(id string) (*Run, bool) {
 	defer r.mu.RUnlock()
 	run, ok := r.runs[id]
 	return run, ok
+}
+
+// List returns a snapshot of all run IDs known to the registry sorted
+// by start time descending. Useful for a GET /pipelines index endpoint
+// (not yet wired).
+func (r *runRegistry) List() []*Run {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*Run, 0, len(r.runs))
+	for _, run := range r.runs {
+		out = append(out, run)
+	}
+	return out
 }
 
 // Run is one in-memory pipeline execution.
@@ -77,6 +165,7 @@ type Run struct {
 	outcome     *engine.Outcome
 	failure     string
 	cancelled   bool
+	persisted   bool
 
 	history     []engine.Event
 	subscribers map[chan engine.Event]struct{}
@@ -90,15 +179,25 @@ type pendingQuestion struct {
 	nodeID   string
 }
 
-// Source returns the original DOT source for the run.
-func (r *Run) Source() string { return r.source }
+// Source returns the original DOT source for the run. Tries the
+// in-memory copy first, then falls back to the on-disk source.dot
+// (useful after a server restart reloads runs from disk).
+func (r *Run) Source() string {
+	if r.source != "" {
+		return r.source
+	}
+	data, err := os.ReadFile(filepath.Join(r.logsRoot, "source.dot"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
 
 // Subscribe registers a new SSE consumer and replays the buffered
 // history into the returned channel before live events stream in.
 func (r *Run) Subscribe() chan engine.Event {
 	ch := make(chan engine.Event, 128)
 	r.mu.Lock()
-	// Replay history immediately.
 	for _, ev := range r.history {
 		select {
 		case ch <- ev:
@@ -109,6 +208,15 @@ func (r *Run) Subscribe() chan engine.Event {
 	finished := r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled
 	r.mu.Unlock()
 	if finished {
+		// Replay disk history if no in-memory history (resumed run).
+		if len(r.history) == 0 {
+			for _, ev := range r.replayEvents() {
+				select {
+				case ch <- ev:
+				default:
+				}
+			}
+		}
 		close(ch)
 	}
 	return ch
@@ -124,10 +232,7 @@ func (r *Run) Unsubscribe(ch chan engine.Event) {
 	r.mu.Unlock()
 }
 
-// Cancel marks the run for cancellation. The engine doesn't yet support
-// cooperative cancellation, so for MVP this records the intent and
-// surfaces it in Summary; long-running handlers should check
-// run.IsCancelled to bail early.
+// Cancel marks the run for cancellation.
 func (r *Run) Cancel() {
 	r.mu.Lock()
 	r.cancelled = true
@@ -135,6 +240,7 @@ func (r *Run) Cancel() {
 		r.status = RunCancelled
 	}
 	r.mu.Unlock()
+	r.writeManifest()
 }
 
 // IsCancelled reports whether Cancel has been called.
@@ -224,6 +330,7 @@ func (r *Run) execute() {
 	r.mu.Lock()
 	r.status = RunRunning
 	r.mu.Unlock()
+	r.writeManifest()
 
 	iv := &remoteInterviewer{run: r}
 	registry := r.factory(iv)
@@ -248,15 +355,22 @@ func (r *Run) execute() {
 	if r.cancelled {
 		r.status = RunCancelled
 	}
-	// Close any active subscribers — pipeline is done.
 	for ch := range r.subscribers {
 		close(ch)
 	}
 	r.subscribers = map[chan engine.Event]struct{}{}
 	r.mu.Unlock()
+	r.writeManifest()
 }
 
 func (r *Run) fanOutEvents(src <-chan engine.Event, done chan<- struct{}) {
+	eventsFile := r.openEventsFile()
+	defer func() {
+		if eventsFile != nil {
+			_ = eventsFile.Close()
+		}
+		close(done)
+	}()
 	for ev := range src {
 		r.mu.Lock()
 		r.history = append(r.history, ev)
@@ -269,11 +383,15 @@ func (r *Run) fanOutEvents(src <-chan engine.Event, done chan<- struct{}) {
 			select {
 			case ch <- ev:
 			default:
-				// subscriber is slow; drop the event for them.
+			}
+		}
+		if eventsFile != nil {
+			if data, err := json.Marshal(ev); err == nil {
+				eventsFile.Write(data)
+				eventsFile.Write([]byte("\n"))
 			}
 		}
 	}
-	close(done)
 }
 
 // registerQuestion is used by RemoteInterviewer to enqueue a question
@@ -288,6 +406,83 @@ func (r *Run) registerQuestion(q interviewer.Question, nodeID string) (string, c
 	r.questions[qid] = &pendingQuestion{question: q, answer: ch, nodeID: nodeID}
 	r.mu.Unlock()
 	return qid, ch
+}
+
+// writeManifest persists the run's manifest.json.
+func (r *Run) writeManifest() {
+	if !r.persisted || r.logsRoot == "" {
+		return
+	}
+	r.mu.RLock()
+	m := Manifest{
+		ID:          r.ID,
+		Status:      r.status,
+		StartedAt:   r.startedAt,
+		CompletedAt: r.completedAt,
+		LogsRoot:    r.logsRoot,
+	}
+	if r.graph != nil {
+		m.GraphName = r.graph.Name
+		m.GraphGoal = r.graph.Goal()
+	}
+	if r.outcome != nil {
+		m.Outcome = r.outcome.Status.String()
+		m.FailureReason = r.outcome.FailureReason
+	}
+	r.mu.RUnlock()
+	_ = os.MkdirAll(r.logsRoot, 0o755)
+	data, _ := json.MarshalIndent(m, "", "  ")
+	_ = os.WriteFile(filepath.Join(r.logsRoot, "manifest.json"), data, 0o644)
+}
+
+// writeSource snapshots the DOT source the run was created from. Used
+// by GET /pipelines/{id}/graph (SVG render) after server restarts.
+func (r *Run) writeSource() {
+	if r.source == "" {
+		return
+	}
+	_ = os.MkdirAll(r.logsRoot, 0o755)
+	_ = os.WriteFile(filepath.Join(r.logsRoot, "source.dot"), []byte(r.source), 0o644)
+}
+
+// openEventsFile opens events.jsonl in append mode for fan-out.
+func (r *Run) openEventsFile() *os.File {
+	if r.logsRoot == "" {
+		return nil
+	}
+	if err := os.MkdirAll(r.logsRoot, 0o755); err != nil {
+		return nil
+	}
+	f, err := os.OpenFile(filepath.Join(r.logsRoot, "events.jsonl"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// replayEvents reads and parses the persisted events.jsonl. Used by SSE
+// subscribers that connect after a run completes on disk-only history.
+func (r *Run) replayEvents() []engine.Event {
+	if r.logsRoot == "" {
+		return nil
+	}
+	f, err := os.Open(filepath.Join(r.logsRoot, "events.jsonl"))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var out []engine.Event
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var ev engine.Event
+		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
 }
 
 func questionToMap(id string, q *pendingQuestion) map[string]any {

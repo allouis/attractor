@@ -59,9 +59,9 @@ func New(cfg Config) *Server {
 		cfg.MakeHandlers = DefaultHandlers(handler.Codergen{})
 	}
 	s := &Server{
-		addr:        cfg.Addr,
-		logsRoot:    cfg.LogsRoot,
-		registry:    newRunRegistry(),
+		addr:         cfg.Addr,
+		logsRoot:     cfg.LogsRoot,
+		registry:     newRunRegistry(cfg.LogsRoot),
 		makeHandlers: cfg.MakeHandlers,
 	}
 	mux := http.NewServeMux()
