@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 
+	"github.com/fabro/attractor/internal/artifact"
 	"github.com/fabro/attractor/internal/graph"
 )
 
@@ -17,13 +18,14 @@ type Handler interface {
 // a struct keeps the interface stable as new optional inputs are added
 // (event channels, ingest URL, etc).
 type HandlerEnv struct {
-	Node     *graph.Node
-	Graph    *graph.Graph
-	Context  *Context
-	LogsRoot string
-	RunID    string
-	Emit     func(Event)
-	Registry *Registry
+	Node      *graph.Node
+	Graph     *graph.Graph
+	Context   *Context
+	LogsRoot  string
+	RunID     string
+	Emit      func(Event)
+	Registry  *Registry
+	Artifacts *artifact.Store
 }
 
 // Registry maps handler types to handler instances (spec §4.2).

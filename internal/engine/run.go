@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/fabro/attractor/internal/artifact"
 	"github.com/fabro/attractor/internal/graph"
 	"github.com/fabro/attractor/internal/lint"
 	"github.com/fabro/attractor/internal/transform"
@@ -19,12 +20,13 @@ import (
 // Engine runs Attractor pipelines. A single Engine instance executes one
 // run at a time; the events channel is closed when the run terminates.
 type Engine struct {
-	Registry *Registry
-	LogsRoot string
-	RunID    string
-	events   chan Event
-	rng      *mrand.Rand
-	now      func() time.Time
+	Registry  *Registry
+	LogsRoot  string
+	RunID     string
+	Artifacts *artifact.Store
+	events    chan Event
+	rng       *mrand.Rand
+	now       func() time.Time
 }
 
 // Config configures a new Engine.
@@ -50,12 +52,13 @@ func New(cfg Config) *Engine {
 		runID = newRunID()
 	}
 	return &Engine{
-		Registry: cfg.Registry,
-		LogsRoot: cfg.LogsRoot,
-		RunID:    runID,
-		events:   make(chan Event, buf),
-		rng:      mrand.New(mrand.NewSource(time.Now().UnixNano())),
-		now:      cfg.Now,
+		Registry:  cfg.Registry,
+		LogsRoot:  cfg.LogsRoot,
+		RunID:     runID,
+		Artifacts: artifact.New(filepath.Join(cfg.LogsRoot, "artifacts")),
+		events:    make(chan Event, buf),
+		rng:       mrand.New(mrand.NewSource(time.Now().UnixNano())),
+		now:       cfg.Now,
 	}
 }
 
@@ -265,13 +268,14 @@ func NewContextFrom(values map[string]string) *Context {
 func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *runState) (Outcome, error) {
 	policy := nodeRetryPolicy(node, g)
 	env := HandlerEnv{
-		Node:     node,
-		Graph:    g,
-		Context:  state.context,
-		LogsRoot: e.LogsRoot,
-		RunID:    e.RunID,
-		Emit:     e.emit,
-		Registry: e.Registry,
+		Node:      node,
+		Graph:     g,
+		Context:   state.context,
+		LogsRoot:  e.LogsRoot,
+		RunID:     e.RunID,
+		Emit:      e.emit,
+		Registry:  e.Registry,
+		Artifacts: e.Artifacts,
 	}
 	handler, err := e.Registry.Resolve(node)
 	if err != nil {
