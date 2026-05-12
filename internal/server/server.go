@@ -27,12 +27,13 @@ import (
 
 // Server is the HTTP-mode Attractor service.
 type Server struct {
-	addr      string
-	logsRoot  string
-	listener  net.Listener
-	httpsrv   *http.Server
-	registry  *runRegistry
+	addr         string
+	logsRoot     string
+	listener     net.Listener
+	httpsrv      *http.Server
+	registry     *runRegistry
 	makeHandlers HandlerFactory
+	authToken    string
 }
 
 // HandlerFactory builds an engine.Registry suitable for executing a
@@ -42,9 +43,14 @@ type HandlerFactory func(iv interviewer.Interviewer) *engine.Registry
 
 // Config configures a Server.
 type Config struct {
-	Addr       string         // TCP bind address; defaults to "127.0.0.1:0"
-	LogsRoot   string         // base directory for run logs
+	Addr         string         // TCP bind address; defaults to "127.0.0.1:0"
+	LogsRoot     string         // base directory for run logs
 	MakeHandlers HandlerFactory // optional; defaults to a simulation-mode registry
+	// AuthToken enables bearer-token auth. When non-empty, every
+	// request must carry `Authorization: Bearer <token>` unless the
+	// request originated from the loopback interface (so local tools
+	// don't need to know the token). Empty disables auth entirely.
+	AuthToken string
 }
 
 // New constructs an unstarted server.
@@ -63,6 +69,7 @@ func New(cfg Config) *Server {
 		logsRoot:     cfg.LogsRoot,
 		registry:     newRunRegistry(cfg.LogsRoot),
 		makeHandlers: cfg.MakeHandlers,
+		authToken:    cfg.AuthToken,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
@@ -76,7 +83,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	s.httpsrv = &http.Server{
-		Handler:           withRecoverer(mux),
+		Handler:           withRecoverer(s.withAuth(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return s
@@ -314,6 +321,41 @@ func withRecoverer(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// withAuth gates non-loopback requests behind a bearer token when one
+// is configured. Loopback callers and /healthz always pass through.
+func (s *Server) withAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.authToken == "" || r.URL.Path == "/healthz" || isLoopback(r.RemoteAddr) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		const prefix = "Bearer "
+		if len(auth) <= len(prefix) || auth[:len(prefix)] != prefix || auth[len(prefix):] != s.authToken {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="attractor"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isLoopback reports whether the RemoteAddr (host:port) is 127.0.0.1
+// or ::1. Used to bypass bearer-token checks for local tools.
+func isLoopback(remoteAddr string) bool {
+	host := remoteAddr
+	if i := strings.LastIndex(remoteAddr, ":"); i >= 0 {
+		host = remoteAddr[:i]
+	}
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
+	switch host {
+	case "127.0.0.1", "::1", "":
+		return true
+	}
+	return false
 }
 
 // newRunID returns a short hex run id used both as URL path component

@@ -4,6 +4,8 @@
 package cli
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/fabro/attractor/internal/backend"
 	"github.com/fabro/attractor/internal/backend/claudecode"
@@ -24,6 +27,9 @@ import (
 	"github.com/fabro/attractor/internal/render"
 	"github.com/fabro/attractor/internal/server"
 )
+
+func cryptoRandRead(b []byte) (int, error) { return rand.Read(b) }
+func hexEncode(b []byte) string            { return hex.EncodeToString(b) }
 
 // BackendChoice selects the codergen backend wired into the CLI's
 // default handler set.
@@ -152,25 +158,111 @@ func Render(args []string) error {
 	return os.WriteFile(*output, svg, 0o644)
 }
 
-// Serve runs the Attractor HTTP server (§9.5).
+// Serve runs the Attractor HTTP server (§9.5). Loopback is the default
+// bind; non-loopback binds require either `--auth-token` (bearer-token
+// gate) or `--insecure` (Tailscale-pattern, where network ACLs do the
+// gatekeeping).
 func Serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	addr := fs.String("addr", "127.0.0.1:7681", "TCP bind address")
-	logs := fs.String("logs", ".attractor-runs", "base directory for pipeline run artefacts")
+	bind := fs.String("bind", "127.0.0.1:7681", "TCP bind address; non-loopback requires --auth-token or --insecure")
+	logs := fs.String("logs", defaultLogsRoot(), "base directory for pipeline run artefacts")
+	authToken := fs.Bool("auth-token", false, "enable bearer-token auth (token at ~/.attractor/api-key, auto-generated on first use)")
+	insecure := fs.Bool("insecure", false, "allow non-loopback bind without auth (network layer is responsible)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if !bindIsLoopback(*bind) && !*authToken && !*insecure {
+		return fmt.Errorf("serve: bind %q is not loopback; pass --auth-token (recommended) or --insecure", *bind)
+	}
+	token := ""
+	if *authToken {
+		t, err := loadOrGenerateAPIKey()
+		if err != nil {
+			return err
+		}
+		token = t
+		fmt.Fprintf(os.Stderr, "attractor: bearer token stored at %s — clients must send `Authorization: Bearer <token>`\n", apiKeyPath())
+	}
 	srv := server.New(server.Config{
-		Addr:         *addr,
+		Addr:         *bind,
 		LogsRoot:     *logs,
 		MakeHandlers: server.DefaultHandlers(handler.Codergen{Backend: nil}),
+		AuthToken:    token,
 	})
 	if err := srv.Start(); err != nil {
 		return err
 	}
 	fmt.Println("attractor serving on", srv.URL())
 	select {}
+}
+
+// bindIsLoopback returns true for 127.0.0.1, ::1, or localhost bind
+// strings of the form host:port.
+func bindIsLoopback(bind string) bool {
+	host := bind
+	if i := strings.LastIndex(bind, ":"); i >= 0 {
+		host = bind[:i]
+	}
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
+	switch host {
+	case "127.0.0.1", "::1", "localhost", "":
+		return true
+	}
+	return false
+}
+
+// apiKeyPath returns the canonical location for the bearer token.
+func apiKeyPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".attractor", "api-key")
+}
+
+// loadOrGenerateAPIKey returns the existing bearer token (rejecting any
+// trailing whitespace) or generates a new one persisted with 0600 mode.
+func loadOrGenerateAPIKey() (string, error) {
+	path := apiKeyPath()
+	if data, err := os.ReadFile(path); err == nil {
+		token := strings.TrimSpace(string(data))
+		if token != "" {
+			return token, nil
+		}
+	}
+	token, err := randomToken(32)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func randomToken(byteLen int) (string, error) {
+	buf := make([]byte, byteLen)
+	if _, err := cryptoRandRead(buf); err != nil {
+		return "", err
+	}
+	return hexEncode(buf), nil
+}
+
+// defaultLogsRoot returns the persistent location for run artefacts:
+// $XDG_DATA_HOME/attractor/runs or ~/.attractor/runs.
+func defaultLogsRoot() string {
+	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
+		return filepath.Join(dir, "attractor", "runs")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".attractor", "runs")
+	}
+	return ".attractor-runs"
 }
 
 // ---------------------------------------------------------------------------
