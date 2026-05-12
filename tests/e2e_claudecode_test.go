@@ -21,7 +21,7 @@ func fakeClaudeTier1(t *testing.T, response string, isError bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "claude")
-	script := "#!/usr/bin/env bash\n" +
+	script := "#!" + bashPath(t) + "\n" +
 		"printf '%s' '{\"result\":\"" + esc(response) + "\",\"is_error\":" + boolStr(isError) + "}'\n"
 	must(t, os.WriteFile(path, []byte(script), 0o755))
 	return path
@@ -31,13 +31,22 @@ func fakeClaudeTier2(t *testing.T, response string, isError bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "claude")
-	script := "#!/usr/bin/env bash\n" +
+	script := "#!" + bashPath(t) + "\n" +
 		`echo '{"type":"system","subtype":"init"}'` + "\n" +
 		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking..."}]}}'` + "\n" +
 		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"` + esc(response) + `"}]}}'` + "\n" +
 		`echo '{"type":"result","subtype":"success","result":"` + esc(response) + `","is_error":` + boolStr(isError) + `}'` + "\n"
 	must(t, os.WriteFile(path, []byte(script), 0o755))
 	return path
+}
+
+func bashPath(t *testing.T) string {
+	t.Helper()
+	p, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash unavailable: %v", err)
+	}
+	return p
 }
 
 func TestClaudeCode_Tier1ParsesJSONEnvelope(t *testing.T) {
@@ -101,7 +110,7 @@ func TestClaudeCode_Tier2WithIngestForwardsHooks(t *testing.T) {
 
 	dir := t.TempDir()
 	claudeBin := filepath.Join(dir, "claude")
-	script := "#!/usr/bin/env bash\n" +
+	script := "#!" + bashPath(t) + "\n" +
 		"echo '{\"hook\":\"post_tool\",\"tool\":\"Edit\"}' | \"" + shim + "\" post_tool\n" +
 		"echo '{\"type\":\"result\",\"result\":\"ok\",\"is_error\":false}'\n"
 	must(t, os.WriteFile(claudeBin, []byte(script), 0o755))
