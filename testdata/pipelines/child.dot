@@ -1,0 +1,8 @@
+// Child pipeline used by the manager-loop integration test.
+digraph child_worker {
+    goal = "Hello from child"
+    start [shape=Mdiamond]
+    do    [shape=box, prompt="do something"]
+    done  [shape=Msquare]
+    start -> do -> done
+}

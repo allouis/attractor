@@ -172,6 +172,7 @@ func defaultRegistry() *engine.Registry {
 	r.Register("tool", handler.Tool{})
 	r.Register("parallel", handler.Parallel{})
 	r.Register("parallel.fan_in", handler.FanIn{})
+	r.Register("stack.manager_loop", handler.ManagerLoop{})
 	codergen := handler.Codergen{Backend: nil} // simulation mode
 	r.Register("codergen", codergen)
 	r.SetDefault(codergen)

@@ -43,6 +43,7 @@ func runFixtureIn(t *testing.T, src string, be backend.CodergenBackend, iv inter
 	registry.Register("tool", handler.Tool{})
 	registry.Register("parallel", handler.Parallel{})
 	registry.Register("parallel.fan_in", handler.FanIn{})
+	registry.Register("stack.manager_loop", handler.ManagerLoop{})
 	registry.SetDefault(handler.Codergen{Backend: be})
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, RunID: "test"})
 	events := make([]engine.Event, 0)

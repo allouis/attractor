@@ -122,6 +122,7 @@ func DefaultHandlers(coderBackend handler.Codergen) HandlerFactory {
 		r.Register("tool", handler.Tool{})
 		r.Register("parallel", handler.Parallel{})
 		r.Register("parallel.fan_in", handler.FanIn{})
+		r.Register("stack.manager_loop", handler.ManagerLoop{})
 		r.Register("codergen", coderBackend)
 		r.SetDefault(coderBackend)
 		return r

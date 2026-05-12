@@ -1,0 +1,115 @@
+package attractor_test
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/fabro/attractor/internal/backend/fake"
+	"github.com/fabro/attractor/internal/engine"
+)
+
+func TestManagerLoop_SupervisesChildToSuccess(t *testing.T) {
+	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		stack.child_dotfile = "%s"
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			manager.actions="observe,wait",
+			manager.poll_interval="50ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	be.SetText("do", "child reply")
+	out, _, _ := runFixture(t, src, be, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+}
+
+func TestManagerLoop_PropagatesChildFailure(t *testing.T) {
+	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		stack.child_dotfile = "%s"
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			manager.poll_interval="20ms",
+			manager.max_cycles=100
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	be.SetSequence("do", fake.Step{Outcome: &engine.Outcome{
+		Status: engine.StatusFail, FailureReason: "child broke",
+	}})
+	out, _, _ := runFixture(t, src, be, nil)
+	if out.Status != engine.StatusFail {
+		t.Fatalf("expected FAIL when child fails, got %s", out.Status)
+	}
+	if !strings.Contains(out.FailureReason, "child") {
+		t.Fatalf("failure reason should reference child: %q", out.FailureReason)
+	}
+}
+
+func TestManagerLoop_MissingChildDotfile(t *testing.T) {
+	src := `digraph supervised {
+		start [shape=Mdiamond]
+		boss [shape=house, manager.poll_interval="10ms"]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`
+	out, _, _ := runFixture(t, src, fake.New(), nil)
+	if out.Status != engine.StatusFail {
+		t.Fatalf("expected FAIL, got %s", out.Status)
+	}
+	if !strings.Contains(out.FailureReason, "stack.child_dotfile") {
+		t.Fatalf("error message should mention child_dotfile: %q", out.FailureReason)
+	}
+}
+
+func TestManagerLoop_PollerExitsCleanly(t *testing.T) {
+	// Smoke that a fast-completing child doesn't leave the poller spinning.
+	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		stack.child_dotfile = "%s"
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			manager.poll_interval="5ms",
+			manager.max_cycles=2000
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	be.SetText("do", "ok")
+
+	deadline := time.Now().Add(3 * time.Second)
+	doneCh := make(chan engine.Outcome, 1)
+	go func() {
+		out, _, _ := runFixture(t, src, be, nil)
+		doneCh <- out
+	}()
+	select {
+	case out := <-doneCh:
+		if out.Status != engine.StatusSuccess {
+			t.Fatalf("status=%s", out.Status)
+		}
+	case <-time.After(time.Until(deadline)):
+		t.Fatal("manager loop did not exit")
+	}
+}
