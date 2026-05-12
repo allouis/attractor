@@ -47,11 +47,15 @@ type Codergen struct {
 
 // Execute resolves the prompt, dispatches to the backend, writes the
 // prompt/response artifacts under the run directory, and returns the
-// outcome.
+// outcome. Under non-`full` fidelity, env.Preamble is prepended so the
+// stage prompt carries enough run state to ground a fresh LLM session.
 func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	prompt := env.Node.Prompt()
 	if prompt == "" {
 		prompt = env.Node.Label()
+	}
+	if env.Preamble != "" {
+		prompt = env.Preamble + "\n\n---\n\n" + prompt
 	}
 
 	stageDir := filepath.Join(env.LogsRoot, env.Node.ID)

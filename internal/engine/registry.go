@@ -26,6 +26,18 @@ type HandlerEnv struct {
 	Emit      func(Event)
 	Registry  *Registry
 	Artifacts *artifact.Store
+
+	// Fidelity is the resolved context-fidelity mode (spec §5.4) for
+	// the incoming traversal. Codergen handlers prepend Preamble to the
+	// node's prompt when fidelity is not `full`.
+	Fidelity FidelityMode
+	// ThreadID identifies the LLM session to reuse under `full`
+	// fidelity. Codergen backends with session reuse use this as the
+	// thread key.
+	ThreadID string
+	// Preamble is the synthesised context carry-over text. Empty under
+	// `full` fidelity.
+	Preamble string
 }
 
 // Registry maps handler types to handler instances (spec §4.2).

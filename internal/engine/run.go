@@ -128,11 +128,12 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 		// Skip if already completed in a previous incarnation of this run.
 		if _, completed := state.nodeOutcomes[nodeID]; completed && state.shouldSkipCompleted {
 			outcome := state.nodeOutcomes[nodeID]
-			next := e.advanceOrFail(g, node, &outcome, state)
+			next, advanceEdge := e.advanceOrFail(g, node, &outcome, state)
 			if next == "" {
-				// terminal completion path already returned above
 				return outcome, nil
 			}
+			state.previousNode = nodeID
+			state.incomingEdge = advanceEdge
 			state.cursor = next
 			continue
 		}
@@ -160,7 +161,7 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			e.emit(Event{Kind: EventCheckpointSaved, Timestamp: e.now(), RunID: e.RunID, NodeID: nodeID})
 		}
 
-		next := e.advanceOrFail(g, node, &outcome, state)
+		next, advanceEdge := e.advanceOrFail(g, node, &outcome, state)
 		if next == "" {
 			if outcome.Status == StatusFail {
 				e.emit(Event{Kind: EventPipelineFailed, Timestamp: e.now(), RunID: e.RunID, Message: outcome.FailureReason})
@@ -171,12 +172,12 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			e.emit(Event{Kind: EventPipelineCompleted, Timestamp: e.now(), RunID: e.RunID, Status: done.StatusString})
 			return done, nil
 		}
-		// loop_restart handling
-		edge := findEdge(g, node.ID, next)
-		if edge != nil && edge.Bool("loop_restart") {
+		if advanceEdge != nil && advanceEdge.Bool("loop_restart") {
 			state = e.resetState(g, next)
 			continue
 		}
+		state.previousNode = nodeID
+		state.incomingEdge = advanceEdge
 		state.cursor = next
 	}
 }
@@ -189,6 +190,11 @@ type runState struct {
 	context             *Context
 	retries             map[string]int
 	shouldSkipCompleted bool
+	// incomingEdge tracks the edge by which the engine arrived at the
+	// current cursor; used to resolve per-edge fidelity / thread_id
+	// overrides for the next handler invocation.
+	incomingEdge *graph.Edge
+	previousNode string
 }
 
 func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
@@ -267,6 +273,20 @@ func NewContextFrom(values map[string]string) *Context {
 // executeNodeWithRetry runs the handler with the node's retry policy.
 func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *runState) (Outcome, error) {
 	policy := nodeRetryPolicy(node, g)
+	fidelity := ResolveFidelity(state.incomingEdge, node, g)
+	threadID := ""
+	if fidelity == FidelityFull {
+		threadID = ResolveThread(state.incomingEdge, node, g, state.previousNode)
+	}
+	ctxValues, _ := state.context.Snapshot()
+	preamble := BuildPreamble(PreambleInput{
+		Mode:           fidelity,
+		Goal:           g.Goal(),
+		RunID:          e.RunID,
+		CompletedNodes: state.completedNodes,
+		NodeOutcomes:   state.nodeOutcomes,
+		Context:        ctxValues,
+	})
 	env := HandlerEnv{
 		Node:      node,
 		Graph:     g,
@@ -276,6 +296,9 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		Emit:      e.emit,
 		Registry:  e.Registry,
 		Artifacts: e.Artifacts,
+		Fidelity:  fidelity,
+		ThreadID:  threadID,
+		Preamble:  preamble,
 	}
 	handler, err := e.Registry.Resolve(node)
 	if err != nil {
@@ -334,24 +357,23 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 	return outcome, nil
 }
 
-// advanceOrFail returns the next node ID. Empty string signals "no
-// further progress possible" — the caller decides between SUCCESS exit
-// and FAIL exit based on the last outcome.
-func (e *Engine) advanceOrFail(g *graph.Graph, node *graph.Node, outcome *Outcome, state *runState) string {
-	// Composite handlers may redirect the engine to a specific node
-	// without owning an outgoing edge (e.g. parallel → fan-in jump).
+// advanceOrFail returns the next node ID and the edge used to reach
+// it (nil if the advance was via NextNode jump or retry_target). Empty
+// string signals "no further progress possible" — the caller decides
+// between SUCCESS exit and FAIL exit based on the last outcome.
+func (e *Engine) advanceOrFail(g *graph.Graph, node *graph.Node, outcome *Outcome, state *runState) (string, *graph.Edge) {
 	if outcome.NextNode != "" {
 		if _, ok := g.Nodes[outcome.NextNode]; ok {
-			return outcome.NextNode
+			return outcome.NextNode, nil
 		}
 	}
 	if edge := SelectEdge(node, outcome, state.context, g); edge != nil {
-		return edge.To
+		return edge.To, edge
 	}
 	if outcome.Status == StatusFail {
-		return firstResolvedTarget(g, node, "retry_target", "fallback_retry_target")
+		return firstResolvedTarget(g, node, "retry_target", "fallback_retry_target"), nil
 	}
-	return ""
+	return "", nil
 }
 
 // checkGoalGates returns (jumpTarget, failingNodeID, satisfied). When
