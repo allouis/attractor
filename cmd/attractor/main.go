@@ -1,8 +1,11 @@
+// Command attractor is the Attractor pipeline CLI.
 package main
 
 import (
 	"fmt"
 	"os"
+
+	"github.com/fabro/attractor/internal/cli"
 )
 
 const Version = "0.1.0"
@@ -17,11 +20,27 @@ func main() {
 		fmt.Println(Version)
 	case "help", "--help", "-h":
 		printUsage()
+	case "validate":
+		exit(cli.Validate(os.Args[2:]))
+	case "run":
+		exit(cli.Run(os.Args[2:]))
+	case "render":
+		exit(cli.Render(os.Args[2:]))
+	case "serve":
+		exit(cli.Serve(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "attractor: unknown command %q\n\n", os.Args[1])
 		printUsage()
 		os.Exit(2)
 	}
+}
+
+func exit(err error) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "attractor:", err)
+	os.Exit(1)
 }
 
 func printUsage() {

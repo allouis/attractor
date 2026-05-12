@@ -1,0 +1,8 @@
+{
+  "outcome": "success",
+  "context_updates": {
+    "last_response": "[simulated] review",
+    "last_stage": "review"
+  },
+  "notes": "Stage completed (simulated): review"
+}

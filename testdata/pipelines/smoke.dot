@@ -1,0 +1,19 @@
+// Smoke pipeline used by the CLI and DoD §11.13 integration tests.
+// Linear: plan -> implement -> review -> done with goal-gate on implement.
+
+digraph smoke_pipeline {
+    goal = "Create a hello world Python script"
+
+    start     [shape=Mdiamond]
+    plan      [shape=box, prompt="Plan how to create a hello world script for: $goal"]
+    implement [shape=box, prompt="Write the code based on the plan", goal_gate=true]
+    review    [shape=box, prompt="Review the code for correctness"]
+    done      [shape=Msquare]
+
+    start -> plan
+    plan -> implement
+    implement -> review [condition="outcome=success"]
+    implement -> plan   [condition="outcome=fail", label="Retry"]
+    review -> done      [condition="outcome=success"]
+    review -> implement [condition="outcome=fail", label="Fix"]
+}

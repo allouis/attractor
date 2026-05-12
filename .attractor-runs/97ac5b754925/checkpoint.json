@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-05-12T21:31:31.412185863Z",
+  "current_node": "review",
+  "completed_nodes": [
+    "start",
+    "plan",
+    "implement",
+    "review"
+  ],
+  "node_retries": {
+    "implement": 0,
+    "plan": 0,
+    "review": 0,
+    "start": 0
+  },
+  "context": {
+    "current_node": "review",
+    "graph.goal": "Create a hello world Python script",
+    "last_response": "[simulated] review",
+    "last_stage": "review",
+    "outcome": "success",
+    "preferred_label": ""
+  },
+  "logs": [],
+  "last_outcome": {
+    "outcome": "success",
+    "context_updates": {
+      "last_response": "[simulated] review",
+      "last_stage": "review"
+    },
+    "notes": "Stage completed (simulated): review"
+  },
+  "node_outcomes": {
+    "implement": {
+      "outcome": "success",
+      "context_updates": {
+        "last_response": "[simulated] implement",
+        "last_stage": "implement"
+      },
+      "notes": "Stage completed (simulated): implement"
+    },
+    "plan": {
+      "outcome": "success",
+      "context_updates": {
+        "last_response": "[simulated] plan",
+        "last_stage": "plan"
+      },
+      "notes": "Stage completed (simulated): plan"
+    },
+    "review": {
+      "outcome": "success",
+      "context_updates": {
+        "last_response": "[simulated] review",
+        "last_stage": "review"
+      },
+      "notes": "Stage completed (simulated): review"
+    },
+    "start": {
+      "outcome": "success",
+      "notes": "start"
+    }
+  }
+}
