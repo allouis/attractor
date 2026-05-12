@@ -16,6 +16,8 @@ import (
 	"github.com/fabro/attractor/internal/handler"
 	"github.com/fabro/attractor/internal/interviewer"
 	"github.com/fabro/attractor/internal/lint"
+	"github.com/fabro/attractor/internal/render"
+	"github.com/fabro/attractor/internal/server"
 )
 
 // Validate parses and lints the supplied .dot file. Exit-code semantics:
@@ -95,16 +97,56 @@ func Run(args []string) error {
 	return nil
 }
 
-// Render is the SVG renderer. Stubbed here; implementation lives in
-// internal/render/svg.go and is wired in a later commit.
+// Render shells the input .dot file through graphviz to produce SVG.
+// The output destination defaults to stdout; -o writes to a file.
 func Render(args []string) error {
-	return fmt.Errorf("render: not implemented yet (wired in a follow-up commit)")
+	fs := flag.NewFlagSet("render", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	output := fs.String("o", "", "output path (default: stdout)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return fmt.Errorf("render: expected a .dot path argument")
+	}
+	src, err := os.ReadFile(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	svg, err := render.SVG(src)
+	if err != nil {
+		return err
+	}
+	if *output == "" {
+		_, err := os.Stdout.Write(svg)
+		return err
+	}
+	return os.WriteFile(*output, svg, 0o644)
 }
 
-// Serve is the HTTP server CLI hook. Stubbed; implementation lives in
-// internal/server and is wired in a later commit.
+// Serve runs the Attractor HTTP server (§9.5). Pipelines submitted to
+// POST /pipelines are executed against the same default handler set as
+// `attractor run`; the codergen handler runs in simulation mode unless
+// a backend is wired in.
 func Serve(args []string) error {
-	return fmt.Errorf("serve: not implemented yet (wired in a follow-up commit)")
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	addr := fs.String("addr", "127.0.0.1:7681", "TCP bind address")
+	logs := fs.String("logs", ".attractor-runs", "base directory for pipeline run artefacts")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	srv := server.New(server.Config{
+		Addr:         *addr,
+		LogsRoot:     *logs,
+		MakeHandlers: server.DefaultHandlers(handler.Codergen{Backend: nil}),
+	})
+	if err := srv.Start(); err != nil {
+		return err
+	}
+	fmt.Println("attractor serving on", srv.URL())
+	// Block until interrupted; in tests we close via Server.Close().
+	select {}
 }
 
 // ---------------------------------------------------------------------------
