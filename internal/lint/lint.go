@@ -11,6 +11,14 @@ import (
 	"github.com/fabro/attractor/internal/graph"
 )
 
+// validFidelityModes mirrors engine.FidelityMode constants. Duplicated
+// here because lint runs before engine wiring and the engine package
+// already imports lint (no cycles).
+var validFidelityModes = map[string]struct{}{
+	"full": {}, "truncate": {}, "compact": {},
+	"summary:low": {}, "summary:medium": {}, "summary:high": {},
+}
+
 // Severity classifies a diagnostic for the engine's
 // validate-or-raise decision.
 type Severity int
@@ -92,6 +100,9 @@ func BuiltIn() []Rule {
 		PromptOnLLMNodesRule{},
 		TypeKnownRule{},
 		CodergenTypeKnownRule{},
+		RetryTargetExistsRule{},
+		GoalGateHasRetryRule{},
+		FidelityValidRule{},
 	}
 }
 
@@ -392,6 +403,123 @@ func (CodergenTypeKnownRule) Apply(g *graph.Graph) []Diagnostic {
 				NodeID:   id,
 				Message:  fmt.Sprintf("unknown codergen backend %q", t),
 			})
+		}
+	}
+	return out
+}
+
+// ---- retry_target_exists --------------------------------------------------
+
+// RetryTargetExistsRule warns when a node references a retry_target or
+// fallback_retry_target that doesn't resolve to a real node ID. Same
+// check is applied at graph level.
+type RetryTargetExistsRule struct{}
+
+func (RetryTargetExistsRule) Name() string { return "retry_target_exists" }
+
+func (RetryTargetExistsRule) Apply(g *graph.Graph) []Diagnostic {
+	var out []Diagnostic
+	check := func(scope, key, target string) {
+		if target == "" {
+			return
+		}
+		if _, ok := g.Nodes[target]; !ok {
+			out = append(out, Diagnostic{
+				Rule:     "retry_target_exists",
+				Severity: Warning,
+				NodeID:   scope,
+				Message:  fmt.Sprintf("%s=%q references nonexistent node", key, target),
+			})
+		}
+	}
+	for _, k := range []string{"retry_target", "fallback_retry_target"} {
+		check("graph", k, g.Attrs[k])
+	}
+	for _, id := range g.NodeOrder {
+		n := g.Nodes[id]
+		for _, k := range []string{"retry_target", "fallback_retry_target"} {
+			check(id, k, n.Attrs[k])
+		}
+	}
+	return out
+}
+
+// ---- goal_gate_has_retry --------------------------------------------------
+
+// GoalGateHasRetryRule warns when a goal-gate node is missing both a
+// node-level and graph-level retry target. Without one the engine has
+// nowhere to jump if the gate fails.
+type GoalGateHasRetryRule struct{}
+
+func (GoalGateHasRetryRule) Name() string { return "goal_gate_has_retry" }
+
+func (GoalGateHasRetryRule) Apply(g *graph.Graph) []Diagnostic {
+	var out []Diagnostic
+	for _, id := range g.NodeOrder {
+		n := g.Nodes[id]
+		if !n.Bool("goal_gate") {
+			continue
+		}
+		if n.Attrs["retry_target"] != "" || n.Attrs["fallback_retry_target"] != "" {
+			continue
+		}
+		if g.Attrs["retry_target"] != "" || g.Attrs["fallback_retry_target"] != "" {
+			continue
+		}
+		out = append(out, Diagnostic{
+			Rule:     "goal_gate_has_retry",
+			Severity: Warning,
+			NodeID:   id,
+			Message:  fmt.Sprintf("goal_gate node %q has no retry_target / fallback_retry_target", id),
+		})
+	}
+	return out
+}
+
+// ---- fidelity_valid ------------------------------------------------------
+
+// FidelityValidRule warns when a fidelity attribute (graph, node, or
+// edge) uses a value outside the recognised set.
+type FidelityValidRule struct{}
+
+func (FidelityValidRule) Name() string { return "fidelity_valid" }
+
+func (FidelityValidRule) Apply(g *graph.Graph) []Diagnostic {
+	var out []Diagnostic
+	add := func(rule Diagnostic) { out = append(out, rule) }
+	if v := g.Attrs["default_fidelity"]; v != "" {
+		if _, ok := validFidelityModes[v]; !ok {
+			add(Diagnostic{
+				Rule:     "fidelity_valid",
+				Severity: Warning,
+				Message:  fmt.Sprintf("graph default_fidelity=%q is not a recognised mode", v),
+			})
+		}
+	}
+	for _, id := range g.NodeOrder {
+		n := g.Nodes[id]
+		if v := n.Attrs["fidelity"]; v != "" {
+			if _, ok := validFidelityModes[v]; !ok {
+				add(Diagnostic{
+					Rule:     "fidelity_valid",
+					Severity: Warning,
+					NodeID:   id,
+					Message:  fmt.Sprintf("node %q fidelity=%q unrecognised", id, v),
+				})
+			}
+		}
+	}
+	for _, e := range g.Edges {
+		if v := e.Attrs["fidelity"]; v != "" {
+			if _, ok := validFidelityModes[v]; !ok {
+				add(Diagnostic{
+					Rule:     "fidelity_valid",
+					Severity: Warning,
+					EdgeFrom: e.From,
+					EdgeTo:   e.To,
+					Message:  fmt.Sprintf("edge %s->%s fidelity=%q unrecognised", e.From, e.To, v),
+				})
+			}
 		}
 	}
 	return out
