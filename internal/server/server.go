@@ -119,6 +119,7 @@ func DefaultHandlers(coderBackend handler.Codergen) HandlerFactory {
 		r.Register("exit", handler.Exit{})
 		r.Register("conditional", handler.Conditional{})
 		r.Register("wait.human", handler.WaitHuman{Interviewer: iv})
+		r.Register("tool", handler.Tool{})
 		r.Register("codergen", coderBackend)
 		r.SetDefault(coderBackend)
 		return r

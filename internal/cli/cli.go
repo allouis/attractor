@@ -169,6 +169,7 @@ func defaultRegistry() *engine.Registry {
 	r.Register("exit", handler.Exit{})
 	r.Register("conditional", handler.Conditional{})
 	r.Register("wait.human", handler.WaitHuman{Interviewer: interviewer.AutoApprove{}})
+	r.Register("tool", handler.Tool{})
 	codergen := handler.Codergen{Backend: nil} // simulation mode
 	r.Register("codergen", codergen)
 	r.SetDefault(codergen)
