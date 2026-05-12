@@ -9,6 +9,7 @@ import (
 	mrand "math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fabro/attractor/internal/artifact"
@@ -20,13 +21,15 @@ import (
 // Engine runs Attractor pipelines. A single Engine instance executes one
 // run at a time; the events channel is closed when the run terminates.
 type Engine struct {
-	Registry  *Registry
-	LogsRoot  string
-	RunID     string
-	Artifacts *artifact.Store
-	events    chan Event
-	rng       *mrand.Rand
-	now       func() time.Time
+	Registry        *Registry
+	LogsRoot        string
+	RunID           string
+	Artifacts       *artifact.Store
+	MaxLoopRestarts int
+	events          chan Event
+	rng             *mrand.Rand
+	now             func() time.Time
+	restartCount    int
 }
 
 // Config configures a new Engine.
@@ -52,13 +55,14 @@ func New(cfg Config) *Engine {
 		runID = newRunID()
 	}
 	return &Engine{
-		Registry:  cfg.Registry,
-		LogsRoot:  cfg.LogsRoot,
-		RunID:     runID,
-		Artifacts: artifact.New(filepath.Join(cfg.LogsRoot, "artifacts")),
-		events:    make(chan Event, buf),
-		rng:       mrand.New(mrand.NewSource(time.Now().UnixNano())),
-		now:       cfg.Now,
+		Registry:        cfg.Registry,
+		LogsRoot:        cfg.LogsRoot,
+		RunID:           runID,
+		Artifacts:       artifact.New(filepath.Join(cfg.LogsRoot, "artifacts")),
+		MaxLoopRestarts: 100,
+		events:          make(chan Event, buf),
+		rng:             mrand.New(mrand.NewSource(time.Now().UnixNano())),
+		now:             cfg.Now,
 	}
 }
 
@@ -173,6 +177,13 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			return done, nil
 		}
 		if advanceEdge != nil && advanceEdge.Bool("loop_restart") {
+			if e.restartCount >= e.MaxLoopRestarts {
+				return e.fail(fmt.Sprintf("loop_restart cap reached (%d restarts)", e.restartCount))
+			}
+			e.emit(Event{
+				Kind:    EventStageProgress,
+				Message: fmt.Sprintf("loop_restart: restarting at %s", next),
+			})
 			state = e.resetState(g, next)
 			continue
 		}
@@ -229,6 +240,7 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 }
 
 func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
+	e.archiveCurrentLogs()
 	ctx := NewContext()
 	ctx.MirrorGraph(g)
 	return &runState{
@@ -236,6 +248,32 @@ func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
 		nodeOutcomes: map[string]Outcome{},
 		context:      ctx,
 		retries:      map[string]int{},
+	}
+}
+
+// archiveCurrentLogs moves the current run's logs subtree aside before
+// resetting so prior artefacts remain inspectable. Files that fail to
+// move are ignored; the goal is best-effort preservation, not strict
+// atomicity.
+func (e *Engine) archiveCurrentLogs() {
+	if e.LogsRoot == "" {
+		return
+	}
+	e.restartCount++
+	archive := filepath.Join(e.LogsRoot, fmt.Sprintf("_restart_%d", e.restartCount))
+	if err := os.MkdirAll(archive, 0o755); err != nil {
+		return
+	}
+	entries, err := os.ReadDir(e.LogsRoot)
+	if err != nil {
+		return
+	}
+	for _, ent := range entries {
+		name := ent.Name()
+		if strings.HasPrefix(name, "_restart_") || name == "artifacts" {
+			continue
+		}
+		_ = os.Rename(filepath.Join(e.LogsRoot, name), filepath.Join(archive, name))
 	}
 }
 
