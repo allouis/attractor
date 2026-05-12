@@ -9,15 +9,30 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 
+	"github.com/fabro/attractor/internal/backend"
+	"github.com/fabro/attractor/internal/backend/claudecode"
 	"github.com/fabro/attractor/internal/dot"
 	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/graph"
 	"github.com/fabro/attractor/internal/handler"
+	"github.com/fabro/attractor/internal/ingest"
 	"github.com/fabro/attractor/internal/interviewer"
 	"github.com/fabro/attractor/internal/lint"
 	"github.com/fabro/attractor/internal/render"
 	"github.com/fabro/attractor/internal/server"
+)
+
+// BackendChoice selects the codergen backend wired into the CLI's
+// default handler set.
+type BackendChoice string
+
+const (
+	BackendAuto       BackendChoice = "auto"
+	BackendClaude     BackendChoice = "claude"
+	BackendSimulation BackendChoice = "simulation"
 )
 
 // Validate parses and lints the supplied .dot file. Exit-code semantics:
@@ -42,14 +57,16 @@ func Validate(args []string) error {
 	return err
 }
 
-// Run executes a pipeline end-to-end. Without a configured backend, the
-// codergen handler runs in simulation mode (deterministic synthetic
-// responses). Future iterations wire ClaudeCodeBackend via flags.
+// Run executes a pipeline end-to-end. The --backend flag selects the
+// codergen backend; auto picks claude if `claude` is on PATH and auth
+// is detected, else falls back to simulation mode with a stderr note.
 func Run(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	logs := fs.String("logs", "", "directory for run artefacts (default: ./.attractor-runs/<run-id>)")
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
+	backendFlag := fs.String("backend", "auto", "codergen backend: auto | claude | simulation")
+	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -64,7 +81,6 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	registry := defaultRegistry()
 	logsRoot := *logs
 	if logsRoot == "" {
 		logsRoot = ".attractor-runs/" + engine.NewRunID()
@@ -72,6 +88,18 @@ func Run(args []string) error {
 	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
 		return err
 	}
+
+	// Resolve backend + auxiliary ingest server.
+	choice := resolveBackend(BackendChoice(*backendFlag))
+	ingestSrv, codergenBackend, err := startCodergen(choice, g, logsRoot, *hookshim)
+	if err != nil {
+		return err
+	}
+	if ingestSrv != nil {
+		defer ingestSrv.Close()
+	}
+
+	registry := buildRegistry(handler.Codergen{Backend: codergenBackend})
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot})
 	done := make(chan struct{})
 	go func() {
@@ -124,10 +152,7 @@ func Render(args []string) error {
 	return os.WriteFile(*output, svg, 0o644)
 }
 
-// Serve runs the Attractor HTTP server (§9.5). Pipelines submitted to
-// POST /pipelines are executed against the same default handler set as
-// `attractor run`; the codergen handler runs in simulation mode unless
-// a backend is wired in.
+// Serve runs the Attractor HTTP server (§9.5).
 func Serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -145,11 +170,72 @@ func Serve(args []string) error {
 		return err
 	}
 	fmt.Println("attractor serving on", srv.URL())
-	// Block until interrupted; in tests we close via Server.Close().
 	select {}
 }
 
 // ---------------------------------------------------------------------------
+
+// resolveBackend turns `auto` into a concrete choice based on what's
+// detectable on the host.
+func resolveBackend(choice BackendChoice) BackendChoice {
+	if choice != BackendAuto {
+		return choice
+	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		fmt.Fprintln(os.Stderr, "attractor: claude binary not on PATH — falling back to simulation mode")
+		return BackendSimulation
+	}
+	if !claudecode.AvailableAuth() {
+		fmt.Fprintln(os.Stderr, "attractor: no Claude auth detected — falling back to simulation mode")
+		return BackendSimulation
+	}
+	return BackendClaude
+}
+
+// startCodergen constructs the codergen backend matching `choice`. For
+// the Claude path it also starts an ingest server scoped to the run so
+// hook events flow back into the engine and tool_hooks.pre/post fire.
+// The returned ingest.Server may be nil (simulation mode).
+func startCodergen(choice BackendChoice, g *graph.Graph, logsRoot, hookshimOverride string) (*ingest.Server, backend.CodergenBackend, error) {
+	if choice == BackendSimulation {
+		return nil, nil, nil
+	}
+	shim := hookshimOverride
+	if shim == "" {
+		shim = findHookshim()
+	}
+	srv, err := ingest.StartWith(ingest.Config{
+		LogsRoot:    logsRoot,
+		PreToolCmd:  g.Attrs["tool_hooks.pre"],
+		PostToolCmd: g.Attrs["tool_hooks.post"],
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("ingest: %w", err)
+	}
+	be := &claudecode.Backend{
+		HookShimBin: shim,
+		IngestURL:   srv.URL(),
+		FallbackDir: filepath.Join(logsRoot, "_ingest_fallback"),
+	}
+	return srv, be, nil
+}
+
+// findHookshim looks for the hookshim binary sibling-of-attractor first
+// (the nix build places both in /bin), then on PATH. Returns the empty
+// string when not found; the Claude backend tolerates this with reduced
+// (no-hook) functionality.
+func findHookshim() string {
+	if exe, err := os.Executable(); err == nil {
+		sibling := filepath.Join(filepath.Dir(exe), "hookshim")
+		if _, err := os.Stat(sibling); err == nil {
+			return sibling
+		}
+	}
+	if p, err := exec.LookPath("hookshim"); err == nil {
+		return p
+	}
+	return ""
+}
 
 func loadGraph(path string) (*graph.Graph, error) {
 	src, err := os.ReadFile(path)
@@ -163,7 +249,10 @@ func loadGraph(path string) (*graph.Graph, error) {
 	return graph.Build(file)
 }
 
-func defaultRegistry() *engine.Registry {
+// buildRegistry wires every built-in handler, parameterised by the
+// codergen handler so callers can supply an alternate backend (e.g.
+// real Claude vs simulation).
+func buildRegistry(codergen handler.Codergen) *engine.Registry {
 	r := engine.NewRegistry()
 	r.Register("start", handler.Start{})
 	r.Register("exit", handler.Exit{})
@@ -173,8 +262,8 @@ func defaultRegistry() *engine.Registry {
 	r.Register("parallel", handler.Parallel{})
 	r.Register("parallel.fan_in", handler.FanIn{})
 	r.Register("stack.manager_loop", handler.ManagerLoop{})
-	codergen := handler.Codergen{Backend: nil} // simulation mode
 	r.Register("codergen", codergen)
+	r.Register("codergen.claude", codergen)
 	r.SetDefault(codergen)
 	return r
 }
@@ -188,4 +277,3 @@ func printDiagnostics(w io.Writer, diags []lint.Diagnostic) {
 		fmt.Fprintf(w, "%-7s %-30s %-30s %s\n", d.Severity, d.Rule, ref, d.Message)
 	}
 }
-

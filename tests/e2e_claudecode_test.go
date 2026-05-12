@@ -17,17 +17,7 @@ import (
 	"github.com/fabro/attractor/internal/ingest"
 )
 
-func fakeClaudeTier1(t *testing.T, response string, isError bool) string {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "claude")
-	script := "#!" + bashPath(t) + "\n" +
-		"printf '%s' '{\"result\":\"" + esc(response) + "\",\"is_error\":" + boolStr(isError) + "}'\n"
-	must(t, os.WriteFile(path, []byte(script), 0o755))
-	return path
-}
-
-func fakeClaudeTier2(t *testing.T, response string, isError bool) string {
+func fakeClaude(t *testing.T, response string, isError bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "claude")
@@ -49,42 +39,12 @@ func bashPath(t *testing.T) string {
 	return p
 }
 
-func TestClaudeCode_Tier1ParsesJSONEnvelope(t *testing.T) {
+func TestClaudeCode_ParsesStreamJSON(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash unavailable")
 	}
-	claudeBin := fakeClaudeTier1(t, "hello from claude", false)
-	be := &claudecode.Backend{ClaudeBin: claudeBin, Tier: claudecode.Tier1}
-	logsRoot := t.TempDir()
-	out := runOneNode(t, be, "Plan the change", logsRoot)
-	if out.Status != engine.StatusSuccess {
-		t.Fatalf("status=%s reason=%q", out.Status, out.FailureReason)
-	}
-	resp, err := os.ReadFile(filepath.Join(logsRoot, "node1", "response.md"))
-	must(t, err)
-	if !strings.Contains(string(resp), "hello from claude") {
-		t.Fatalf("response.md missing reply: %q", resp)
-	}
-}
-
-func TestClaudeCode_Tier1ReportsIsError(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash unavailable")
-	}
-	claudeBin := fakeClaudeTier1(t, "oh no", true)
-	be := &claudecode.Backend{ClaudeBin: claudeBin, Tier: claudecode.Tier1}
-	out := runOneNode(t, be, "x", t.TempDir())
-	if out.Status != engine.StatusFail {
-		t.Fatalf("expected FAIL on is_error=true, got %s", out.Status)
-	}
-}
-
-func TestClaudeCode_Tier2ParsesStreamJSON(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash unavailable")
-	}
-	claudeBin := fakeClaudeTier2(t, "tier-2 reply", false)
-	be := &claudecode.Backend{ClaudeBin: claudeBin, Tier: claudecode.Tier2}
+	claudeBin := fakeClaude(t, "stream reply", false)
+	be := &claudecode.Backend{ClaudeBin: claudeBin}
 	logsRoot := t.TempDir()
 	out := runOneNode(t, be, "x", logsRoot)
 	if out.Status != engine.StatusSuccess {
@@ -92,8 +52,20 @@ func TestClaudeCode_Tier2ParsesStreamJSON(t *testing.T) {
 	}
 	resp, err := os.ReadFile(filepath.Join(logsRoot, "node1", "response.md"))
 	must(t, err)
-	if !strings.Contains(string(resp), "tier-2 reply") {
+	if !strings.Contains(string(resp), "stream reply") {
 		t.Fatalf("response.md missing reply: %q", resp)
+	}
+}
+
+func TestClaudeCode_ReportsIsError(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash unavailable")
+	}
+	claudeBin := fakeClaude(t, "oh no", true)
+	be := &claudecode.Backend{ClaudeBin: claudeBin}
+	out := runOneNode(t, be, "x", t.TempDir())
+	if out.Status != engine.StatusFail {
+		t.Fatalf("expected FAIL on is_error=true, got %s", out.Status)
 	}
 }
 
@@ -118,7 +90,6 @@ func TestClaudeCode_Tier2WithIngestForwardsHooks(t *testing.T) {
 	be := &claudecode.Backend{
 		ClaudeBin:   claudeBin,
 		HookShimBin: shim,
-		Tier:        claudecode.Tier2,
 		IngestURL:   srv.URL(),
 	}
 	out := runOneNode(t, be, "x", logsRoot)
@@ -145,7 +116,7 @@ func TestClaudeCode_GatedRealCLI(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real-claude test skipped in -short mode")
 	}
-	be := &claudecode.Backend{Tier: claudecode.Tier1}
+	be := &claudecode.Backend{}
 	out := runOneNode(t, be, "Reply with the single word 'pong'.", t.TempDir())
 	if out.Status != engine.StatusSuccess {
 		t.Skipf("real claude returned %s reason=%q (probably expected under quota/network limits)", out.Status, out.FailureReason)

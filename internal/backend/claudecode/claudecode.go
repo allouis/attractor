@@ -1,15 +1,8 @@
 // Package claudecode implements the Claude Code CodergenBackend for
 // Attractor pipelines (codergen-backends-spec §4). The backend wraps the
-// `claude` CLI and supports two integration tiers:
-//
-//   - Tier 1: one-shot subprocess (`claude -p ... --output-format json`).
-//     Returns the final JSON envelope; no event visibility beyond the
-//     pipeline-level Outcome.
-//   - Tier 2: structured stream + hook ingest
-//     (`claude -p ... --output-format stream-json --verbose --settings <file>`).
-//     The backend parses the line-delimited JSON stream into Attractor
-//     events; the configured hookshim posts hook payloads to the engine's
-//     ingest server.
+// `claude` CLI in its structured stream-JSON mode, parses events as
+// they arrive, and forwards lifecycle hooks to the engine's ingest
+// server for visibility and tool_hooks dispatch.
 //
 // The package never speaks to the Anthropic API directly — provider
 // abstraction is delegated to the `claude` binary itself, matching the
@@ -32,14 +25,6 @@ import (
 	"github.com/fabro/attractor/internal/engine"
 )
 
-// Tier selects between tier 1 and tier 2 invocation modes.
-type Tier int
-
-const (
-	Tier1 Tier = 1
-	Tier2 Tier = 2
-)
-
 // Backend is the Claude Code CodergenBackend implementation.
 type Backend struct {
 	// ClaudeBin is the path to the `claude` executable. Empty defaults to
@@ -47,10 +32,8 @@ type Backend struct {
 	ClaudeBin string
 	// HookShimBin is the absolute path to the hookshim binary, used to
 	// build the per-stage settings file. Empty disables hook integration
-	// (tier 2 still works but emits no hook events).
+	// (the backend still works but emits no hook events).
 	HookShimBin string
-	// Tier selects the invocation mode. Defaults to Tier2.
-	Tier Tier
 	// Timeout caps a single Run invocation. Zero means no per-call timeout
 	// beyond the node's own timeout attribute.
 	Timeout time.Duration
@@ -62,42 +45,9 @@ type Backend struct {
 	FallbackDir string
 }
 
-// Run satisfies backend.CodergenBackend.
+// Run satisfies backend.CodergenBackend by invoking claude with
+// stream-json output and a generated hook settings file.
 func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, error) {
-	tier := b.Tier
-	if tier == 0 {
-		tier = Tier2
-	}
-	switch tier {
-	case Tier1:
-		return b.runTier1(env, prompt)
-	case Tier2:
-		return b.runTier2(env, prompt)
-	}
-	return backend.Result{}, fmt.Errorf("claudecode: unknown tier %d", tier)
-}
-
-// runTier1 invokes claude with `--output-format json` and parses the
-// final envelope.
-func (b *Backend) runTier1(env engine.HandlerEnv, prompt string) (backend.Result, error) {
-	cmd, cancel, err := b.prepareCmd(env, prompt, []string{"-p", prompt, "--output-format", "json"})
-	if err != nil {
-		return backend.Result{}, err
-	}
-	defer cancel()
-	out, err := cmd.Output()
-	if err != nil {
-		return backend.Result{}, claudeErr(err, out)
-	}
-	envelope, perr := parseJSONEnvelope(out)
-	if perr != nil {
-		return backend.Result{}, fmt.Errorf("claudecode tier1: %w", perr)
-	}
-	return resultFromEnvelope(envelope), nil
-}
-
-// runTier2 invokes claude with stream-json + hook settings file.
-func (b *Backend) runTier2(env engine.HandlerEnv, prompt string) (backend.Result, error) {
 	settingsPath := ""
 	if b.HookShimBin != "" {
 		path, err := b.writeSettingsFile(env)
@@ -237,25 +187,6 @@ func (b *Backend) writeSettingsFile(env engine.HandlerEnv) (string, error) {
 		return "", err
 	}
 	return path, nil
-}
-
-// parseJSONEnvelope decodes a JSON object. Tolerates concatenated JSON
-// (the result envelope embedded in array brackets etc).
-func parseJSONEnvelope(out []byte) (map[string]any, error) {
-	out = bytes.TrimSpace(out)
-	if len(out) == 0 {
-		return nil, fmt.Errorf("empty claude output")
-	}
-	var env map[string]any
-	if err := json.Unmarshal(out, &env); err == nil {
-		return env, nil
-	}
-	// claude --output-format json sometimes wraps in an array.
-	var arr []map[string]any
-	if err := json.Unmarshal(out, &arr); err == nil && len(arr) > 0 {
-		return arr[len(arr)-1], nil
-	}
-	return nil, fmt.Errorf("unrecognised claude envelope: %s", strings.TrimSpace(string(out)))
 }
 
 func resultFromEnvelope(envelope map[string]any) backend.Result {
