@@ -5,7 +5,6 @@ package backend
 
 import (
 	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
 )
 
 // Result is what a CodergenBackend returns. Either ResponseText is set
@@ -33,7 +32,3 @@ type Func func(env engine.HandlerEnv, prompt string) (Result, error)
 func (f Func) Run(env engine.HandlerEnv, prompt string) (Result, error) {
 	return f(env, prompt)
 }
-
-// _ ensures the dependency on graph is exercised (typed accessors are
-// used via env.Node).
-var _ = (*graph.Node)(nil)

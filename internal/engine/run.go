@@ -220,8 +220,6 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 }
 
 func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
-	// loop_restart: drop logs subtree and start a fresh context.
-	_ = os.RemoveAll(filepath.Join(e.LogsRoot, "_loop_pre_restart"))
 	ctx := NewContext()
 	ctx.MirrorGraph(g)
 	return &runState{
@@ -338,28 +336,8 @@ func (e *Engine) advanceOrFail(g *graph.Graph, node *graph.Node, outcome *Outcom
 	if edge := SelectEdge(node, outcome, state.context, g); edge != nil {
 		return edge.To
 	}
-	// Failure routing: node-level retry_target → fallback_retry_target.
 	if outcome.Status == StatusFail {
-		if t := node.Attrs["retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t
-			}
-		}
-		if t := node.Attrs["fallback_retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t
-			}
-		}
-		if t := g.Attrs["retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t
-			}
-		}
-		if t := g.Attrs["fallback_retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t
-			}
-		}
+		return firstResolvedTarget(g, node, "retry_target", "fallback_retry_target")
 	}
 	return ""
 }
@@ -383,29 +361,34 @@ func (e *Engine) checkGoalGates(g *graph.Graph, state *runState) (string, string
 		if outcome.Status == StatusSuccess || outcome.Status == StatusPartialSuccess {
 			continue
 		}
-		if t := node.Attrs["retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t, id, false
-			}
-		}
-		if t := node.Attrs["fallback_retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t, id, false
-			}
-		}
-		if t := g.Attrs["retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t, id, false
-			}
-		}
-		if t := g.Attrs["fallback_retry_target"]; t != "" {
-			if _, ok := g.Nodes[t]; ok {
-				return t, id, false
-			}
+		if t := firstResolvedTarget(g, node, "retry_target", "fallback_retry_target"); t != "" {
+			return t, id, false
 		}
 		return "", id, false
 	}
 	return "", "", true
+}
+
+// firstResolvedTarget returns the first attribute value among keys that
+// resolves to an existing node. It tries the node first, then the
+// graph-level attribute of the same name. Empty string when nothing
+// resolves.
+func firstResolvedTarget(g *graph.Graph, node *graph.Node, keys ...string) string {
+	for _, k := range keys {
+		if t := node.Attrs[k]; t != "" {
+			if _, ok := g.Nodes[t]; ok {
+				return t
+			}
+		}
+	}
+	for _, k := range keys {
+		if t := g.Attrs[k]; t != "" {
+			if _, ok := g.Nodes[t]; ok {
+				return t
+			}
+		}
+	}
+	return ""
 }
 
 func (e *Engine) writeManifest(g *graph.Graph) error {
@@ -556,7 +539,11 @@ func nodeRetryPolicy(node *graph.Node, g *graph.Graph) RetryPolicy {
 	return p
 }
 
-func newRunID() string {
+func newRunID() string { return NewRunID() }
+
+// NewRunID returns a short random run identifier (12 hex chars).
+// Exposed so callers can mint IDs without spinning up an Engine.
+func NewRunID() string {
 	b := make([]byte, 6)
 	for i := range b {
 		n, _ := rand.Int(rand.Reader, big.NewInt(256))

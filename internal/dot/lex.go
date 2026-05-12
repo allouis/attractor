@@ -36,11 +36,10 @@ type token struct {
 }
 
 type lexer struct {
-	src     string
-	pos     int
-	line    int
-	col     int
-	prevTok tokKind
+	src  string
+	pos  int
+	line int
+	col  int
 }
 
 func newLexer(src string) *lexer {

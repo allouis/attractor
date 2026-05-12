@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -80,8 +81,7 @@ type Run struct {
 	history     []engine.Event
 	subscribers map[chan engine.Event]struct{}
 
-	questions   map[string]*pendingQuestion
-	questionsCh chan struct{} // signal channel for question registration
+	questions map[string]*pendingQuestion
 }
 
 type pendingQuestion struct {
@@ -310,7 +310,7 @@ func parseContextFromCheckpoint(data []byte) map[string]any {
 	var v struct {
 		Context map[string]any `json:"context"`
 	}
-	if err := jsonDecode(data, &v); err != nil {
+	if err := json.Unmarshal(data, &v); err != nil {
 		return map[string]any{}
 	}
 	return v.Context

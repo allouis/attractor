@@ -30,7 +30,6 @@ import (
 
 	"github.com/fabro/attractor/internal/backend"
 	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/ingest"
 )
 
 // Tier selects between tier 1 and tier 2 invocation modes.
@@ -333,5 +332,3 @@ func AvailableAuth() bool {
 	return false
 }
 
-// _ keeps the ingest dependency live; servers wire in the IngestURL.
-var _ = ingest.Server{}

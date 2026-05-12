@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,10 +30,7 @@ func TestRender_SVGOutputIsWellFormed(t *testing.T) {
 	for {
 		_, err := dec.Token()
 		if err != nil {
-			if errors.Is(err, errEOF{}) {
-				break
-			}
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			t.Fatalf("svg not well-formed: %v", err)
@@ -60,10 +58,6 @@ func TestCLI_RenderToFile(t *testing.T) {
 		t.Fatalf("file is not SVG: head=%q", data[:min(120, len(data))])
 	}
 }
-
-type errEOF struct{}
-
-func (errEOF) Error() string { return "EOF" }
 
 func min(a, b int) int {
 	if a < b {

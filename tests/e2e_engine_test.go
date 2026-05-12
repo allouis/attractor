@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fabro/attractor/internal/backend/fake"
 	"github.com/fabro/attractor/internal/engine"
@@ -67,7 +66,7 @@ func TestEngine_LinearPipelineWithFakeBackend(t *testing.T) {
 
 func TestEngine_PromptVariableExpansion(t *testing.T) {
 	be := fake.New()
-	_, _, logs := runFixture(t, linearDOT, be, nil)
+	runFixture(t, linearDOT, be, nil)
 	calls := be.Calls()
 	var planPrompt string
 	for _, c := range calls {
@@ -78,7 +77,6 @@ func TestEngine_PromptVariableExpansion(t *testing.T) {
 	if !strings.Contains(planPrompt, "Sort a list") {
 		t.Fatalf("plan prompt not expanded: %q", planPrompt)
 	}
-	_ = logs
 }
 
 func TestEngine_ConditionalRouting(t *testing.T) {
@@ -317,14 +315,9 @@ func TestEngine_EdgeSelectionLexicalTiebreak(t *testing.T) {
 	}
 }
 
-// errCrash is a sentinel error used to simulate handler failure during
-// resume tests; declared here so it is visible across test files.
+// errCrash simulates a backend failure for the resume test.
 var errCrash = &simErr{"simulated crash"}
 
 type simErr struct{ msg string }
 
 func (e *simErr) Error() string { return e.msg }
-
-// ensure time package usage so go vet doesn't flag it as unused when the
-// resume test is the only consumer.
-var _ = time.Second

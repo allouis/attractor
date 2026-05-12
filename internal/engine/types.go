@@ -107,14 +107,6 @@ func (c *Context) Get(key string) string {
 	return c.values[key]
 }
 
-// Has reports whether key is set.
-func (c *Context) Has(key string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	_, ok := c.values[key]
-	return ok
-}
-
 // Apply merges a batch of updates.
 func (c *Context) Apply(updates map[string]string) {
 	c.mu.Lock()

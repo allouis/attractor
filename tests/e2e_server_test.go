@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/interviewer"
 	"github.com/fabro/attractor/internal/server"
 )
 
@@ -243,7 +241,3 @@ func waitForRunStatus(t *testing.T, srv *server.Server, id, want string) {
 	t.Fatalf("status never reached %q", want)
 }
 
-// silence the unused import lint when interviewer isn't referenced
-// elsewhere in this file's branches.
-var _ = interviewer.AnswerChoice
-var _ = os.TempDir

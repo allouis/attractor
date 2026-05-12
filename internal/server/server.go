@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -102,7 +103,7 @@ func (s *Server) URL() string { return "http://" + s.addr }
 
 // Close shuts down the HTTP server gracefully.
 func (s *Server) Close() error {
-	ctx, cancel := contextWithTimeout(2 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return s.httpsrv.Shutdown(ctx)
 }

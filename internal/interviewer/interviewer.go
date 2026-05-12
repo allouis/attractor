@@ -4,7 +4,6 @@ package interviewer
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 )
 
@@ -118,19 +117,3 @@ type Callback func(q Question) (Answer, error)
 
 // Ask invokes the underlying callback.
 func (c Callback) Ask(q Question) (Answer, error) { return c(q) }
-
-// ErrEmptyQueue is returned by Queue.Ask when no answers remain.
-var ErrEmptyQueue = errors.New("interviewer queue empty")
-
-// FormatPrompt renders the question's text plus its options for any
-// text-mode frontend (CLI, log inspection, etc).
-func FormatPrompt(q Question) string {
-	if q.Type != QuestionMultipleChoice {
-		return q.Text
-	}
-	out := q.Text + "\n"
-	for _, o := range q.Options {
-		out += fmt.Sprintf("  [%s] %s\n", o.Key, o.Label)
-	}
-	return out
-}

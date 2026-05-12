@@ -33,20 +33,18 @@ func (b BackoffConfig) DelayForAttempt(attempt int, rng *rand.Rand) time.Duratio
 	return time.Duration(delay)
 }
 
-// RetryPolicy bundles attempt limit, backoff, and a should-retry
-// predicate (spec §3.6).
+// RetryPolicy bundles attempt limit and backoff config (spec §3.6).
+// Additional preset names (aggressive/linear/patient) are not yet wired
+// to a per-node `retry_policy` attribute; they will be added when that
+// selector lands.
 type RetryPolicy struct {
 	MaxAttempts int
 	Backoff     BackoffConfig
-	ShouldRetry func(err error) bool
 }
 
 // PolicyNone is the no-retry preset.
 func PolicyNone() RetryPolicy {
-	return RetryPolicy{
-		MaxAttempts: 1,
-		ShouldRetry: defaultShouldRetry,
-	}
+	return RetryPolicy{MaxAttempts: 1}
 }
 
 // PolicyStandard is the general-purpose preset (5 attempts, 200ms x2).
@@ -59,62 +57,5 @@ func PolicyStandard() RetryPolicy {
 			MaxDelay:      60 * time.Second,
 			Jitter:        true,
 		},
-		ShouldRetry: defaultShouldRetry,
 	}
-}
-
-// PolicyAggressive widens the standard preset (500ms initial, x2).
-func PolicyAggressive() RetryPolicy {
-	p := PolicyStandard()
-	p.Backoff.InitialDelay = 500 * time.Millisecond
-	return p
-}
-
-// PolicyLinear retries 3 times with a fixed 500ms delay.
-func PolicyLinear() RetryPolicy {
-	return RetryPolicy{
-		MaxAttempts: 3,
-		Backoff: BackoffConfig{
-			InitialDelay:  500 * time.Millisecond,
-			BackoffFactor: 1.0,
-			MaxDelay:      60 * time.Second,
-		},
-		ShouldRetry: defaultShouldRetry,
-	}
-}
-
-// PolicyPatient retries 3 times with 2s initial and a 3x factor for
-// long-running operations.
-func PolicyPatient() RetryPolicy {
-	return RetryPolicy{
-		MaxAttempts: 3,
-		Backoff: BackoffConfig{
-			InitialDelay:  2 * time.Second,
-			BackoffFactor: 3.0,
-			MaxDelay:      60 * time.Second,
-			Jitter:        true,
-		},
-		ShouldRetry: defaultShouldRetry,
-	}
-}
-
-// defaultShouldRetry retries any non-nil error. Specific handlers may
-// supply their own predicate based on error category.
-func defaultShouldRetry(err error) bool { return err != nil }
-
-// buildPolicy resolves a per-node retry policy by combining the node's
-// max_retries attribute with the graph default.
-func buildPolicy(node *struct {
-	MaxRetries int
-}, graphDefault int) RetryPolicy {
-	max := node.MaxRetries
-	if max < 0 {
-		max = graphDefault
-	}
-	if max == 0 {
-		return PolicyNone()
-	}
-	p := PolicyStandard()
-	p.MaxAttempts = max + 1
-	return p
 }

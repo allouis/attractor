@@ -67,7 +67,7 @@ func Run(args []string) error {
 	registry := defaultRegistry()
 	logsRoot := *logs
 	if logsRoot == "" {
-		logsRoot = ".attractor-runs/" + engineRunID()
+		logsRoot = ".attractor-runs/" + engine.NewRunID()
 	}
 	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
 		return err
@@ -185,15 +185,3 @@ func printDiagnostics(w io.Writer, diags []lint.Diagnostic) {
 	}
 }
 
-// engineRunID returns a short random run id; we re-export the engine's
-// helper here so the CLI doesn't need its own RNG plumbing.
-func engineRunID() string {
-	// Lean on engine.New's default RunID by constructing a throwaway
-	// engine when we only need the ID. This avoids duplicating crypto
-	// imports here.
-	tmp := engine.New(engine.Config{Registry: engine.NewRegistry(), LogsRoot: os.TempDir()})
-	// Drain the events channel so the goroutine doesn't leak. New does
-	// not start a run, but it does create a buffered channel.
-	go func() { for range tmp.Events() { } }()
-	return tmp.RunID
-}
