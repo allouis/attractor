@@ -271,6 +271,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		LogsRoot: e.LogsRoot,
 		RunID:    e.RunID,
 		Emit:     e.emit,
+		Registry: e.Registry,
 	}
 	handler, err := e.Registry.Resolve(node)
 	if err != nil {
@@ -333,6 +334,13 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 // further progress possible" — the caller decides between SUCCESS exit
 // and FAIL exit based on the last outcome.
 func (e *Engine) advanceOrFail(g *graph.Graph, node *graph.Node, outcome *Outcome, state *runState) string {
+	// Composite handlers may redirect the engine to a specific node
+	// without owning an outgoing edge (e.g. parallel → fan-in jump).
+	if outcome.NextNode != "" {
+		if _, ok := g.Nodes[outcome.NextNode]; ok {
+			return outcome.NextNode
+		}
+	}
 	if edge := SelectEdge(node, outcome, state.context, g); edge != nil {
 		return edge.To
 	}

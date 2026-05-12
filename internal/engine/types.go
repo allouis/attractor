@@ -59,7 +59,9 @@ func ParseStatus(s string) Status {
 }
 
 // Outcome is the return value of a handler. Fields mirror Attractor
-// Appendix C so an Outcome serializes verbatim into status.json.
+// Appendix C so an Outcome serializes verbatim into status.json. The
+// engine-only NextNode field lets composite handlers (parallel,
+// manager_loop) redirect traversal without owning their own edges.
 type Outcome struct {
 	Status           Status            `json:"-"`
 	StatusString     string            `json:"outcome"`
@@ -68,6 +70,7 @@ type Outcome struct {
 	ContextUpdates   map[string]string `json:"context_updates,omitempty"`
 	Notes            string            `json:"notes,omitempty"`
 	FailureReason    string            `json:"failure_reason,omitempty"`
+	NextNode         string            `json:"-"`
 }
 
 // Finalize fills derived fields just before serialization or

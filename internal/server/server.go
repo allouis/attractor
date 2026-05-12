@@ -120,6 +120,8 @@ func DefaultHandlers(coderBackend handler.Codergen) HandlerFactory {
 		r.Register("conditional", handler.Conditional{})
 		r.Register("wait.human", handler.WaitHuman{Interviewer: iv})
 		r.Register("tool", handler.Tool{})
+		r.Register("parallel", handler.Parallel{})
+		r.Register("parallel.fan_in", handler.FanIn{})
 		r.Register("codergen", coderBackend)
 		r.SetDefault(coderBackend)
 		return r

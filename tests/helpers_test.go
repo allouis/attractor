@@ -41,6 +41,8 @@ func runFixtureIn(t *testing.T, src string, be backend.CodergenBackend, iv inter
 	registry.Register("codergen.openai", handler.Codergen{Backend: be})
 	registry.Register("wait.human", handler.WaitHuman{Interviewer: iv})
 	registry.Register("tool", handler.Tool{})
+	registry.Register("parallel", handler.Parallel{})
+	registry.Register("parallel.fan_in", handler.FanIn{})
 	registry.SetDefault(handler.Codergen{Backend: be})
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, RunID: "test"})
 	events := make([]engine.Event, 0)

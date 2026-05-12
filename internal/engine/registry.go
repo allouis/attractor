@@ -23,6 +23,7 @@ type HandlerEnv struct {
 	LogsRoot string
 	RunID    string
 	Emit     func(Event)
+	Registry *Registry
 }
 
 // Registry maps handler types to handler instances (spec §4.2).
