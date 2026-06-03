@@ -26,6 +26,7 @@ import (
 	"github.com/fabro/attractor/internal/lint"
 	"github.com/fabro/attractor/internal/render"
 	"github.com/fabro/attractor/internal/server"
+	"github.com/fabro/attractor/internal/transform"
 )
 
 func cryptoRandRead(b []byte) (int, error) { return rand.Read(b) }
@@ -66,6 +67,8 @@ func Validate(args []string) error {
 // Run executes a pipeline end-to-end. The --backend flag selects the
 // codergen backend; auto picks claude if `claude` is on PATH and auth
 // is detected, else falls back to simulation mode with a stderr note.
+// The positional argument is either a path to a .dot file or a
+// pipeline name that resolves via lookup (see resolvePipelinePath).
 func Run(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -73,17 +76,30 @@ func Run(args []string) error {
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
 	backendFlag := fs.String("backend", "auto", "codergen backend: auto | claude | simulation")
 	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
+	var vars varFlags
+	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return fmt.Errorf("run: expected a .dot path argument")
+		return fmt.Errorf("run: expected a pipeline name or .dot path")
 	}
-	g, err := loadGraph(fs.Arg(0))
+	dotPath, err := resolvePipelinePath(fs.Arg(0))
 	if err != nil {
 		return err
 	}
-	prepared, err := engine.Prepare(g)
+	g, err := loadGraph(dotPath)
+	if err != nil {
+		return err
+	}
+	if err := requireDeclaredVars(g, vars); err != nil {
+		return err
+	}
+	dotDir := filepath.Dir(dotPath)
+	prepared, err := engine.Prepare(g,
+		transform.PromptFile{BaseDir: dotDir},
+		transform.VariableExpansion{Vars: vars},
+	)
 	if err != nil {
 		return err
 	}
@@ -368,4 +384,113 @@ func printDiagnostics(w io.Writer, diags []lint.Diagnostic) {
 		}
 		fmt.Fprintf(w, "%-7s %-30s %-30s %s\n", d.Severity, d.Rule, ref, d.Message)
 	}
+}
+
+// varFlags is a repeatable -var name=value flag. The CLI honours
+// pipeline-level $name placeholders by passing this map into the
+// VariableExpansion transform.
+type varFlags map[string]string
+
+// String returns a stable comma-joined form for `-h` help output.
+func (v varFlags) String() string {
+	if v == nil {
+		return ""
+	}
+	keys := make([]string, 0, len(v))
+	for k := range v {
+		keys = append(keys, k)
+	}
+	out := ""
+	for i, k := range keys {
+		if i > 0 {
+			out += ","
+		}
+		out += k + "=" + v[k]
+	}
+	return out
+}
+
+// Set implements flag.Value; called once per -var occurrence.
+func (v *varFlags) Set(raw string) error {
+	if *v == nil {
+		*v = map[string]string{}
+	}
+	idx := strings.IndexByte(raw, '=')
+	if idx <= 0 {
+		return fmt.Errorf("-var expects name=value, got %q", raw)
+	}
+	(*v)[raw[:idx]] = raw[idx+1:]
+	return nil
+}
+
+// requireDeclaredVars checks that every name listed in the graph's
+// `vars` attribute has a corresponding -var entry. Missing vars are a
+// hard error so a pipeline doesn't silently run with empty
+// substitutions.
+func requireDeclaredVars(g *graph.Graph, supplied varFlags) error {
+	raw := strings.TrimSpace(g.Attr("vars"))
+	if raw == "" {
+		return nil
+	}
+	var missing []string
+	for _, name := range strings.Split(raw, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := supplied[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("pipeline declares vars %v but missing -var %v", strings.Split(raw, ","), missing)
+}
+
+// resolvePipelinePath turns a name-or-path argument into an absolute
+// .dot path. Lookup order when arg is a bare name (no `/`, no `.dot`
+// suffix):
+//
+//  1. ./pipelines/<name>/pipeline.dot
+//  2. ./pipelines/<name>.dot
+//  3. ~/attractor-pipelines/<name>/pipeline.dot
+//  4. ~/attractor-pipelines/<name>.dot
+//
+// Paths with a separator or .dot extension are returned verbatim
+// (relative paths resolved against the current working directory).
+func resolvePipelinePath(arg string) (string, error) {
+	if strings.ContainsAny(arg, string(os.PathSeparator)) || strings.HasSuffix(arg, ".dot") {
+		if _, err := os.Stat(arg); err != nil {
+			return "", err
+		}
+		abs, err := filepath.Abs(arg)
+		if err != nil {
+			return arg, nil
+		}
+		return abs, nil
+	}
+	var tried []string
+	home, _ := os.UserHomeDir()
+	candidates := []string{
+		filepath.Join("pipelines", arg, "pipeline.dot"),
+		filepath.Join("pipelines", arg+".dot"),
+	}
+	if home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, "attractor-pipelines", arg, "pipeline.dot"),
+			filepath.Join(home, "attractor-pipelines", arg+".dot"),
+		)
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			abs, err := filepath.Abs(c)
+			if err != nil {
+				return c, nil
+			}
+			return abs, nil
+		}
+		tried = append(tried, c)
+	}
+	return "", fmt.Errorf("pipeline %q not found; tried:\n  %s", arg, strings.Join(tried, "\n  "))
 }
