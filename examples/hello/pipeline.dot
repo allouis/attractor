@@ -1,0 +1,14 @@
+// hello — minimal Attractor pipeline.
+// Run: `attractor run hello --var name=world`
+digraph hello {
+    graph [
+        goal="say hi to $name",
+        vars="name"
+    ]
+
+    start [shape=Mdiamond]
+    greet [prompt="@prompts/greet.md"]
+    done  [shape=Msquare]
+
+    start -> greet -> done
+}
