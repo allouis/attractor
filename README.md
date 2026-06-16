@@ -68,9 +68,10 @@ Common flags for `run`:
 
 ```
 --backend auto|claude|simulation   codergen backend (default: auto)
---logs DIR                         pipeline artefact directory (default: .attractor-runs/<run-id>)
+--logs DIR                         pipeline artefact directory (default: ~/.attractor/runs/<run-id>, outside the working tree)
 --var name=value                   pipeline variable; repeatable; required for every name in graph attr `vars`
 --json                             emit one JSON event per line on stdout
+--human auto|console|approve       interviewer for wait.human (default: auto = console on TTY, approve otherwise)
 --hookshim PATH                    override hookshim binary location (default: sibling of attractor)
 ```
 

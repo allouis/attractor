@@ -73,7 +73,7 @@ func Validate(args []string) error {
 func Run(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	logs := fs.String("logs", "", "directory for run artefacts (default: ./.attractor-runs/<run-id>)")
+	logs := fs.String("logs", "", "directory for run artefacts (default: $XDG_DATA_HOME/attractor/runs/<run-id> or ~/.attractor/runs/<run-id>)")
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
 	backendFlag := fs.String("backend", "auto", "codergen backend: auto | claude | simulation")
 	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
@@ -108,7 +108,7 @@ func Run(args []string) error {
 	}
 	logsRoot := *logs
 	if logsRoot == "" {
-		logsRoot = ".attractor-runs/" + engine.NewRunID()
+		logsRoot = filepath.Join(defaultLogsRoot(), engine.NewRunID())
 	}
 	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
 		return err
