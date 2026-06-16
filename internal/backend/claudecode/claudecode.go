@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fabro/attractor/internal/backend"
@@ -43,6 +44,12 @@ type Backend struct {
 	// FallbackDir is the local file fallback for hook payloads when the
 	// ingest URL is unreachable. Empty disables it.
 	FallbackDir string
+
+	// sessions tracks the claude session id observed for each thread_id
+	// resolved by the engine for full-fidelity stages (spec §5.4).
+	// Subsequent stages sharing a thread_id resume via `claude --resume`
+	// so the agent literally continues the prior conversation.
+	sessions sync.Map // map[string]string
 }
 
 // Run satisfies backend.CodergenBackend by invoking claude with
@@ -61,6 +68,18 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 	if settingsPath != "" {
 		args = append(args, "--settings", settingsPath)
 	}
+	// Full-fidelity stages reuse the prior claude session via --resume
+	// so the agent continues the same conversation across stages
+	// (spec §5.4 session reuse). Fresh sessions (compact/summary/
+	// truncate) deliberately don't pass --resume.
+	resuming := false
+	if env.Fidelity == engine.FidelityFull && env.ThreadID != "" {
+		if sid := b.sessionFor(env.ThreadID); sid != "" {
+			args = append([]string{"--resume", sid}, args...)
+			resuming = true
+		}
+	}
+	_ = resuming // used below to decide whether to remember
 	cmd, cancel, err := b.prepareCmd(env, prompt, args)
 	if err != nil {
 		return backend.Result{}, err
@@ -89,6 +108,12 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		}
 		kind, _ := rec["type"].(string)
 		switch kind {
+		case "system":
+			if sub, _ := rec["subtype"].(string); sub == "init" {
+				if sid, _ := rec["session_id"].(string); sid != "" && env.Fidelity == engine.FidelityFull {
+					b.rememberSession(env.ThreadID, sid)
+				}
+			}
 		case "assistant":
 			if env.Emit != nil {
 				text := assistantText(rec)
@@ -100,6 +125,9 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 				}
 			}
 		case "result":
+			if sid, _ := rec["session_id"].(string); sid != "" && env.Fidelity == engine.FidelityFull {
+				b.rememberSession(env.ThreadID, sid)
+			}
 			finalEnvelope = rec
 		}
 	}
@@ -113,6 +141,30 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		return backend.Result{ResponseText: ""}, nil
 	}
 	return resultFromEnvelope(finalEnvelope), nil
+}
+
+// sessionFor returns the recorded claude session id for the thread, or
+// empty string when none. Callers should also check that the engine
+// resolved full fidelity before using the result.
+func (b *Backend) sessionFor(threadID string) string {
+	if threadID == "" {
+		return ""
+	}
+	v, ok := b.sessions.Load(threadID)
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
+}
+
+// rememberSession stores the claude session id captured from the
+// stream-json output so subsequent same-thread stages can resume it.
+func (b *Backend) rememberSession(threadID, sessionID string) {
+	if threadID == "" || sessionID == "" {
+		return
+	}
+	b.sessions.Store(threadID, sessionID)
 }
 
 // prepareCmd builds an *exec.Cmd with the correlation env vars set and
