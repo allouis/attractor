@@ -19,29 +19,40 @@ type VariableExpansion struct {
 	Vars map[string]string
 }
 
-// Apply rewrites prompts and the graph `goal` attribute in place and
-// returns the same graph.
+// Apply rewrites any attribute containing a `$` placeholder in the
+// graph, node, or edge namespaces. The `goal` graph attribute is
+// expanded first so subsequent `$goal` references in prompts and other
+// attributes pick up the already-substituted value.
 func (v VariableExpansion) Apply(g *graph.Graph) (*graph.Graph, error) {
 	values := map[string]string{}
 	for k, val := range v.Vars {
 		values[k] = val
 	}
-	// Expand the goal first so `$goal` resolutions in prompts pick up
-	// the already-expanded form (e.g. goal="implement $epic_id" →
-	// "implement ABC-123" before any prompt sees $goal).
 	if g.Attrs["goal"] != "" && strings.Contains(g.Attrs["goal"], "$") {
 		g.Attrs["goal"] = expandVars(g.Attrs["goal"], values)
 	}
 	if _, ok := values["goal"]; !ok {
 		values["goal"] = g.Goal()
 	}
+	for k, val := range g.Attrs {
+		if strings.Contains(val, "$") {
+			g.Attrs[k] = expandVars(val, values)
+		}
+	}
 	for _, id := range g.NodeOrder {
 		node := g.Nodes[id]
-		prompt, ok := node.Attrs["prompt"]
-		if !ok || !strings.Contains(prompt, "$") {
-			continue
+		for k, val := range node.Attrs {
+			if strings.Contains(val, "$") {
+				node.Attrs[k] = expandVars(val, values)
+			}
 		}
-		node.Attrs["prompt"] = expandVars(prompt, values)
+	}
+	for _, e := range g.Edges {
+		for k, val := range e.Attrs {
+			if strings.Contains(val, "$") {
+				e.Attrs[k] = expandVars(val, values)
+			}
+		}
 	}
 	return g, nil
 }

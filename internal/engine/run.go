@@ -329,6 +329,10 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		Context:        ctxValues,
 		Responses:      e.readRecentResponses(state.completedNodes, 5),
 	})
+	cwd := node.Attrs["cwd"]
+	if cwd == "" {
+		cwd = g.Attrs["cwd"]
+	}
 	env := HandlerEnv{
 		Node:      node,
 		Graph:     g,
@@ -341,6 +345,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		Fidelity:  fidelity,
 		ThreadID:  threadID,
 		Preamble:  preamble,
+		Cwd:       cwd,
 	}
 	handler, err := e.Registry.Resolve(node)
 	if err != nil {

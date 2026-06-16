@@ -183,6 +183,9 @@ func (b *Backend) prepareCmd(env engine.HandlerEnv, prompt string, args []string
 		ctx, cancel = context.WithTimeout(ctx, b.Timeout)
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
+	if env.Cwd != "" {
+		cmd.Dir = env.Cwd
+	}
 	cmd.Env = append(os.Environ(),
 		"ATTRACTOR_RUN_ID="+env.RunID,
 		"ATTRACTOR_STAGE_ID="+env.Node.ID,

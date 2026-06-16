@@ -38,6 +38,12 @@ type HandlerEnv struct {
 	// Preamble is the synthesised context carry-over text. Empty under
 	// `full` fidelity.
 	Preamble string
+	// Cwd is the working directory the handler should use for any
+	// subprocess (tool command, codergen backend). Resolved from the
+	// node's `cwd` attribute, falling back to the graph-level `cwd`,
+	// then empty. Empty leaves the subprocess at attractor's cwd for
+	// codergen and at the stage dir for tool handlers.
+	Cwd string
 }
 
 // Registry maps handler types to handler instances (spec §4.2).
