@@ -327,6 +327,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		CompletedNodes: state.completedNodes,
 		NodeOutcomes:   state.nodeOutcomes,
 		Context:        ctxValues,
+		Responses:      e.readRecentResponses(state.completedNodes, 5),
 	})
 	env := HandlerEnv{
 		Node:      node,
@@ -612,6 +613,28 @@ func nodeRetryPolicy(node *graph.Node, g *graph.Graph) RetryPolicy {
 	p := PolicyStandard()
 	p.MaxAttempts = max + 1
 	return p
+}
+
+// readRecentResponses reads response.md for the most recent N completed
+// nodes so BuildPreamble can inline them. Limit caps the read so very
+// long runs don't pull entire log subtrees into memory.
+func (e *Engine) readRecentResponses(completed []string, limit int) map[string]string {
+	if e.LogsRoot == "" || len(completed) == 0 {
+		return nil
+	}
+	start := len(completed) - limit
+	if start < 0 {
+		start = 0
+	}
+	out := make(map[string]string, len(completed)-start)
+	for _, id := range completed[start:] {
+		data, err := os.ReadFile(filepath.Join(e.LogsRoot, id, "response.md"))
+		if err != nil {
+			continue
+		}
+		out[id] = string(data)
+	}
+	return out
 }
 
 func newRunID() string { return NewRunID() }

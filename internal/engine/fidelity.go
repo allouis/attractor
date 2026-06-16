@@ -73,18 +73,29 @@ func ResolveThread(edge *graph.Edge, target *graph.Node, g *graph.Graph, previou
 // PreambleInput is the materialised state the preamble synthesiser
 // reads when constructing the carry-over text for the next node.
 type PreambleInput struct {
-	Mode         FidelityMode
-	Goal         string
-	RunID        string
+	Mode           FidelityMode
+	Goal           string
+	RunID          string
 	CompletedNodes []string
-	NodeOutcomes  map[string]Outcome
-	Context       map[string]string
+	NodeOutcomes   map[string]Outcome
+	Context        map[string]string
+	// Responses maps each completed node ID to the full text the agent
+	// wrote to that stage's response.md. Used by compact and summary
+	// modes to carry real conversation content rather than the
+	// truncated `last_response` value the context stores.
+	Responses map[string]string
 }
 
+// approxCharsPerToken is a rough conversion for spec §5.4's token
+// budgets — close enough for sizing the truncation thresholds applied
+// to inlined response content. Real tokenisation lives in the LLM.
+const approxCharsPerToken = 4
+
 // BuildPreamble produces the synthesised context carry-over text for
-// the next node's LLM session. Real summarisation modes are
-// placeholders for an LLM-driven synthesis pass in a follow-up; for
-// now the modes emit deterministic, scaled bullet renderings.
+// the next node's LLM session. Compact lists every completed stage as
+// a bullet and inlines the latest stage's full response. Summary modes
+// list the recent N stages and inline those responses scaled to fit
+// §5.4's token budgets. Real LLM-driven summarisation is deferred.
 func BuildPreamble(in PreambleInput) string {
 	switch in.Mode {
 	case FidelityFull:
@@ -94,15 +105,19 @@ func BuildPreamble(in PreambleInput) string {
 	case FidelityCompact:
 		return compactPreamble(in)
 	case FidelitySummaryLow:
-		return summaryPreamble(in, 1, false)
+		return summaryPreamble(in, 1, false, 600*approxCharsPerToken)
 	case FidelitySummaryMedium:
-		return summaryPreamble(in, 3, true)
+		return summaryPreamble(in, 3, true, 1500*approxCharsPerToken)
 	case FidelitySummaryHigh:
-		return summaryPreamble(in, 5, true)
+		return summaryPreamble(in, 5, true, 3000*approxCharsPerToken)
 	}
 	return compactPreamble(in)
 }
 
+// compactPreamble follows §5.4's compact spec: a bullet list of every
+// completed stage with its outcome, the active context, and an inlined
+// copy of the most recent stage's response so the next agent sees the
+// real prior turn rather than a truncated summary.
 func compactPreamble(in PreambleInput) string {
 	var b strings.Builder
 	if in.Goal != "" {
@@ -128,10 +143,19 @@ func compactPreamble(in PreambleInput) string {
 			}
 		}
 	}
+	// Inline the most recent stage's response in full.
+	if n := len(in.CompletedNodes); n > 0 && in.Responses != nil {
+		last := in.CompletedNodes[n-1]
+		if body := strings.TrimSpace(in.Responses[last]); body != "" {
+			b.WriteString(fmt.Sprintf("\n---\n[%s response.md]\n%s\n", last, body))
+		}
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func summaryPreamble(in PreambleInput, recentLimit int, includeContext bool) string {
+// summaryPreamble renders the recent N stages plus their inlined
+// responses, budget-truncated across the included set.
+func summaryPreamble(in PreambleInput, recentLimit int, includeContext bool, budgetChars int) string {
 	var b strings.Builder
 	if in.Goal != "" {
 		b.WriteString("Goal: " + in.Goal + "\n")
@@ -141,7 +165,7 @@ func summaryPreamble(in PreambleInput, recentLimit int, includeContext bool) str
 		completed = completed[len(completed)-recentLimit:]
 	}
 	if len(completed) > 0 {
-		b.WriteString(fmt.Sprintf("Recent %d stages:\n", len(completed)))
+		b.WriteString(fmt.Sprintf("Recent %d stage(s):\n", len(completed)))
 		for _, id := range completed {
 			oc := in.NodeOutcomes[id]
 			b.WriteString(fmt.Sprintf("  - %s [%s]\n", id, oc.Status))
@@ -154,6 +178,22 @@ func summaryPreamble(in PreambleInput, recentLimit int, includeContext bool) str
 			for _, k := range keys {
 				b.WriteString(fmt.Sprintf("  - %s = %s\n", k, in.Context[k]))
 			}
+		}
+	}
+	if len(completed) > 0 && len(in.Responses) > 0 {
+		perStage := 0
+		if budgetChars > 0 && len(completed) > 0 {
+			perStage = budgetChars / len(completed)
+		}
+		for _, id := range completed {
+			body, ok := in.Responses[id]
+			if !ok || strings.TrimSpace(body) == "" {
+				continue
+			}
+			if perStage > 0 && len(body) > perStage {
+				body = body[:perStage] + "\n…[truncated]"
+			}
+			b.WriteString(fmt.Sprintf("\n---\n[%s response.md]\n%s\n", id, strings.TrimRight(body, "\n")))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

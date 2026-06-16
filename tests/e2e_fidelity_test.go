@@ -145,7 +145,8 @@ func TestFidelity_PreambleLandsInCodergenPrompt(t *testing.T) {
 	be.SetText("impl", "IMPL: done")
 	_, _, logs := runFixture(t, src, be, nil)
 	// `impl` runs after `plan` completes, so its prompt should carry a
-	// compact preamble referencing the previous stage.
+	// compact preamble referencing the previous stage AND inlining the
+	// previous stage's full response.
 	prompt, err := os.ReadFile(filepath.Join(logs, "impl", "prompt.md"))
 	must(t, err)
 	body := string(prompt)
@@ -155,8 +156,47 @@ func TestFidelity_PreambleLandsInCodergenPrompt(t *testing.T) {
 	if !strings.Contains(body, "plan") {
 		t.Fatalf("preamble missing plan stage: %q", body)
 	}
+	if !strings.Contains(body, "[plan response.md]") {
+		t.Fatalf("preamble did not inline plan's response.md: %q", body)
+	}
+	if !strings.Contains(body, "PLAN: split into ranges") {
+		t.Fatalf("preamble did not contain plan's full response text: %q", body)
+	}
 	if !strings.Contains(body, "Implement plan") {
 		t.Fatalf("preamble did not preserve original prompt: %q", body)
 	}
 }
 
+// TestPreamble_SummaryHighInlinesRecentResponses verifies that
+// summary:high fidelity carries the recent stages' actual response.md
+// content, not just the truncated last_response context entry.
+func TestPreamble_SummaryHighInlinesRecentResponses(t *testing.T) {
+	in := engine.PreambleInput{
+		Mode:           engine.FidelitySummaryHigh,
+		Goal:           "ship feature",
+		CompletedNodes: []string{"plan", "impl", "review"},
+		NodeOutcomes: map[string]engine.Outcome{
+			"plan":   {Status: engine.StatusSuccess},
+			"impl":   {Status: engine.StatusSuccess},
+			"review": {Status: engine.StatusSuccess},
+		},
+		Responses: map[string]string{
+			"plan":   "PLAN: route by index then by name. Pick the deeper file.",
+			"impl":   "IMPL: edited foo.go; added bar.go; tests pass.",
+			"review": "REVIEW: APPROVE. No follow-ups.",
+		},
+	}
+	got := engine.BuildPreamble(in)
+	for _, want := range []string{
+		"PLAN: route by index",
+		"IMPL: edited foo.go",
+		"REVIEW: APPROVE",
+		"[plan response.md]",
+		"[impl response.md]",
+		"[review response.md]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("summary:high preamble missing %q in:\n%s", want, got)
+		}
+	}
+}
