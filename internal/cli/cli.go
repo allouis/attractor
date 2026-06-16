@@ -76,6 +76,7 @@ func Run(args []string) error {
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
 	backendFlag := fs.String("backend", "auto", "codergen backend: auto | claude | simulation")
 	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
+	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	if err := fs.Parse(args); err != nil {
@@ -121,7 +122,8 @@ func Run(args []string) error {
 		defer ingestSrv.Close()
 	}
 
-	registry := buildRegistry(handler.Codergen{Backend: codergenBackend})
+	iv := resolveInterviewer(*humanFlag)
+	registry := buildRegistryWith(handler.Codergen{Backend: codergenBackend}, iv)
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot})
 	done := make(chan struct{})
 	go func() {
@@ -357,15 +359,21 @@ func loadGraph(path string) (*graph.Graph, error) {
 	return graph.Build(file)
 }
 
-// buildRegistry wires every built-in handler, parameterised by the
-// codergen handler so callers can supply an alternate backend (e.g.
-// real Claude vs simulation).
+// buildRegistry wires every built-in handler with the AutoApprove
+// interviewer. Kept for callers that don't need to customise human
+// gates (tests, simple smoke runs).
 func buildRegistry(codergen handler.Codergen) *engine.Registry {
+	return buildRegistryWith(codergen, interviewer.AutoApprove{})
+}
+
+// buildRegistryWith wires every built-in handler, parameterised by the
+// codergen handler and the interviewer used by wait.human nodes.
+func buildRegistryWith(codergen handler.Codergen, iv interviewer.Interviewer) *engine.Registry {
 	r := engine.NewRegistry()
 	r.Register("start", handler.Start{})
 	r.Register("exit", handler.Exit{})
 	r.Register("conditional", handler.Conditional{})
-	r.Register("wait.human", handler.WaitHuman{Interviewer: interviewer.AutoApprove{}})
+	r.Register("wait.human", handler.WaitHuman{Interviewer: iv})
 	r.Register("tool", handler.Tool{})
 	r.Register("parallel", handler.Parallel{})
 	r.Register("parallel.fan_in", handler.FanIn{})
@@ -374,6 +382,32 @@ func buildRegistry(codergen handler.Codergen) *engine.Registry {
 	r.Register("codergen.claude", codergen)
 	r.SetDefault(codergen)
 	return r
+}
+
+// resolveInterviewer picks the wait.human implementation per the
+// --human flag. `auto` uses the console when stdin is a TTY, else
+// auto-approve so non-interactive runs (CI, server contexts) don't
+// stall.
+func resolveInterviewer(choice string) interviewer.Interviewer {
+	switch choice {
+	case "console":
+		return interviewer.Console{}
+	case "approve":
+		return interviewer.AutoApprove{}
+	}
+	if isStdinTTY() {
+		return interviewer.Console{}
+	}
+	return interviewer.AutoApprove{}
+}
+
+// isStdinTTY reports whether stdin is connected to a terminal.
+func isStdinTTY() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 func printDiagnostics(w io.Writer, diags []lint.Diagnostic) {
