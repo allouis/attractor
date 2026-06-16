@@ -49,13 +49,14 @@ const (
 func Validate(args []string) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseFlexible(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		return fmt.Errorf("validate: expected a .dot path argument")
 	}
-	g, err := loadGraph(fs.Arg(0))
+	g, err := loadGraph(positional[0])
 	if err != nil {
 		return err
 	}
@@ -79,13 +80,14 @@ func Run(args []string) error {
 	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseFlexible(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		return fmt.Errorf("run: expected a pipeline name or .dot path")
 	}
-	dotPath, err := resolvePipelinePath(fs.Arg(0))
+	dotPath, err := resolvePipelinePath(positional[0])
 	if err != nil {
 		return err
 	}
@@ -155,13 +157,14 @@ func Render(args []string) error {
 	fs := flag.NewFlagSet("render", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	output := fs.String("o", "", "output path (default: stdout)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseFlexible(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		return fmt.Errorf("render: expected a .dot path argument")
 	}
-	src, err := os.ReadFile(fs.Arg(0))
+	src, err := os.ReadFile(positional[0])
 	if err != nil {
 		return err
 	}
@@ -408,6 +411,26 @@ func isStdinTTY() bool {
 		return false
 	}
 	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// parseFlexible processes flag arguments interleaved with positional
+// arguments. Go's stdlib flag parser stops at the first non-flag, so
+// `attractor run bug-fix --var foo=bar` would leave `--var` unparsed.
+// We call Parse in a loop: each pass consumes flags until a positional
+// appears, we save it, then continue with the remaining args.
+func parseFlexible(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	remaining := args
+	for {
+		if err := fs.Parse(remaining); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return positional, nil
+		}
+		positional = append(positional, fs.Arg(0))
+		remaining = fs.Args()[1:]
+	}
 }
 
 func printDiagnostics(w io.Writer, diags []lint.Diagnostic) {
