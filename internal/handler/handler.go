@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +50,12 @@ type Codergen struct {
 // prompt/response artifacts under the run directory, and returns the
 // outcome. Under non-`full` fidelity, env.Preamble is prepended so the
 // stage prompt carries enough run state to ground a fresh LLM session.
+//
+// Outcome resolution follows spec §4.5 and Appendix C:
+//  1. If the backend itself produced an Outcome, use it verbatim.
+//  2. Else, if the agent wrote `{stage_dir}/status.json` during its
+//     turn (the status-file contract), parse it and use it.
+//  3. Else, synthesise SUCCESS from the response text.
 func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	prompt := env.Node.Prompt()
 	if prompt == "" {
@@ -62,6 +69,10 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("mkdir stage dir: %v", err)}
 	}
+	// Wipe any status.json left behind by a previous attempt so the
+	// self-report check below only fires for the agent's own writes.
+	statusPath := filepath.Join(stageDir, "status.json")
+	_ = os.Remove(statusPath)
 	if err := os.WriteFile(filepath.Join(stageDir, "prompt.md"), []byte(prompt), 0o644); err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("write prompt: %v", err)}
 	}
@@ -90,6 +101,23 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 	response := result.ResponseText
 	_ = os.WriteFile(filepath.Join(stageDir, "response.md"), []byte(response), 0o644)
+
+	if oc, ok := readAgentStatus(statusPath); ok {
+		// Status-file contract: agent self-reported its outcome.
+		// Merge in the routing baggage so the engine still sees last_stage
+		// and last_response in context.
+		if oc.ContextUpdates == nil {
+			oc.ContextUpdates = map[string]string{}
+		}
+		if _, set := oc.ContextUpdates["last_stage"]; !set {
+			oc.ContextUpdates["last_stage"] = env.Node.ID
+		}
+		if _, set := oc.ContextUpdates["last_response"]; !set {
+			oc.ContextUpdates["last_response"] = truncate(response, 200)
+		}
+		return oc
+	}
+
 	updates := map[string]string{
 		"last_stage":    env.Node.ID,
 		"last_response": truncate(response, 200),
@@ -99,6 +127,25 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 		Notes:          "Stage completed: " + env.Node.ID,
 		ContextUpdates: updates,
 	}
+}
+
+// readAgentStatus reads the agent-authored status.json if present and
+// well-formed. Returns (outcome, true) on success or (zero, false)
+// otherwise so the handler falls through to its default SUCCESS path.
+func readAgentStatus(path string) (engine.Outcome, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return engine.Outcome{}, false
+	}
+	var oc engine.Outcome
+	if err := json.Unmarshal(data, &oc); err != nil {
+		return engine.Outcome{}, false
+	}
+	oc.Status = engine.ParseStatus(oc.StatusString)
+	if oc.Status == engine.StatusUnknown {
+		return engine.Outcome{}, false
+	}
+	return oc, true
 }
 
 // WaitHuman blocks on the configured interviewer to obtain an edge

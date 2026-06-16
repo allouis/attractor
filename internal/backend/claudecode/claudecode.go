@@ -134,6 +134,7 @@ func (b *Backend) prepareCmd(env engine.HandlerEnv, prompt string, args []string
 	cmd.Env = append(os.Environ(),
 		"ATTRACTOR_RUN_ID="+env.RunID,
 		"ATTRACTOR_STAGE_ID="+env.Node.ID,
+		"ATTRACTOR_STAGE_DIR="+filepath.Join(env.LogsRoot, env.Node.ID),
 		"ATTRACTOR_INGEST="+b.IngestURL,
 		"ATTRACTOR_FALLBACK_DIR="+b.FallbackDir,
 	)
