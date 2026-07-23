@@ -1,0 +1,45 @@
+// Self-development pipeline: each run implements the next `todo`
+// milestone from docs/service-spec.md and flips its Status to done.
+//
+//   attractor run --backend acp pipelines/self-dev/pipeline.dot
+//
+// All codergen stages share thread "milestone" under full fidelity,
+// so implement/review/record continue one agent conversation. The
+// verify stage is a deterministic tool node — the gate does not trust
+// the agent's word that tests pass.
+
+digraph self_dev {
+    goal = "Implement the next todo milestone from docs/service-spec.md"
+    acp_command = "claude-agent-acp"
+    max_node_visits = 4
+
+    start [shape=Mdiamond]
+
+    plan [type="codergen.acp", thread_id="milestone", fidelity="full",
+          timeout="15m", prompt="@prompts/plan.md"]
+
+    implement [type="codergen.acp", thread_id="milestone", fidelity="full",
+               timeout="90m", goal_gate=true, retry_target="plan",
+               prompt="@prompts/implement.md"]
+
+    verify [type="tool", timeout="15m",
+            tool_command="cd /home/agent/attractor && nix develop -c go test ./... -count=1"]
+
+    review [type="codergen.acp", thread_id="milestone", fidelity="full",
+            timeout="30m", prompt="@prompts/review.md"]
+
+    record [type="codergen.acp", thread_id="milestone", fidelity="full",
+            timeout="15m", prompt="@prompts/record.md"]
+
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> implement
+    implement -> verify [condition="outcome=success"]
+    implement -> plan   [condition="outcome=fail", label="Replan"]
+    verify -> review    [condition="outcome=success"]
+    verify -> implement [condition="outcome=fail", label="Fix tests"]
+    review -> record    [condition="outcome=success"]
+    review -> implement [condition="outcome=fail", label="Fix findings"]
+    record -> done
+}
