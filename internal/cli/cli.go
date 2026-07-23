@@ -148,28 +148,45 @@ func Run(args []string) error {
 			return err
 		}
 	} else {
-		cfg, err := loadProviderConfig()
+		codergenBackend, err = providerBackend(g)
 		if err != nil {
 			return err
 		}
-		// Surface config-aware warnings (unknown provider, missing
-		// model_env) to stderr so --json stdout stays clean.
-		for _, rule := range providerLintRules(cfg) {
-			printDiagnostics(os.Stderr, rule.Apply(g))
-		}
-		codergenBackend = router.New(cfg)
 	}
 	if ingestSrv != nil {
 		defer ingestSrv.Close()
 	}
 
 	iv := resolveInterviewer(*humanFlag)
-	registry := buildRegistryWith(handler.Codergen{Backend: codergenBackend}, iv)
+	return runEngine(prepared, codergenBackend, iv, logsRoot, *jsonOut)
+}
+
+// providerBackend builds the config-routed codergen backend used when no
+// --backend override is given (service-spec §1), surfacing config-aware
+// warnings (unknown provider, missing model_env) to stderr so --json
+// stdout stays clean. Shared by `run` and `automations run`.
+func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
+	cfg, err := loadProviderConfig()
+	if err != nil {
+		return nil, err
+	}
+	for _, rule := range providerLintRules(cfg) {
+		printDiagnostics(os.Stderr, rule.Apply(g))
+	}
+	return router.New(cfg), nil
+}
+
+// runEngine wires the built-in handlers around a codergen backend and
+// executes prepared to completion, streaming events to stdout (one JSON
+// object per line when jsonOut). Shared standalone-run core of `run` and
+// `automations run`.
+func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool) error {
+	registry := buildRegistryWith(handler.Codergen{Backend: cb}, iv)
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot})
 	done := make(chan struct{})
 	go func() {
 		for ev := range eng.Events() {
-			if *jsonOut {
+			if jsonOut {
 				_ = json.NewEncoder(os.Stdout).Encode(ev)
 				continue
 			}
