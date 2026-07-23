@@ -229,6 +229,7 @@ func Serve(args []string) error {
 	logs := fs.String("logs", defaultLogsRoot(), "base directory for pipeline run artefacts")
 	authToken := fs.Bool("auth-token", false, "enable bearer-token auth (token at ~/.attractor/api-key, auto-generated on first use)")
 	insecure := fs.Bool("insecure", false, "allow non-loopback bind without auth (network layer is responsible)")
+	maxConcurrent := fs.Int("max-concurrent-runs", 4, "maximum runs executing at once; the rest queue FIFO")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -249,10 +250,11 @@ func Serve(args []string) error {
 		return err
 	}
 	srv := server.New(server.Config{
-		Addr:         *bind,
-		LogsRoot:     *logs,
-		MakeHandlers: handlers,
-		AuthToken:    token,
+		Addr:              *bind,
+		LogsRoot:          *logs,
+		MakeHandlers:      handlers,
+		AuthToken:         token,
+		MaxConcurrentRuns: *maxConcurrent,
 	})
 	if err := srv.Start(); err != nil {
 		return err
