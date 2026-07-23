@@ -157,6 +157,21 @@ func TestACPBackend_AgentDeathIsError(t *testing.T) {
 	}
 }
 
+func TestACPBackend_NodeTimeoutAttr(t *testing.T) {
+	b := &acpbackend.Backend{Command: fakeACPCommand(t, "FAKE_ACP_MODE=hang")}
+	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{
+		"timeout": "500ms",
+	}})
+	start := time.Now()
+	_, err := b.Run(env, "hello")
+	if err == nil {
+		t.Fatal("expected timeout error from node timeout attr")
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("node timeout not honoured, took %v", time.Since(start))
+	}
+}
+
 func TestACPBackend_TimeoutKillsAgent(t *testing.T) {
 	b := &acpbackend.Backend{
 		Command: fakeACPCommand(t, "FAKE_ACP_MODE=hang"),

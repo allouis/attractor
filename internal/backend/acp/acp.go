@@ -58,10 +58,18 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		return backend.Result{}, err
 	}
 
+	// Node `timeout` attribute wins over the backend-level default,
+	// matching the tool handler's convention.
+	timeout := b.Timeout
+	if env.Node != nil {
+		if d, ok := env.Node.Duration("timeout"); ok && d > 0 {
+			timeout = d
+		}
+	}
 	ctx := context.Background()
 	cancel := func() {}
-	if b.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, b.Timeout)
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
 
