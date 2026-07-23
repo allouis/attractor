@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fabro/attractor/internal/artifact"
@@ -27,6 +28,8 @@ type Engine struct {
 	Artifacts       *artifact.Store
 	MaxLoopRestarts int
 	events          chan Event
+	eventsFile      *os.File
+	eventsMu        sync.Mutex
 	rng             *mrand.Rand
 	now             func() time.Time
 	restartCount    int
@@ -101,6 +104,8 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 	if err := os.MkdirAll(e.LogsRoot, 0o755); err != nil {
 		return failOutcome(fmt.Sprintf("create logs root: %v", err)), err
 	}
+	e.openEventsFile()
+	defer e.closeEventsFile()
 
 	state, err := e.loadOrInitState(g)
 	if err != nil {
@@ -197,6 +202,9 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 				Message: fmt.Sprintf("loop_restart: restarting at %s", next),
 			})
 			state = e.resetState(g, next)
+			// resetState archived the prior incarnation's logs (including
+			// events.jsonl); reopen a fresh file for the new incarnation.
+			e.openEventsFile()
 			continue
 		}
 		state.previousNode = nodeID
@@ -563,12 +571,48 @@ func (e *Engine) loadCheckpoint() (*Checkpoint, error) {
 	return &ckpt, nil
 }
 
+// openEventsFile (re)opens events.jsonl in append mode. Persistence
+// lives in the engine so both entry points — CLI `run` and the serve
+// daemon — record events, making any run replayable (service-spec §3).
+// A failure to open is non-fatal: the run proceeds without persistence.
+func (e *Engine) openEventsFile() {
+	e.closeEventsFile()
+	if e.LogsRoot == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(e.LogsRoot, "events.jsonl"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	e.eventsFile = f
+}
+
+func (e *Engine) closeEventsFile() {
+	if e.eventsFile != nil {
+		_ = e.eventsFile.Close()
+		e.eventsFile = nil
+	}
+}
+
 func (e *Engine) emit(ev Event) {
 	if ev.Timestamp.IsZero() {
 		ev.Timestamp = e.now()
 	}
 	if ev.RunID == "" {
 		ev.RunID = e.RunID
+	}
+	// Persist before the channel send so a slow (or full-buffer) consumer
+	// never costs us a durable event.
+	if e.eventsFile != nil {
+		if data, err := json.Marshal(ev); err == nil {
+			// One write of the payload+newline under a lock so concurrent
+			// emits never interleave a line and its terminator.
+			data = append(data, '\n')
+			e.eventsMu.Lock()
+			_, _ = e.eventsFile.Write(data)
+			e.eventsMu.Unlock()
+		}
 	}
 	select {
 	case e.events <- ev:
