@@ -17,6 +17,20 @@ type Event struct {
 	Duration   time.Duration     `json:"duration_ns,omitempty"`
 	Detail     map[string]string `json:"detail,omitempty"`
 	QuestionID string            `json:"question_id,omitempty"`
+	Usage      *Usage            `json:"usage,omitempty"`
+}
+
+// Usage carries token accounting: per-stage on an EventUsage event, or
+// the per-run rollup on the terminal pipeline event (service-spec §6).
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// Add accumulates another Usage into u.
+func (u *Usage) Add(other Usage) {
+	u.InputTokens += other.InputTokens
+	u.OutputTokens += other.OutputTokens
 }
 
 // EventKind enumerates pipeline-engine lifecycle events.
@@ -34,4 +48,5 @@ const (
 	EventCheckpointSaved   EventKind = "checkpoint_saved"
 	EventInterviewStarted  EventKind = "interview_started"
 	EventInterviewAnswered EventKind = "interview_answered"
+	EventUsage             EventKind = "usage"
 )

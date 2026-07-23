@@ -93,6 +93,33 @@ func TestACPBackend_RunHappyPath(t *testing.T) {
 	}
 }
 
+func TestACPBackend_EmitsUsageEvent(t *testing.T) {
+	b := &acpbackend.Backend{Command: fakeACPCommand(t)}
+	env, getEvents := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{}})
+
+	_, err := b.Run(env, "hello")
+	must(t, err)
+
+	var usage *engine.Usage
+	var count int
+	for _, ev := range getEvents() {
+		if ev.Kind != engine.EventUsage {
+			continue
+		}
+		count++
+		usage = ev.Usage
+		if ev.NodeID != "plan" {
+			t.Fatalf("usage event should carry the node id, got %q", ev.NodeID)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one usage event, got %d", count)
+	}
+	if usage == nil || usage.InputTokens != 1200 || usage.OutputTokens != 340 {
+		t.Fatalf("usage event tokens wrong: %+v", usage)
+	}
+}
+
 func TestACPBackend_EnvPrefixReachesAgent(t *testing.T) {
 	b := &acpbackend.Backend{Command: fakeACPCommand(t, "FAKE_MODEL=opus-test")}
 	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{}})
@@ -309,6 +336,7 @@ func runFakeACPAgent() {
 			say(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":` + string(chunk) + `}}}}`)
 			say(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-sess-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-1","title":"Edit file","kind":"edit","status":"in_progress"}}}`)
 			say(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-sess-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-1","status":"completed"}}}`)
+			say(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-sess-1","update":{"sessionUpdate":"usage","usage":{"inputTokens":1200,"outputTokens":340}}}}`)
 			say(`{"jsonrpc":"2.0","id":` + string(id) + `,"result":{"stopReason":"end_turn"}}`)
 		}
 	}

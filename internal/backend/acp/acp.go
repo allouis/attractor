@@ -121,6 +121,7 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 	if err != nil {
 		return backend.Result{}, agentErr(err, stderr.Bytes())
 	}
+	turn.emitUsage()
 	return resultFromStop(stop, turn.text()), nil
 }
 
@@ -189,6 +190,7 @@ type turnState struct {
 	mu        sync.Mutex
 	buf       strings.Builder
 	toolCalls int
+	usage     engine.Usage
 }
 
 func (t *turnState) text() string {
@@ -198,6 +200,14 @@ func (t *turnState) text() string {
 }
 
 func (t *turnState) onUpdate(u acp.SessionUpdate) {
+	if u.Usage != nil {
+		t.mu.Lock()
+		t.usage.Add(engine.Usage{
+			InputTokens:  u.Usage.InputTokens,
+			OutputTokens: u.Usage.OutputTokens,
+		})
+		t.mu.Unlock()
+	}
 	switch u.Kind {
 	case "agent_message_chunk":
 		t.mu.Lock()
@@ -232,6 +242,24 @@ func (t *turnState) onPermission(req acp.PermissionRequest, chosen string) {
 		Kind: engine.EventStageProgress, NodeID: t.env.Node.ID,
 		Message: "permission: " + req.ToolTitle,
 		Detail:  map[string]string{"kind": "permission", "chosen_option": chosen},
+	})
+}
+
+// emitUsage emits the per-stage token total once the turn ends, so the
+// engine can roll it up per run (service-spec §6). No usage reported
+// (zero total) emits nothing.
+func (t *turnState) emitUsage() {
+	t.mu.Lock()
+	total := t.usage
+	t.mu.Unlock()
+	if total.InputTokens == 0 && total.OutputTokens == 0 {
+		return
+	}
+	u := total
+	t.emit(engine.Event{
+		Kind:   engine.EventUsage,
+		NodeID: t.env.Node.ID,
+		Usage:  &u,
 	})
 }
 
