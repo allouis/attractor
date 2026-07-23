@@ -24,6 +24,10 @@ import (
 	"github.com/fabro/attractor/internal/setup"
 )
 
+// defaultMaxConcurrentRuns bounds runs executing at once when the config
+// leaves it unset (service-spec §3).
+const defaultMaxConcurrentRuns = 4
+
 // Server is the HTTP-mode Attractor service.
 type Server struct {
 	addr         string
@@ -33,6 +37,7 @@ type Server struct {
 	registry     *runRegistry
 	makeHandlers HandlerFactory
 	authToken    string
+	dispatcher   *dispatcher
 }
 
 // HandlerFactory builds an engine.Registry suitable for executing a
@@ -50,6 +55,9 @@ type Config struct {
 	// request originated from the loopback interface (so local tools
 	// don't need to know the token). Empty disables auth entirely.
 	AuthToken string
+	// MaxConcurrentRuns bounds how many submitted runs execute at once;
+	// the rest queue FIFO. Zero or negative uses defaultMaxConcurrentRuns.
+	MaxConcurrentRuns int
 }
 
 // New constructs an unstarted server.
@@ -69,6 +77,7 @@ func New(cfg Config) *Server {
 		registry:     newRunRegistry(cfg.LogsRoot),
 		makeHandlers: cfg.MakeHandlers,
 		authToken:    cfg.AuthToken,
+		dispatcher:   newDispatcher(cfg.MaxConcurrentRuns),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
@@ -98,6 +107,7 @@ func (s *Server) Start() error {
 	}
 	s.listener = ln
 	s.addr = ln.Addr().String()
+	go s.dispatcher.run()
 	go s.httpsrv.Serve(ln)
 	return nil
 }
@@ -110,6 +120,7 @@ func (s *Server) URL() string { return "http://" + s.addr }
 
 // Close shuts down the HTTP server gracefully.
 func (s *Server) Close() error {
+	s.dispatcher.close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return s.httpsrv.Shutdown(ctx)
@@ -178,7 +189,7 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers)
-	go run.execute()
+	s.dispatcher.enqueue(run)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": run.ID})
 }
 

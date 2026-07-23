@@ -248,8 +248,19 @@ func (r *Run) Unsubscribe(ch chan engine.Event) {
 func (r *Run) Cancel() {
 	r.mu.Lock()
 	r.cancelled = true
+	queued := r.status == RunQueued
 	if r.status == RunQueued || r.status == RunRunning {
 		r.status = RunCancelled
+	}
+	// A queued run never reaches execute(), so nothing else would ever
+	// close its subscribers. Terminate them here, in the same critical
+	// section as the status transition, mirroring execute()'s terminal
+	// close (no double-close window). A running run is left to execute().
+	if queued {
+		for ch := range r.subscribers {
+			close(ch)
+		}
+		r.subscribers = map[chan engine.Event]struct{}{}
 	}
 	r.mu.Unlock()
 	r.writeManifest()
