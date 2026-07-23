@@ -63,6 +63,16 @@
         };
 
         checks = {
+          attractor-gofmt = pkgs.runCommand "attractor-gofmt"
+            { nativeBuildInputs = [ pkgs.go ]; } ''
+            drift=$(cd ${./.} && gofmt -l .)
+            if [ -n "$drift" ]; then
+              echo "gofmt drift in:" >&2
+              echo "$drift" >&2
+              exit 1
+            fi
+            touch $out
+          '';
           attractor-build = attractor;
           attractor-test = pkgs.buildGoModule {
             pname = "attractor-test";
