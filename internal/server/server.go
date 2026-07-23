@@ -179,9 +179,22 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		vars = payload.Vars
 		cwd = payload.Cwd
 	}
-	// Run the shared setup path (service-spec §2): @file prompts resolve
-	// against the submission cwd, $vars expand, and the payload cwd
-	// becomes the graph-level cwd default (node/graph attrs still win).
+	id, err := s.submit(source, vars, cwd)
+	if err != nil {
+		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+// submit runs the shared setup path (service-spec §2), registers the run,
+// and enqueues it, returning the new run id. It is the single admission
+// point shared by HTTP submission (POST /pipelines), manual automation
+// triggers (POST /automations/{name}/run), and the cron scheduler, so
+// every route enqueues runs identically. @file prompts resolve against
+// cwd, $vars expand, and cwd becomes the graph-level cwd default
+// (node/graph attrs still win).
+func (s *Server) submit(source string, vars map[string]string, cwd string) (string, error) {
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  source,
 		Vars:    vars,
@@ -189,12 +202,11 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		Cwd:     cwd,
 	})
 	if err != nil {
-		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
-		return
+		return "", err
 	}
 	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers)
 	s.dispatcher.enqueue(run)
-	writeJSON(w, http.StatusCreated, map[string]any{"id": run.ID})
+	return run.ID, nil
 }
 
 // listPipelines returns registry summaries newest-first (service-spec
