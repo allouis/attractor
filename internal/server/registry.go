@@ -30,16 +30,17 @@ const (
 // run is queued and updated again when it terminates so a server
 // restart can reconstruct the registry from disk alone.
 type Manifest struct {
-	ID            string    `json:"id"`
-	Status        RunStatus `json:"status"`
-	StartedAt     time.Time `json:"started_at"`
-	CompletedAt   time.Time `json:"completed_at,omitempty"`
-	GraphName     string    `json:"graph_name,omitempty"`
-	GraphGoal     string    `json:"graph_goal,omitempty"`
-	Cwd           string    `json:"cwd,omitempty"`
-	Outcome       string    `json:"outcome,omitempty"`
-	FailureReason string    `json:"failure_reason,omitempty"`
-	LogsRoot      string    `json:"logs_root"`
+	ID            string        `json:"id"`
+	Status        RunStatus     `json:"status"`
+	StartedAt     time.Time     `json:"started_at"`
+	CompletedAt   time.Time     `json:"completed_at,omitempty"`
+	GraphName     string        `json:"graph_name,omitempty"`
+	GraphGoal     string        `json:"graph_goal,omitempty"`
+	Cwd           string        `json:"cwd,omitempty"`
+	Outcome       string        `json:"outcome,omitempty"`
+	FailureReason string        `json:"failure_reason,omitempty"`
+	LogsRoot      string        `json:"logs_root"`
+	Tokens        *engine.Usage `json:"tokens,omitempty"`
 }
 
 // runRegistry holds active and completed runs by ID.
@@ -103,6 +104,9 @@ func (r *runRegistry) reload() {
 				StatusString:  m.Outcome,
 				FailureReason: m.FailureReason,
 			}
+		}
+		if m.Tokens != nil {
+			run.usage = *m.Tokens
 		}
 		r.runs[m.ID] = run
 	}
@@ -178,6 +182,7 @@ type Run struct {
 	failure     string
 	cancelled   bool
 	persisted   bool
+	usage       engine.Usage
 
 	history     []engine.Event
 	subscribers map[chan engine.Event]struct{}
@@ -301,6 +306,9 @@ func (r *Run) Summary() map[string]any {
 			resp["failure_reason"] = r.outcome.FailureReason
 		}
 	}
+	if r.usage.InputTokens != 0 || r.usage.OutputTokens != 0 {
+		resp["tokens"] = r.usage
+	}
 	return resp
 }
 
@@ -402,6 +410,9 @@ func (r *Run) fanOutEvents(src <-chan engine.Event, done chan<- struct{}) {
 	for ev := range src {
 		r.mu.Lock()
 		r.history = append(r.history, ev)
+		if ev.Kind == engine.EventUsage && ev.Usage != nil {
+			r.usage.Add(*ev.Usage)
+		}
 		subs := make([]chan engine.Event, 0, len(r.subscribers))
 		for ch := range r.subscribers {
 			subs = append(subs, ch)
@@ -451,6 +462,10 @@ func (r *Run) writeManifest() {
 	if r.outcome != nil {
 		m.Outcome = r.outcome.Status.String()
 		m.FailureReason = r.outcome.FailureReason
+	}
+	if r.usage.InputTokens != 0 || r.usage.OutputTokens != 0 {
+		u := r.usage
+		m.Tokens = &u
 	}
 	r.mu.RUnlock()
 	_ = os.MkdirAll(r.logsRoot, 0o755)

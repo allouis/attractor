@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/fabro/attractor/internal/backend"
+	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/handler"
 	"github.com/fabro/attractor/internal/server"
 )
@@ -62,5 +64,58 @@ func TestServer_ListPipelines(t *testing.T) {
 	}
 	if got := payload.Pipelines[i2].Cwd; got != repo {
 		t.Fatalf("run2 cwd = %q, want %q", got, repo)
+	}
+}
+
+// TestServer_ListPipelinesReportsUsage confirms the per-run token
+// rollup surfaces in GET /pipelines summaries (service-spec §6).
+func TestServer_ListPipelinesReportsUsage(t *testing.T) {
+	be := handler.Codergen{Backend: backend.Func(func(env engine.HandlerEnv, _ string) (backend.Result, error) {
+		env.Emit(engine.Event{
+			Kind:   engine.EventUsage,
+			NodeID: env.Node.ID,
+			Usage:  &engine.Usage{InputTokens: 100, OutputTokens: 20},
+		})
+		return backend.Result{ResponseText: "ok"}, nil
+	})}
+	srv := newTestServer(t, server.DefaultHandlers(be))
+	dot := `digraph named {
+		start [shape=Mdiamond]
+		work [prompt="x"]
+		done [shape=Msquare]
+		start -> work -> done
+	}`
+	id := submitPipeline(t, srv, dot)
+	waitForRunStatus(t, srv, id, "completed")
+
+	resp, err := http.Get(srv.URL() + "/pipelines")
+	must(t, err)
+	defer resp.Body.Close()
+	var payload struct {
+		Pipelines []struct {
+			ID     string `json:"id"`
+			Tokens *struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"tokens"`
+		} `json:"pipelines"`
+	}
+	must(t, json.NewDecoder(resp.Body).Decode(&payload))
+
+	var tokens *struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	}
+	for _, p := range payload.Pipelines {
+		if p.ID == id {
+			tokens = p.Tokens
+		}
+	}
+	if tokens == nil {
+		t.Fatalf("run summary missing token rollup: %+v", payload.Pipelines)
+	}
+	// Single codergen stage "work".
+	if tokens.InputTokens != 100 || tokens.OutputTokens != 20 {
+		t.Fatalf("token rollup wrong: %+v", tokens)
 	}
 }
