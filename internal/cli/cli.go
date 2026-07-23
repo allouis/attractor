@@ -272,6 +272,7 @@ func Serve(args []string) error {
 		MakeHandlers:      handlers,
 		AuthToken:         token,
 		MaxConcurrentRuns: *maxConcurrent,
+		AutomationsDir:    automationsDir(),
 	})
 	if err := srv.Start(); err != nil {
 		return err
