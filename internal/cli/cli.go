@@ -18,6 +18,8 @@ import (
 	"github.com/fabro/attractor/internal/backend"
 	acpbackend "github.com/fabro/attractor/internal/backend/acp"
 	"github.com/fabro/attractor/internal/backend/claudecode"
+	"github.com/fabro/attractor/internal/backend/router"
+	"github.com/fabro/attractor/internal/config"
 	"github.com/fabro/attractor/internal/dot"
 	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/graph"
@@ -117,14 +119,27 @@ func Run(args []string) error {
 		return err
 	}
 
-	// Resolve backend + auxiliary ingest server.
-	choice, err := parseBackendChoice(*backendFlag)
-	if err != nil {
-		return err
-	}
-	ingestSrv, codergenBackend, err := startCodergen(choice, g, logsRoot, *hookshim, *acpCmd)
-	if err != nil {
-		return err
+	// Resolve the codergen backend. Explicit --backend / --acp-cmd are
+	// run-wide overrides (debugging) that bypass provider config;
+	// otherwise each codergen node is routed per its llm_provider /
+	// llm_model through ./.attractor/config.toml (service-spec §1).
+	var ingestSrv *ingest.Server
+	var codergenBackend backend.CodergenBackend
+	if flagSet(fs, "backend") || flagSet(fs, "acp-cmd") {
+		choice, err := parseBackendChoice(*backendFlag)
+		if err != nil {
+			return err
+		}
+		ingestSrv, codergenBackend, err = startCodergen(choice, g, logsRoot, *hookshim, *acpCmd)
+		if err != nil {
+			return err
+		}
+	} else {
+		cfg, err := loadProviderConfig()
+		if err != nil {
+			return err
+		}
+		codergenBackend = router.New(cfg)
 	}
 	if ingestSrv != nil {
 		defer ingestSrv.Close()
@@ -293,6 +308,32 @@ func defaultLogsRoot() string {
 }
 
 // ---------------------------------------------------------------------------
+
+// flagSet reports whether the named flag was explicitly provided on the
+// command line (as opposed to sitting at its default).
+func flagSet(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+// loadProviderConfig reads the provider routing config from the home
+// and current-working directories (service-spec §1).
+func loadProviderConfig() (config.Config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	return config.Load(home, cwd)
+}
 
 // parseBackendChoice validates the --backend flag value.
 func parseBackendChoice(raw string) (BackendChoice, error) {
