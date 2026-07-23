@@ -104,18 +104,39 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 	return resultFromStop(stop, turn.text()), nil
 }
 
-// runTurn performs the handshake and the prompt round-trip.
+// runTurn performs the handshake and the prompt round-trip. Under
+// full fidelity, stages sharing a thread resume the recorded agent
+// session via session/load (spec §5.4 session reuse) when the agent
+// advertises loadSession; anything else starts fresh.
 func (b *Backend) runTurn(ctx context.Context, client *acp.Client, env engine.HandlerEnv, prompt string) (acp.StopReason, error) {
-	if _, err := client.Initialize(ctx); err != nil {
+	init, err := client.Initialize(ctx)
+	if err != nil {
 		return "", fmt.Errorf("initialize: %w", err)
 	}
 	cwd := env.Cwd
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	sessionID, err := client.NewSession(ctx, cwd)
-	if err != nil {
-		return "", fmt.Errorf("session/new: %w", err)
+	reusable := env.Fidelity == engine.FidelityFull && env.ThreadID != ""
+	sessionID := ""
+	if reusable && init.SupportsLoadSession {
+		if prev, ok := b.sessions.Load(env.ThreadID); ok {
+			sid := prev.(string)
+			if err := client.LoadSession(ctx, sid, cwd); err == nil {
+				sessionID = sid
+			}
+			// A failed load falls through to a fresh session: the agent
+			// may have expired or never persisted the conversation.
+		}
+	}
+	if sessionID == "" {
+		sessionID, err = client.NewSession(ctx, cwd)
+		if err != nil {
+			return "", fmt.Errorf("session/new: %w", err)
+		}
+	}
+	if reusable {
+		b.sessions.Store(env.ThreadID, sessionID)
 	}
 	stop, err := client.Prompt(ctx, sessionID, prompt)
 	if err != nil {

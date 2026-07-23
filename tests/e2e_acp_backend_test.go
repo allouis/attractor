@@ -190,6 +190,7 @@ func runFakeACPAgent() {
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	say := func(line string) { fmt.Println(line) }
+	loadedSession := ""
 	for in.Scan() {
 		var m map[string]any
 		if err := json.Unmarshal(in.Bytes(), &m); err != nil {
@@ -199,9 +200,21 @@ func runFakeACPAgent() {
 		id, _ := json.Marshal(m["id"])
 		switch method {
 		case "initialize":
-			say(`{"jsonrpc":"2.0","id":` + string(id) + `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}}`)
+			loadSession := "true"
+			if mode == "noload" {
+				loadSession = "false"
+			}
+			say(`{"jsonrpc":"2.0","id":` + string(id) + `,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":` + loadSession + `}}}`)
 		case "session/new":
 			say(`{"jsonrpc":"2.0","id":` + string(id) + `,"result":{"sessionId":"fake-sess-1"}}`)
+		case "session/load":
+			var p struct {
+				SessionID string `json:"sessionId"`
+			}
+			raw, _ := json.Marshal(m["params"])
+			_ = json.Unmarshal(raw, &p)
+			loadedSession = p.SessionID
+			say(`{"jsonrpc":"2.0","id":` + string(id) + `,"result":null}`)
 		case "session/prompt":
 			if mode == "die" {
 				os.Exit(1)
@@ -242,6 +255,9 @@ func runFakeACPAgent() {
 			reply := "echo:" + promptText
 			if model := os.Getenv("FAKE_MODEL"); model != "" {
 				reply += " model=" + model
+			}
+			if loadedSession != "" {
+				reply += " resumed=" + loadedSession
 			}
 			chunk, _ := json.Marshal(reply)
 			say(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":` + string(chunk) + `}}}}`)
