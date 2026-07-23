@@ -100,6 +100,7 @@ func BuiltIn() []Rule {
 		PromptOnLLMNodesRule{},
 		TypeKnownRule{},
 		CodergenTypeKnownRule{},
+		ACPCommandRule{},
 		RetryTargetExistsRule{},
 		GoalGateHasRetryRule{},
 		FidelityValidRule{},
@@ -375,6 +376,39 @@ func (TypeKnownRule) Apply(g *graph.Graph) []Diagnostic {
 	return out
 }
 
+// ---- acp_command_missing ---------------------------------------------------
+
+// ACPCommandRule warns when a codergen.acp node has no agent command
+// from either the node or the graph `acp_command` attribute. Warning
+// rather than error because the --acp-cmd flag can still supply one at
+// run time.
+type ACPCommandRule struct{}
+
+func (ACPCommandRule) Name() string { return "acp_command_missing" }
+
+func (ACPCommandRule) Apply(g *graph.Graph) []Diagnostic {
+	if strings.TrimSpace(g.Attrs["acp_command"]) != "" {
+		return nil
+	}
+	var out []Diagnostic
+	for _, id := range g.NodeOrder {
+		n := g.Nodes[id]
+		if n.Attrs["type"] != "codergen.acp" {
+			continue
+		}
+		if strings.TrimSpace(n.Attrs["acp_command"]) != "" {
+			continue
+		}
+		out = append(out, Diagnostic{
+			Rule:     "acp_command_missing",
+			Severity: Warning,
+			NodeID:   id,
+			Message:  "codergen.acp node has no acp_command (node or graph attribute); the run will need --acp-cmd",
+		})
+	}
+	return out
+}
+
 // ---- codergen_type_known ---------------------------------------------------
 
 // CodergenTypeKnownRule (codergen-backends §2.3) warns when a `codergen.`
@@ -387,6 +421,7 @@ func (CodergenTypeKnownRule) Apply(g *graph.Graph) []Diagnostic {
 	known := map[string]struct{}{
 		"codergen.claude":      {},
 		"codergen.claude.tmux": {},
+		"codergen.acp":         {},
 		"codergen.openai":      {},
 		"codergen.gemini":      {},
 	}

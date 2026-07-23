@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/fabro/attractor/internal/backend"
+	acpbackend "github.com/fabro/attractor/internal/backend/acp"
 	"github.com/fabro/attractor/internal/backend/claudecode"
 	"github.com/fabro/attractor/internal/dot"
 	"github.com/fabro/attractor/internal/engine"
@@ -40,6 +41,7 @@ type BackendChoice string
 
 const (
 	BackendClaude     BackendChoice = "claude"
+	BackendACP        BackendChoice = "acp"
 	BackendSimulation BackendChoice = "simulation"
 )
 
@@ -75,7 +77,8 @@ func Run(args []string) error {
 	fs.SetOutput(io.Discard)
 	logs := fs.String("logs", "", "directory for run artefacts (default: $XDG_DATA_HOME/attractor/runs/<run-id> or ~/.attractor/runs/<run-id>)")
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
-	backendFlag := fs.String("backend", "simulation", "codergen backend: claude | simulation")
+	backendFlag := fs.String("backend", "simulation", "codergen backend: claude | acp | simulation")
+	acpCmd := fs.String("acp-cmd", "", "ACP agent command for --backend acp (fallback when the graph sets no acp_command attribute)")
 	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
 	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
 	var vars varFlags
@@ -119,7 +122,7 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	ingestSrv, codergenBackend, err := startCodergen(choice, g, logsRoot, *hookshim)
+	ingestSrv, codergenBackend, err := startCodergen(choice, g, logsRoot, *hookshim, *acpCmd)
 	if err != nil {
 		return err
 	}
@@ -294,19 +297,23 @@ func defaultLogsRoot() string {
 // parseBackendChoice validates the --backend flag value.
 func parseBackendChoice(raw string) (BackendChoice, error) {
 	switch c := BackendChoice(raw); c {
-	case BackendClaude, BackendSimulation:
+	case BackendClaude, BackendACP, BackendSimulation:
 		return c, nil
 	}
-	return "", fmt.Errorf("run: unknown backend %q (valid: claude, simulation)", raw)
+	return "", fmt.Errorf("run: unknown backend %q (valid: claude, acp, simulation)", raw)
 }
 
 // startCodergen constructs the codergen backend matching `choice`. For
 // the Claude path it also starts an ingest server scoped to the run so
 // hook events flow back into the engine and tool_hooks.pre/post fire.
-// The returned ingest.Server may be nil (simulation mode).
-func startCodergen(choice BackendChoice, g *graph.Graph, logsRoot, hookshimOverride string) (*ingest.Server, backend.CodergenBackend, error) {
+// The ACP path needs neither: tool visibility comes over the protocol
+// itself. The returned ingest.Server may be nil.
+func startCodergen(choice BackendChoice, g *graph.Graph, logsRoot, hookshimOverride, acpCmd string) (*ingest.Server, backend.CodergenBackend, error) {
 	if choice == BackendSimulation {
 		return nil, nil, nil
+	}
+	if choice == BackendACP {
+		return nil, &acpbackend.Backend{Command: acpCmd}, nil
 	}
 	shim := hookshimOverride
 	if shim == "" {
@@ -378,6 +385,7 @@ func buildRegistryWith(codergen handler.Codergen, iv interviewer.Interviewer) *e
 	r.Register("stack.manager_loop", handler.ManagerLoop{})
 	r.Register("codergen", codergen)
 	r.Register("codergen.claude", codergen)
+	r.Register("codergen.acp", codergen)
 	r.SetDefault(codergen)
 	return r
 }
