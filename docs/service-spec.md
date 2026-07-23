@@ -208,7 +208,7 @@ Only that pipeline (or a human) edits this column.
 | M3 | Queue + run states + concurrency limit; `GET /pipelines`; shared events.jsonl | M2 | done |
 | M4 | UI v1 (run list, live graph, node pane, human dock) | M2 | done |
 | M5 | Automations (TOML + cron + manual trigger) | M3 | done |
-| M6 | Stall watchdog; usage events | any | todo |
+| M6 | Stall watchdog; usage events | any | done |
 
 Each milestone is a handful of small commits with e2e tests (fake ACP
 agent already covers the agent side; provider config gets its own
