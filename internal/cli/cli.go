@@ -29,7 +29,7 @@ import (
 	"github.com/fabro/attractor/internal/lint"
 	"github.com/fabro/attractor/internal/render"
 	"github.com/fabro/attractor/internal/server"
-	"github.com/fabro/attractor/internal/transform"
+	"github.com/fabro/attractor/internal/setup"
 )
 
 func cryptoRandRead(b []byte) (int, error) { return rand.Read(b) }
@@ -111,21 +111,19 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	g, err := loadGraph(dotPath)
+	src, err := os.ReadFile(dotPath)
 	if err != nil {
 		return err
 	}
-	if err := requireDeclaredVars(g, vars); err != nil {
-		return err
-	}
-	dotDir := filepath.Dir(dotPath)
-	prepared, err := engine.Prepare(g,
-		transform.PromptFile{BaseDir: dotDir},
-		transform.VariableExpansion{Vars: vars},
-	)
+	prepared, err := setup.Prepare(setup.Options{
+		Source:  string(src),
+		Vars:    vars,
+		BaseDir: filepath.Dir(dotPath),
+	})
 	if err != nil {
 		return err
 	}
+	g := prepared.Graph
 	logsRoot := *logs
 	if logsRoot == "" {
 		logsRoot = filepath.Join(defaultLogsRoot(), engine.NewRunID())
@@ -542,31 +540,6 @@ func (v *varFlags) Set(raw string) error {
 	}
 	(*v)[raw[:idx]] = raw[idx+1:]
 	return nil
-}
-
-// requireDeclaredVars checks that every name listed in the graph's
-// `vars` attribute has a corresponding -var entry. Missing vars are a
-// hard error so a pipeline doesn't silently run with empty
-// substitutions.
-func requireDeclaredVars(g *graph.Graph, supplied varFlags) error {
-	raw := strings.TrimSpace(g.Attr("vars"))
-	if raw == "" {
-		return nil
-	}
-	var missing []string
-	for _, name := range strings.Split(raw, ",") {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if _, ok := supplied[name]; !ok {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return fmt.Errorf("pipeline declares vars %v but missing -var %v", strings.Split(raw, ","), missing)
 }
 
 // resolvePipelinePath turns a name-or-path argument into an absolute
