@@ -5,17 +5,257 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>attractor</title>
 <style>
-  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; color: #1a1a1a; }
-  header { padding: 12px 16px; border-bottom: 1px solid #ddd; font-weight: 600; }
-  #run-list { padding: 12px 16px; }
-  #run-view { padding: 12px 16px; display: none; }
+  :root { --bg:#fff; --fg:#1a1a1a; --muted:#666; --line:#ddd;
+          --green:#1a7f37; --red:#cf222e; --amber:#bf8700; --active:#0969da; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; color: var(--fg); background: var(--bg); }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  header a { color: inherit; text-decoration: none; }
+  main { padding: 12px 16px; }
+  #run-view { display: none; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  a { color: var(--active); }
+  .status { font-weight: 600; text-transform: capitalize; }
+  .status.completed { color: var(--green); }
+  .status.failed, .status.cancelled { color: var(--red); }
+  .status.running { color: var(--active); }
+  .status.queued { color: var(--muted); }
+  .layout { display: grid; grid-template-columns: 1fr 360px; gap: 16px; align-items: start; }
+  #graph svg { max-width: 100%; height: auto; }
+  #graph g.node { cursor: pointer; }
+  #node-pane { border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-height: 120px; }
+  #node-pane h3 { margin: 0 0 8px; }
+  #node-links a { margin-right: 12px; }
+  #node-log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, monospace;
+              margin-top: 10px; max-height: 320px; overflow: auto; }
+  .tool { color: var(--muted); }
+  #human-dock { margin-top: 16px; }
+  #human-dock .q { border: 1px solid var(--amber); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+  .pulse { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  .muted { color: var(--muted); }
+  button { font: inherit; padding: 4px 10px; cursor: pointer; }
 </style>
 </head>
 <body>
-<header>attractor</header>
+<header><a href="#" onclick="showList();return false">attractor</a></header>
 <main>
   <section id="run-list"></section>
-  <section id="run-view"></section>
+  <section id="run-view">
+    <p><a href="#" onclick="showList();return false">&larr; all runs</a></p>
+    <h2 id="run-title"></h2>
+    <div class="layout">
+      <div id="graph"></div>
+      <div>
+        <div id="node-pane"><p class="muted">Click a node to inspect it.</p></div>
+        <div id="human-dock"></div>
+      </div>
+    </div>
+  </section>
 </main>
+<script>
+const $ = (id) => document.getElementById(id);
+let es = null;                 // active EventSource
+let currentRun = null;         // run id being viewed
+let selectedNode = null;       // node id in the pane
+const nodeLog = {};            // node id -> accumulated log html chunks
+const nodeState = {};          // node id -> status class
+let dockTimer = null;
+
+// ---- run list ----------------------------------------------------------
+async function showList() {
+  if (es) { es.close(); es = null; }
+  if (dockTimer) { clearInterval(dockTimer); dockTimer = null; }
+  currentRun = null;
+  location.hash = '';
+  $('run-view').style.display = 'none';
+  $('run-list').style.display = 'block';
+  await renderList();
+}
+
+async function renderList() {
+  let pipelines = [];
+  try {
+    const r = await fetch('/pipelines');
+    pipelines = (await r.json()).pipelines || [];
+  } catch (e) { $('run-list').innerHTML = '<p class="muted">server unreachable</p>'; return; }
+  if (!pipelines.length) { $('run-list').innerHTML = '<p class="muted">no runs yet</p>'; return; }
+  const rows = pipelines.map(runRowHtml).join('');
+  $('run-list').innerHTML = `<table>
+    <thead><tr><th>pipeline</th><th>status</th><th>cwd</th><th>started</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+// runRowHtml builds one run-list row. Every attacker-controlled field
+// (graph_name, cwd, status come from the DOT source) is escaped before it
+// reaches innerHTML. The run id is server-generated hex, safe inside the
+// single-quoted onclick JS string.
+function runRowHtml(p) {
+  return `
+    <tr>
+      <td><a href="#run/${escapeHtml(p.id)}" onclick="openRun('${p.id}')">${escapeHtml(p.graph_name || p.id)}</a></td>
+      <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span></td>
+      <td class="muted">${escapeHtml(p.cwd || '')}</td>
+      <td class="muted">${escapeHtml(p.started_at || '')}</td>
+    </tr>`;
+}
+
+// ---- run view ----------------------------------------------------------
+async function openRun(id) {
+  currentRun = id;
+  selectedNode = null;
+  for (const k in nodeLog) delete nodeLog[k];
+  for (const k in nodeState) delete nodeState[k];
+  location.hash = 'run/' + id;
+  $('run-list').style.display = 'none';
+  $('run-view').style.display = 'block';
+  $('run-title').textContent = id;
+  $('node-pane').innerHTML = '<p class="muted">Click a node to inspect it.</p>';
+  await loadGraph(id);
+  attachStream(id);
+  if (dockTimer) clearInterval(dockTimer);
+  refreshDock();
+  dockTimer = setInterval(refreshDock, 3000);
+}
+
+async function loadGraph(id) {
+  try {
+    const r = await fetch(`/pipelines/${id}/graph`);
+    $('graph').innerHTML = r.ok ? await r.text() : '<p class="muted">graph unavailable</p>';
+  } catch (e) { $('graph').innerHTML = '<p class="muted">graph unavailable</p>'; return; }
+  // Make each graphviz node clickable; its DOT id lives in <title>.
+  $('graph').querySelectorAll('g.node').forEach(g => {
+    const id = g.querySelector('title')?.textContent;
+    if (!id) return;
+    g.addEventListener('click', () => selectNode(id));
+    if (nodeState[id]) paintNode(id, nodeState[id]);
+  });
+}
+
+// paintNode colours a graphviz node's shape by status.
+function paintNode(id, cls) {
+  nodeState[id] = cls;
+  const g = [...$('graph').querySelectorAll('g.node')]
+    .find(g => g.querySelector('title')?.textContent === id);
+  if (!g) return;
+  const color = { running: 'var(--active)', completed: 'var(--green)',
+                  failed: 'var(--red)', retrying: 'var(--amber)' }[cls];
+  g.classList.toggle('pulse', cls === 'running');
+  g.querySelectorAll('polygon, ellipse, path').forEach(shape => {
+    if (color) shape.setAttribute('stroke', color);
+  });
+}
+
+function attachStream(id) {
+  if (es) es.close();
+  es = new EventSource(`/pipelines/${id}/events`);
+  const on = (kind, fn) => es.addEventListener(kind, e => fn(JSON.parse(e.data)));
+  on('stage_started',   ev => paintNode(ev.node_id, 'running'));
+  on('stage_completed', ev => paintNode(ev.node_id, 'completed'));
+  on('stage_failed',    ev => paintNode(ev.node_id, 'failed'));
+  on('stage_retrying',  ev => paintNode(ev.node_id, 'retrying'));
+  on('stage_progress',  ev => appendProgress(ev));
+  const done = () => { renderDock([]); refreshDock(); };
+  on('pipeline_completed', done);
+  on('pipeline_failed', done);
+  es.onerror = () => { /* stream closes when the run ends; list stays live */ };
+}
+
+// appendProgress records assistant_delta / tool_call chunks per node.
+function appendProgress(ev) {
+  const node = ev.node_id; if (!node) return;
+  const kind = ev.detail && ev.detail.kind;
+  let html = '';
+  if (kind === 'assistant_delta') html = escapeHtml(ev.message || '');
+  else if (kind === 'tool_call') {
+    const name = (ev.detail && ev.detail.tool_name) || 'tool';
+    html = `<span class="tool">[${escapeHtml(name)}] ${escapeHtml(ev.message || '')}</span>\n`;
+  } else if (ev.message) html = escapeHtml(ev.message) + '\n';
+  if (!html) return;
+  (nodeLog[node] = nodeLog[node] || []).push(html);
+  if (node === selectedNode) {
+    const log = $('node-log');
+    if (log) { log.innerHTML += html; log.scrollTop = log.scrollHeight; }
+  }
+}
+
+function selectNode(id) {
+  selectedNode = id;
+  const base = `/pipelines/${currentRun}/artifacts/${id}`;
+  $('node-pane').innerHTML = `
+    <h3>${escapeHtml(id)}</h3>
+    <div id="node-links">
+      <a href="${base}/prompt.md" target="_blank">prompt.md</a>
+      <a href="${base}/response.md" target="_blank">response.md</a>
+      <a href="${base}/tool_calls/" target="_blank">tool_calls/</a>
+    </div>
+    <div id="node-log">${(nodeLog[id] || []).join('')}</div>`;
+  const log = $('node-log'); if (log) log.scrollTop = log.scrollHeight;
+}
+
+// ---- wait.human dock ---------------------------------------------------
+async function refreshDock() {
+  if (!currentRun) return;
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/questions`);
+    renderDock((await r.json()).questions || []);
+  } catch (e) { /* transient; retried on next tick */ }
+}
+
+// renderDock builds the wait.human dock via DOM + listeners rather than
+// interpolating question text into an HTML string: option labels can
+// contain quotes that would otherwise break an inline onclick attribute.
+function renderDock(questions) {
+  const dock = $('human-dock');
+  dock.textContent = '';
+  if (!questions.length) return;
+  const h = document.createElement('h3'); h.textContent = 'open questions';
+  dock.appendChild(h);
+  questions.forEach(q => {
+    const box = document.createElement('div'); box.className = 'q';
+    const label = document.createElement('div');
+    label.textContent = (q.text || '') + ' ';
+    const who = document.createElement('span'); who.className = 'muted';
+    who.textContent = '(' + (q.node_id || '') + ')';
+    label.appendChild(who);
+    box.appendChild(label);
+    if ((q.options || []).length) {
+      q.options.forEach(o => {
+        const b = document.createElement('button');
+        b.textContent = o.label;
+        b.addEventListener('click', () => answer(q.id, { key: o.key, label: o.label }));
+        box.appendChild(b); box.appendChild(document.createTextNode(' '));
+      });
+    } else {
+      const input = document.createElement('input'); input.placeholder = 'answer';
+      const send = document.createElement('button'); send.textContent = 'send';
+      send.addEventListener('click', () => answer(q.id, { text: input.value }));
+      box.appendChild(input); box.appendChild(document.createTextNode(' ')); box.appendChild(send);
+    }
+    dock.appendChild(box);
+  });
+}
+
+async function answer(qid, body) {
+  await fetch(`/pipelines/${currentRun}/questions/${qid}/answer`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  refreshDock();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---- boot --------------------------------------------------------------
+window.addEventListener('load', () => {
+  const m = location.hash.match(/^#run\/(.+)$/);
+  if (m) openRun(m[1]); else showList();
+});
+</script>
 </body>
 </html>
