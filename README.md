@@ -28,6 +28,7 @@ observability and graph-level `tool_hooks.*` dispatch.
 | Pi / Codex / Gemini backends | deferred (Codex/Gemini reachable through their ACP adapters) |
 | Claude Code tier 3 (tmux) + native steering | superseded by the ACP backend — the protocol provides interactivity, cancellation, and (future) steering natively |
 | HTTP server (§9.5) | all 9 endpoints + SSE + RemoteInterviewer + bearer-token auth + file-backed run registry |
+| Automations (§5) | TOML files + five-field cron scheduler + manual trigger (CLI `automations list|run` + `/automations` endpoints) |
 | SVG render | feature-complete (via graphviz `dot`) |
 | Web UI | none yet |
 
@@ -83,6 +84,8 @@ build [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-sonnet-5 claude-
 | `attractor validate <path>` | lint only; non-zero exit on error-severity diagnostics |
 | `attractor render <path> [-o out.svg]` | DOT → SVG via graphviz |
 | `attractor serve` | HTTP server (default `127.0.0.1:7681`) |
+| `attractor automations list` | list saved automations |
+| `attractor automations run <name>` | run a saved automation standalone |
 | `attractor version` | print version |
 
 Common flags for `run`:
@@ -174,6 +177,8 @@ Endpoints (spec §9.5):
 | POST | `/pipelines/{id}/questions/{qid}/answer` |
 | GET | `/pipelines/{id}/checkpoint` |
 | GET | `/pipelines/{id}/context` |
+| GET | `/automations` |
+| POST | `/automations/{name}/run` |
 | GET | `/healthz` |
 
 With `--auth-token`, every endpoint except `/healthz` requires
@@ -201,6 +206,36 @@ Run data layout (file-backed, survives server restart):
 A run marked `running` or `queued` in its manifest at server startup
 (i.e. the server didn't survive its own shutdown) is rehydrated as
 `cancelled` rather than spuriously resumed.
+
+## Automations
+
+An automation is a saved run config + trigger, stored as one TOML file
+per automation under `~/.attractor/automations/` (file-first, no DB):
+
+```toml
+# ~/.attractor/automations/nightly-triage.toml
+pipeline = "~/attractor-pipelines/triage/pipeline.dot"
+cwd      = "/home/agent/repo-a"
+
+[vars]
+label = "bug"
+
+[trigger]
+cron = "0 3 * * *"     # five-field cron, local time
+```
+
+`serve` loads the directory at startup: the cron scheduler submits each
+automation on schedule through the same admission path as
+`POST /pipelines`, and `POST /automations/{name}/run` fires one manually
+(re-read from disk so on-disk edits apply without a restart). Automations
+without a `[trigger].cron` are manual-only. The cron field supports `*`,
+lists, ranges, and steps across minute, hour, day-of-month, month, and
+day-of-week; when both day fields are restricted a day matches if either
+does (Vixie union).
+
+`attractor automations list|run <name>` works standalone against the
+same directory; the `pipeline` field must be a filesystem path (a
+leading `~` is expanded).
 
 ## Spec divergences
 
