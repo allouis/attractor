@@ -1,0 +1,92 @@
+// Package router provides a CodergenBackend that dispatches each
+// codergen node to a backend chosen from the provider config
+// (service-spec §1). Nodes declare intent (llm_provider / llm_model);
+// the router resolves that to a provider, constructs the matching
+// backend once per provider (cached, so ACP backends keep their
+// per-thread session maps), and injects llm_model via the provider's
+// model_env.
+package router
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/fabro/attractor/internal/backend"
+	acpbackend "github.com/fabro/attractor/internal/backend/acp"
+	"github.com/fabro/attractor/internal/config"
+	"github.com/fabro/attractor/internal/engine"
+	"github.com/fabro/attractor/internal/graph"
+)
+
+// Router implements backend.CodergenBackend by routing per node.
+type Router struct {
+	cfg config.Config
+
+	mu    sync.Mutex
+	cache map[string]backend.CodergenBackend
+}
+
+// New returns a Router that routes codergen nodes through cfg.
+func New(cfg config.Config) *Router {
+	return &Router{cfg: cfg, cache: map[string]backend.CodergenBackend{}}
+}
+
+// Run satisfies backend.CodergenBackend: pick the backend for this node
+// and delegate.
+func (r *Router) Run(env engine.HandlerEnv, prompt string) (backend.Result, error) {
+	be, err := r.backendFor(env.Node)
+	if err != nil {
+		return backend.Result{}, err
+	}
+	return be.Run(env, prompt)
+}
+
+// backendFor resolves and caches the backend for a node's provider.
+func (r *Router) backendFor(n *graph.Node) (backend.CodergenBackend, error) {
+	name := r.cfg.ResolveProvider(n)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if be, ok := r.cache[name]; ok {
+		return be, nil
+	}
+	be, err := r.construct(name)
+	if err != nil {
+		return nil, err
+	}
+	r.cache[name] = be
+	return be, nil
+}
+
+// construct builds the backend for a resolved provider name. An empty
+// name (no llm_provider, unrecognised llm_model, no default_provider)
+// means "no provider selected" and falls back to simulation so a bare
+// run with no config still works.
+func (r *Router) construct(name string) (backend.CodergenBackend, error) {
+	if name == "" {
+		return simulation(), nil
+	}
+	p, ok := r.cfg.Providers[name]
+	if !ok {
+		return nil, fmt.Errorf("router: provider %q not configured in ~/.attractor/config.toml or ./.attractor/config.toml", name)
+	}
+	switch p.Backend {
+	case "acp":
+		return &acpbackend.Backend{Command: p.Command, ModelEnv: p.ModelEnv}, nil
+	case "simulation":
+		return simulation(), nil
+	case "claudecode":
+		return nil, fmt.Errorf("router: provider %q uses backend=claudecode, which the router does not route yet; run with --backend claude", name)
+	case "":
+		return nil, fmt.Errorf("router: provider %q sets no backend", name)
+	default:
+		return nil, fmt.Errorf("router: provider %q has unknown backend %q", name, p.Backend)
+	}
+}
+
+// simulation is the no-agent backend: it echoes a simulated marker,
+// matching the codergen handler's nil-backend path.
+func simulation() backend.CodergenBackend {
+	return backend.Func(func(env engine.HandlerEnv, _ string) (backend.Result, error) {
+		return backend.Result{ResponseText: "[simulated] " + env.Node.ID}, nil
+	})
+}
