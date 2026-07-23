@@ -145,6 +145,15 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			continue
 		}
 
+		// Bound revisits so failure loops (retry edges bouncing between
+		// nodes) terminate instead of running forever. Node `max_visits`
+		// overrides the graph-level `max_node_visits`; absent/zero means
+		// unlimited.
+		state.visits[nodeID]++
+		if limit := node.Int("max_visits", g.IntAttr("max_node_visits", 0)); limit > 0 && state.visits[nodeID] > limit {
+			return e.fail(fmt.Sprintf("node %q exceeded max_node_visits (%d)", nodeID, limit))
+		}
+
 		outcome, err := e.executeNodeWithRetry(g, node, state)
 		if err != nil {
 			return e.fail(err.Error())
@@ -203,6 +212,7 @@ type runState struct {
 	nodeOutcomes        map[string]Outcome
 	context             *Context
 	retries             map[string]int
+	visits              map[string]int
 	shouldSkipCompleted bool
 	// incomingEdge tracks the edge by which the engine arrived at the
 	// current cursor; used to resolve per-edge fidelity / thread_id
@@ -226,6 +236,7 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 			nodeOutcomes:        ckpt.NodeOutcomes,
 			context:             ctx,
 			retries:             ckpt.NodeRetries,
+			visits:              map[string]int{},
 			shouldSkipCompleted: true,
 		}, nil
 	}
@@ -239,6 +250,7 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 		nodeOutcomes: map[string]Outcome{},
 		context:      ctx,
 		retries:      map[string]int{},
+		visits:       map[string]int{},
 	}, nil
 }
 
@@ -251,6 +263,7 @@ func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
 		nodeOutcomes: map[string]Outcome{},
 		context:      ctx,
 		retries:      map[string]int{},
+		visits:       map[string]int{},
 	}
 }
 
