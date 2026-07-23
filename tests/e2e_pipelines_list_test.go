@@ -1,0 +1,66 @@
+package attractor_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/fabro/attractor/internal/handler"
+	"github.com/fabro/attractor/internal/server"
+)
+
+// TestServer_ListPipelines confirms GET /pipelines returns registry
+// summaries — id, status, started, pipeline name, cwd — newest first
+// (service-spec §3).
+func TestServer_ListPipelines(t *testing.T) {
+	repo := t.TempDir()
+	srv := newTestServer(t, server.DefaultHandlers(handler.Codergen{}))
+	dot := `digraph named {
+		start [shape=Mdiamond]
+		work [prompt="x"]
+		done [shape=Msquare]
+		start -> work -> done
+	}`
+	id1 := submitPipeline(t, srv, dot)
+	id2 := submitJSON(t, srv, map[string]any{"dot": dot, "cwd": repo})
+	waitForRunStatus(t, srv, id1, "completed")
+	waitForRunStatus(t, srv, id2, "completed")
+
+	resp, err := http.Get(srv.URL() + "/pipelines")
+	must(t, err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status=%d", resp.StatusCode)
+	}
+	var payload struct {
+		Pipelines []struct {
+			ID        string `json:"id"`
+			Status    string `json:"status"`
+			StartedAt string `json:"started_at"`
+			GraphName string `json:"graph_name"`
+			Cwd       string `json:"cwd"`
+		} `json:"pipelines"`
+	}
+	must(t, json.NewDecoder(resp.Body).Decode(&payload))
+
+	byID := map[string]int{}
+	for i, p := range payload.Pipelines {
+		byID[p.ID] = i
+	}
+	i1, ok1 := byID[id1]
+	i2, ok2 := byID[id2]
+	if !ok1 || !ok2 {
+		t.Fatalf("list missing runs: got %+v", payload.Pipelines)
+	}
+	// Newest first: id2 was submitted after id1.
+	if i2 > i1 {
+		t.Fatalf("expected newest-first order; id2 index %d should precede id1 index %d", i2, i1)
+	}
+	p1 := payload.Pipelines[i1]
+	if p1.Status != "completed" || p1.GraphName != "named" || p1.StartedAt == "" {
+		t.Fatalf("run1 summary wrong: %+v", p1)
+	}
+	if got := payload.Pipelines[i2].Cwd; got != repo {
+		t.Fatalf("run2 cwd = %q, want %q", got, repo)
+	}
+}

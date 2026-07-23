@@ -72,6 +72,7 @@ func New(cfg Config) *Server {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
+	mux.HandleFunc("GET /pipelines", s.listPipelines)
 	mux.HandleFunc("GET /pipelines/{id}", s.getPipeline)
 	mux.HandleFunc("GET /pipelines/{id}/events", s.streamEvents)
 	mux.HandleFunc("POST /pipelines/{id}/cancel", s.cancelPipeline)
@@ -179,6 +180,17 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers)
 	go run.execute()
 	writeJSON(w, http.StatusCreated, map[string]any{"id": run.ID})
+}
+
+// listPipelines returns registry summaries newest-first (service-spec
+// §3): the run index the UI's run list is built from.
+func (s *Server) listPipelines(w http.ResponseWriter, r *http.Request) {
+	runs := s.registry.List()
+	summaries := make([]map[string]any, 0, len(runs))
+	for _, run := range runs {
+		summaries = append(summaries, run.Summary())
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pipelines": summaries})
 }
 
 func (s *Server) getPipeline(w http.ResponseWriter, r *http.Request) {
