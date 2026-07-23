@@ -33,6 +33,8 @@ type Engine struct {
 	rng             *mrand.Rand
 	now             func() time.Time
 	restartCount    int
+	usageMu         sync.Mutex
+	usageTotal      Usage
 }
 
 // Config configures a new Engine.
@@ -601,6 +603,26 @@ func (e *Engine) emit(ev Event) {
 	}
 	if ev.RunID == "" {
 		ev.RunID = e.RunID
+	}
+	// Accumulate per-stage usage and attach the run rollup to the
+	// terminal pipeline event (service-spec §6). Guarded because parallel
+	// handler branches may emit concurrently.
+	switch ev.Kind {
+	case EventUsage:
+		if ev.Usage != nil {
+			e.usageMu.Lock()
+			e.usageTotal.Add(*ev.Usage)
+			e.usageMu.Unlock()
+		}
+	case EventPipelineCompleted, EventPipelineFailed:
+		if ev.Usage == nil {
+			e.usageMu.Lock()
+			total := e.usageTotal
+			e.usageMu.Unlock()
+			if total.InputTokens != 0 || total.OutputTokens != 0 {
+				ev.Usage = &total
+			}
+		}
 	}
 	// Persist before the channel send so a slow (or full-buffer) consumer
 	// never costs us a durable event.

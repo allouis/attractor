@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fabro/attractor/internal/backend"
 	"github.com/fabro/attractor/internal/backend/fake"
 	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/interviewer"
@@ -61,6 +62,37 @@ func TestEngine_LinearPipelineWithFakeBackend(t *testing.T) {
 	}
 	if !gotStart || !gotEnd {
 		t.Fatalf("lifecycle events missing: start=%v end=%v", gotStart, gotEnd)
+	}
+}
+
+func TestEngine_RollsUpUsageOnPipelineCompleted(t *testing.T) {
+	// A backend that emits one usage event per stage; the engine should
+	// sum them onto the terminal pipeline event (service-spec §6).
+	be := backend.Func(func(env engine.HandlerEnv, _ string) (backend.Result, error) {
+		env.Emit(engine.Event{
+			Kind:   engine.EventUsage,
+			NodeID: env.Node.ID,
+			Usage:  &engine.Usage{InputTokens: 100, OutputTokens: 20},
+		})
+		return backend.Result{ResponseText: "ok"}, nil
+	})
+	_, events, _ := runFixture(t, linearDOT, be, nil)
+
+	var completed *engine.Event
+	for i, ev := range events {
+		if ev.Kind == engine.EventPipelineCompleted {
+			completed = &events[i]
+		}
+	}
+	if completed == nil {
+		t.Fatal("no pipeline_completed event")
+	}
+	if completed.Usage == nil {
+		t.Fatalf("pipeline_completed should carry the run usage rollup, got %+v", completed)
+	}
+	// linearDOT has two codergen stages (plan, impl).
+	if completed.Usage.InputTokens != 200 || completed.Usage.OutputTokens != 40 {
+		t.Fatalf("run usage rollup wrong: %+v", completed.Usage)
 	}
 }
 
