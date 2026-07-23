@@ -24,8 +24,9 @@ observability and graph-level `tool_hooks.*` dispatch.
 | Context fidelity modes + preamble | full / truncate / compact / summary:{low,medium,high} — deterministic synthesis (LLM-based summary is a future refinement) |
 | Artifact store | feature-complete (memory + file-backed >100KB) |
 | Claude Code backend | tier 2 (subprocess + stream-json + hooks + ingest) |
-| Pi / Codex / Gemini backends | deferred |
-| Claude Code tier 3 (tmux) + native steering | deferred |
+| ACP backend | done (any ACP agent, e.g. `claude-agent-acp`; streamed tool visibility, auto-granted permissions, session reuse via `session/load`) |
+| Pi / Codex / Gemini backends | deferred (Codex/Gemini reachable through their ACP adapters) |
+| Claude Code tier 3 (tmux) + native steering | superseded by the ACP backend — the protocol provides interactivity, cancellation, and (future) steering natively |
 | HTTP server (§9.5) | all 9 endpoints + SSE + RemoteInterviewer + bearer-token auth + file-backed run registry |
 | SVG render | feature-complete (via graphviz `dot`) |
 | Web UI | none yet |
@@ -51,8 +52,20 @@ Or run directly against a path:
 
 `--backend simulation` (the default) skips the LLM and returns
 synthetic responses, useful for wiring tests. `--backend claude` runs
-Claude Code. Backend selection is always explicit — a run never spawns
-an agent you didn't ask for.
+Claude Code via its stream-JSON CLI. `--backend acp` drives any
+[Agent Client Protocol](https://agentclientprotocol.com) agent over
+stdio. Backend selection is always explicit — a run never spawns an
+agent you didn't ask for.
+
+The ACP agent command has no default. Supply it per node or per graph
+with the `acp_command` attribute, or run-wide with `--acp-cmd`; node
+beats graph beats flag. Leading `NAME=value` tokens become process
+environment, which is how you pick a model per node:
+
+```dot
+plan  [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-opus-4-8 claude-agent-acp"]
+build [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-sonnet-5 claude-agent-acp"]
+```
 
 ## CLI
 
@@ -67,7 +80,8 @@ an agent you didn't ask for.
 Common flags for `run`:
 
 ```
---backend claude|simulation        codergen backend (default: simulation)
+--backend claude|acp|simulation    codergen backend (default: simulation)
+--acp-cmd CMD                      ACP agent command for --backend acp (fallback when the graph sets no acp_command)
 --logs DIR                         pipeline artefact directory (default: ~/.attractor/runs/<run-id>, outside the working tree)
 --var name=value                   pipeline variable; repeatable; required for every name in graph attr `vars`
 --json                             emit one JSON event per line on stdout
