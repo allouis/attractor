@@ -38,6 +38,13 @@ type Backend struct {
 	// environment for the agent process (e.g. ANTHROPIC_MODEL=... to
 	// pick the model).
 	Command string
+	// ModelEnv, when set, is the environment variable the node's
+	// `llm_model` attribute is injected through (the provider config's
+	// model_env). This is per-node, so one Backend cached per provider
+	// can still serve nodes selecting different models. Injection is
+	// orthogonal to command precedence: it applies whichever command
+	// (node / graph / Command) resolves.
+	ModelEnv string
 	// Timeout caps a single Run invocation. Zero means no timeout.
 	Timeout time.Duration
 
@@ -78,6 +85,11 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		cmd.Dir = env.Cwd
 	}
 	cmd.Env = append(os.Environ(), extraEnv...)
+	if b.ModelEnv != "" && env.Node != nil {
+		if model := strings.TrimSpace(env.Node.Attrs["llm_model"]); model != "" {
+			cmd.Env = append(cmd.Env, b.ModelEnv+"="+model)
+		}
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return backend.Result{}, err

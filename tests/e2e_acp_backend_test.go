@@ -103,6 +103,37 @@ func TestACPBackend_EnvPrefixReachesAgent(t *testing.T) {
 	}
 }
 
+func TestACPBackend_ModelEnvInjectsLLMModel(t *testing.T) {
+	// ModelEnv names the env var; the node's llm_model is injected
+	// through it per Run so one cached per-provider backend serves nodes
+	// with different models.
+	b := &acpbackend.Backend{Command: fakeACPCommand(t), ModelEnv: "FAKE_MODEL"}
+	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{
+		"llm_model": "opus-test",
+	}})
+	result, err := b.Run(env, "hello")
+	must(t, err)
+	if !strings.Contains(result.ResponseText, "model=opus-test") {
+		t.Fatalf("llm_model should reach the agent via ModelEnv, got %q", result.ResponseText)
+	}
+}
+
+func TestACPBackend_ModelEnvAppliesWithNodeCommandOverride(t *testing.T) {
+	// Model injection is orthogonal to command precedence: a node
+	// acp_command still wins for the command while ModelEnv/llm_model
+	// carry the model.
+	b := &acpbackend.Backend{Command: "/nonexistent/agent-binary", ModelEnv: "FAKE_MODEL"}
+	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{
+		"acp_command": fakeACPCommand(t),
+		"llm_model":   "opus-test",
+	}})
+	result, err := b.Run(env, "hello")
+	must(t, err)
+	if !strings.Contains(result.ResponseText, "model=opus-test") {
+		t.Fatalf("model should reach agent even when node overrides command, got %q", result.ResponseText)
+	}
+}
+
 func TestACPBackend_NodeAttrOverridesCommand(t *testing.T) {
 	b := &acpbackend.Backend{Command: "/nonexistent/agent-binary"}
 	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{
