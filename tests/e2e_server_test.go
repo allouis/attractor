@@ -240,4 +240,3 @@ func waitForRunStatus(t *testing.T, srv *server.Server, id, want string) {
 	}
 	t.Fatalf("status never reached %q", want)
 }
-

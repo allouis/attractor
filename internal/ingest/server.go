@@ -30,18 +30,18 @@ type Server struct {
 	srv      *http.Server
 	logsRoot string
 
-	mu         sync.RWMutex
-	emit       func(engine.Event)
-	preToolCmd string
+	mu          sync.RWMutex
+	emit        func(engine.Event)
+	preToolCmd  string
 	postToolCmd string
-	closed atomic.Bool
-	count  atomic.Int64
+	closed      atomic.Bool
+	count       atomic.Int64
 }
 
 // Config configures a Server. Empty fields disable optional features.
 type Config struct {
-	LogsRoot    string
-	Emit        func(engine.Event)
+	LogsRoot string
+	Emit     func(engine.Event)
 	// PreToolCmd is the shell command to run when a `pre_tool` /
 	// `PreToolUse` hook payload arrives. Non-empty triggers tool_hooks
 	// support per spec §9.7. The command runs with ATTRACTOR_HOOK_*

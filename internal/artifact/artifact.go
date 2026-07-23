@@ -20,11 +20,11 @@ const DefaultFileBackingThreshold = 100 * 1024
 
 // Info describes a stored artefact (spec §5.5).
 type Info struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	SizeBytes    int       `json:"size_bytes"`
-	StoredAt     time.Time `json:"stored_at"`
-	FileBacked   bool      `json:"is_file_backed"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	SizeBytes  int       `json:"size_bytes"`
+	StoredAt   time.Time `json:"stored_at"`
+	FileBacked bool      `json:"is_file_backed"`
 }
 
 // Store is the live artifact store for a run.

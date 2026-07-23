@@ -10,19 +10,19 @@ import (
 type tokKind int
 
 const (
-	tkEOF tokKind = iota
-	tkWord            // [A-Za-z_][A-Za-z0-9_]*  — single identifier segment
-	tkBare            // identifier followed by '.' / ':' / '-' continuations
-	tkNumber          // -?digits(.digits)?(durationSuffix)?
-	tkString          // double-quoted with escapes
-	tkArrow           // ->
-	tkLBrace          // {
-	tkRBrace          // }
-	tkLBracket        // [
-	tkRBracket        // ]
-	tkComma           // ,
-	tkSemi            // ;
-	tkEquals          // =
+	tkEOF      tokKind = iota
+	tkWord             // [A-Za-z_][A-Za-z0-9_]*  — single identifier segment
+	tkBare             // identifier followed by '.' / ':' / '-' continuations
+	tkNumber           // -?digits(.digits)?(durationSuffix)?
+	tkString           // double-quoted with escapes
+	tkArrow            // ->
+	tkLBrace           // {
+	tkRBrace           // }
+	tkLBracket         // [
+	tkRBracket         // ]
+	tkComma            // ,
+	tkSemi             // ;
+	tkEquals           // =
 )
 
 // token carries lexical state for the parser. value holds the canonical

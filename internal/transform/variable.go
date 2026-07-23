@@ -110,4 +110,3 @@ func isIdentByte(c byte) bool {
 	}
 	return false
 }
-

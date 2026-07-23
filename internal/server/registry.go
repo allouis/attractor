@@ -42,9 +42,9 @@ type Manifest struct {
 
 // runRegistry holds active and completed runs by ID.
 type runRegistry struct {
-	mu       sync.RWMutex
-	runs     map[string]*Run
-	baseDir  string
+	mu      sync.RWMutex
+	runs    map[string]*Run
+	baseDir string
 }
 
 func newRunRegistry(baseDir string) *runRegistry {

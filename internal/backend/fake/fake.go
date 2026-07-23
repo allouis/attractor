@@ -22,10 +22,10 @@ type Step struct {
 // Backend records each Run call and yields canned Steps in order for the
 // node ID specified by the call's HandlerEnv.
 type Backend struct {
-	mu        sync.Mutex
-	steps     map[string][]Step
-	calls     map[string]int
-	callLog   []Call
+	mu      sync.Mutex
+	steps   map[string][]Step
+	calls   map[string]int
+	callLog []Call
 }
 
 // Call is a recorded invocation of Run, useful for assertion in tests.

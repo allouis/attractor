@@ -235,10 +235,10 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 		return nil, err
 	}
 	return &runState{
-		cursor:         findStartNode(g),
-		nodeOutcomes:   map[string]Outcome{},
-		context:        ctx,
-		retries:        map[string]int{},
+		cursor:       findStartNode(g),
+		nodeOutcomes: map[string]Outcome{},
+		context:      ctx,
+		retries:      map[string]int{},
 	}, nil
 }
 

@@ -318,4 +318,3 @@ func AvailableAuth() bool {
 	}
 	return false
 }
-

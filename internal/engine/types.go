@@ -190,14 +190,14 @@ func (r Resolver) Resolve(key string) string {
 // Checkpoint is a serializable execution snapshot (spec §5.3) written
 // to `{logs_root}/checkpoint.json` after each node completes.
 type Checkpoint struct {
-	Timestamp      time.Time              `json:"timestamp"`
-	CurrentNode    string                 `json:"current_node"`
-	CompletedNodes []string               `json:"completed_nodes"`
-	NodeRetries    map[string]int         `json:"node_retries"`
-	ContextValues  map[string]string      `json:"context"`
-	Logs           []string               `json:"logs"`
-	LastOutcome    *Outcome               `json:"last_outcome,omitempty"`
-	NodeOutcomes   map[string]Outcome     `json:"node_outcomes"`
+	Timestamp      time.Time          `json:"timestamp"`
+	CurrentNode    string             `json:"current_node"`
+	CompletedNodes []string           `json:"completed_nodes"`
+	NodeRetries    map[string]int     `json:"node_retries"`
+	ContextValues  map[string]string  `json:"context"`
+	Logs           []string           `json:"logs"`
+	LastOutcome    *Outcome           `json:"last_outcome,omitempty"`
+	NodeOutcomes   map[string]Outcome `json:"node_outcomes"`
 }
 
 // Manifest is run-level metadata (spec §5.6) written once at start.
