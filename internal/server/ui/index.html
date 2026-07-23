@@ -151,16 +151,33 @@ function paintNode(id, cls) {
 function attachStream(id) {
   if (es) es.close();
   es = new EventSource(`/pipelines/${id}/events`);
-  const on = (kind, fn) => es.addEventListener(kind, e => fn(JSON.parse(e.data)));
+  // Idempotent replay: every (re)connect replays the run's full history
+  // from the start before live events. `applied` counts events already
+  // handled for this run; `pos` is the position within the current
+  // connection's stream (reset on each open). Events at or below `applied`
+  // were seen on an earlier connection, so skip them — otherwise a mid-run
+  // reconnect re-appends every node-log chunk.
+  let applied = 0, pos = 0;
+  es.onopen = () => { pos = 0; };
+  const on = (kind, fn) => es.addEventListener(kind, e => {
+    pos++;
+    if (pos <= applied) return;
+    applied = pos;
+    fn(JSON.parse(e.data));
+  });
   on('stage_started',   ev => paintNode(ev.node_id, 'running'));
   on('stage_completed', ev => paintNode(ev.node_id, 'completed'));
   on('stage_failed',    ev => paintNode(ev.node_id, 'failed'));
   on('stage_retrying',  ev => paintNode(ev.node_id, 'retrying'));
   on('stage_progress',  ev => appendProgress(ev));
-  const done = () => { renderDock([]); refreshDock(); };
+  // On a terminal event, close the stream. The server ends the SSE
+  // connection for finished runs, so leaving it open lets EventSource
+  // reconnect every few seconds and replay the whole history again,
+  // duplicating node-log chunks each time.
+  const done = () => { if (es) es.close(); renderDock([]); refreshDock(); };
   on('pipeline_completed', done);
   on('pipeline_failed', done);
-  es.onerror = () => { /* stream closes when the run ends; list stays live */ };
+  es.onerror = () => { /* transient; EventSource retries on its own */ };
 }
 
 // appendProgress records assistant_delta / tool_call chunks per node.
