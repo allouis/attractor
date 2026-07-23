@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ type Manifest struct {
 	CompletedAt   time.Time `json:"completed_at,omitempty"`
 	GraphName     string    `json:"graph_name,omitempty"`
 	GraphGoal     string    `json:"graph_goal,omitempty"`
+	Cwd           string    `json:"cwd,omitempty"`
 	Outcome       string    `json:"outcome,omitempty"`
 	FailureReason string    `json:"failure_reason,omitempty"`
 	LogsRoot      string    `json:"logs_root"`
@@ -89,6 +91,8 @@ func (r *runRegistry) reload() {
 			status:      status,
 			startedAt:   m.StartedAt,
 			completedAt: m.CompletedAt,
+			graphName:   m.GraphName,
+			cwd:         m.Cwd,
 			subscribers: map[chan engine.Event]struct{}{},
 			questions:   map[string]*pendingQuestion{},
 			persisted:   true,
@@ -120,6 +124,10 @@ func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.Pre
 		questions:   map[string]*pendingQuestion{},
 		persisted:   true,
 	}
+	if g != nil {
+		run.graphName = g.Name
+		run.cwd = g.Attrs["cwd"]
+	}
 	run.writeSource()
 	run.writeManifest()
 	r.mu.Lock()
@@ -135,9 +143,8 @@ func (r *runRegistry) Get(id string) (*Run, bool) {
 	return run, ok
 }
 
-// List returns a snapshot of all run IDs known to the registry sorted
-// by start time descending. Useful for a GET /pipelines index endpoint
-// (not yet wired).
+// List returns a snapshot of all runs known to the registry sorted by
+// start time descending (newest first), backing GET /pipelines.
 func (r *runRegistry) List() []*Run {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -145,6 +152,9 @@ func (r *runRegistry) List() []*Run {
 	for _, run := range r.runs {
 		out = append(out, run)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].startedAt.After(out[j].startedAt)
+	})
 	return out
 }
 
@@ -152,11 +162,13 @@ func (r *runRegistry) List() []*Run {
 type Run struct {
 	ID string
 
-	source   string
-	graph    *graph.Graph
-	prepared *engine.PreparedGraph
-	logsRoot string
-	factory  HandlerFactory
+	source    string
+	graph     *graph.Graph
+	prepared  *engine.PreparedGraph
+	logsRoot  string
+	factory   HandlerFactory
+	graphName string
+	cwd       string
 
 	mu          sync.RWMutex
 	status      RunStatus
@@ -260,6 +272,8 @@ func (r *Run) Summary() map[string]any {
 		"started_at": r.startedAt.Format(time.RFC3339Nano),
 		"logs_root":  r.logsRoot,
 		"events":     len(r.history),
+		"graph_name": r.graphName,
+		"cwd":        r.cwd,
 	}
 	if !r.completedAt.IsZero() {
 		resp["completed_at"] = r.completedAt.Format(time.RFC3339Nano)
@@ -412,8 +426,9 @@ func (r *Run) writeManifest() {
 		CompletedAt: r.completedAt,
 		LogsRoot:    r.logsRoot,
 	}
+	m.GraphName = r.graphName
+	m.Cwd = r.cwd
 	if r.graph != nil {
-		m.GraphName = r.graph.Name
 		m.GraphGoal = r.graph.Goal()
 	}
 	if r.outcome != nil {
