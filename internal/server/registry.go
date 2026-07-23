@@ -216,8 +216,14 @@ func (r *Run) Subscribe() chan engine.Event {
 		default:
 		}
 	}
-	r.subscribers[ch] = struct{}{}
 	finished := r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled
+	// Only register live runs. For a finished run this channel is closed
+	// below, so registering it would let the handler's deferred
+	// Unsubscribe close it a second time (panicking under r.mu.Lock and
+	// leaking the write lock).
+	if !finished {
+		r.subscribers[ch] = struct{}{}
+	}
 	r.mu.Unlock()
 	if finished {
 		// Replay disk history if no in-memory history (resumed run).
