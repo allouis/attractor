@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fabro/attractor/internal/acp"
@@ -47,6 +48,11 @@ type Backend struct {
 	ModelEnv string
 	// Timeout caps a single Run invocation. Zero means no timeout.
 	Timeout time.Duration
+	// StallTimeout kills the turn if the agent goes quiet — no
+	// session/update for this long (service-spec §6 stall watchdog). The
+	// node's `stall_timeout` attribute overrides it. Zero disables the
+	// watchdog.
+	StallTimeout time.Duration
 
 	// sessions maps engine thread ids to ACP session ids for session
 	// reuse under full fidelity.
@@ -65,20 +71,27 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		return backend.Result{}, err
 	}
 
-	// Node `timeout` attribute wins over the backend-level default,
-	// matching the tool handler's convention.
+	// Node `timeout` / `stall_timeout` attributes win over the
+	// backend-level defaults, matching the tool handler's convention.
 	timeout := b.Timeout
+	stall := b.StallTimeout
 	if env.Node != nil {
 		if d, ok := env.Node.Duration("timeout"); ok && d > 0 {
 			timeout = d
 		}
+		if d, ok := env.Node.Duration("stall_timeout"); ok && d > 0 {
+			stall = d
+		}
 	}
-	ctx := context.Background()
-	cancel := func() {}
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-	}
+	// A base cancel context lets the stall watchdog kill the turn; the
+	// timeout (if any) layers on top and still propagates through it.
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
+		defer timeoutCancel()
+	}
 
 	cmd := exec.CommandContext(ctx, prog, args...)
 	if env.Cwd != "" {
@@ -112,13 +125,23 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 	}()
 
 	turn := &turnState{env: env}
+	if stall > 0 {
+		wd := newWatchdog(stall, cancel)
+		turn.wd = wd
+		// The countdown is armed by runTurn once session setup completes,
+		// not here — a slow boot must not count as a stall.
+		defer wd.close()
+	}
 	client := acp.NewClient(conn, acp.ClientConfig{
 		OnUpdate:     turn.onUpdate,
 		OnPermission: turn.onPermission,
 	})
 
-	stop, err := b.runTurn(ctx, client, env, prompt)
+	stop, err := b.runTurn(ctx, client, turn, prompt)
 	if err != nil {
+		if turn.wd != nil && turn.wd.fired.Load() {
+			return backend.Result{}, fmt.Errorf("acp: stalled: no activity for %s", stall)
+		}
 		return backend.Result{}, agentErr(err, stderr.Bytes())
 	}
 	turn.emitUsage()
@@ -129,7 +152,8 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 // full fidelity, stages sharing a thread resume the recorded agent
 // session via session/load (spec §5.4 session reuse) when the agent
 // advertises loadSession; anything else starts fresh.
-func (b *Backend) runTurn(ctx context.Context, client *acp.Client, env engine.HandlerEnv, prompt string) (acp.StopReason, error) {
+func (b *Backend) runTurn(ctx context.Context, client *acp.Client, turn *turnState, prompt string) (acp.StopReason, error) {
+	env := turn.env
 	init, err := client.Initialize(ctx)
 	if err != nil {
 		return "", fmt.Errorf("initialize: %w", err)
@@ -159,6 +183,11 @@ func (b *Backend) runTurn(ctx context.Context, client *acp.Client, env engine.Ha
 	if reusable {
 		b.sessions.Store(env.ThreadID, sessionID)
 	}
+	// Session setup is done; arm the stall watchdog for the prompt turn so
+	// the countdown measures only in-turn quiet, not the agent's boot.
+	if turn.wd != nil {
+		turn.wd.start()
+	}
 	stop, err := client.Prompt(ctx, sessionID, prompt)
 	if err != nil {
 		return "", fmt.Errorf("session/prompt: %w", err)
@@ -186,6 +215,7 @@ func (b *Backend) resolveCommand(env engine.HandlerEnv) string {
 // progress events, and persisted tool-call payloads.
 type turnState struct {
 	env engine.HandlerEnv
+	wd  *watchdog
 
 	mu        sync.Mutex
 	buf       strings.Builder
@@ -200,6 +230,9 @@ func (t *turnState) text() string {
 }
 
 func (t *turnState) onUpdate(u acp.SessionUpdate) {
+	if t.wd != nil {
+		t.wd.poke()
+	}
 	if u.Usage != nil {
 		t.mu.Lock()
 		t.usage.Add(engine.Usage{
@@ -238,6 +271,9 @@ func (t *turnState) onUpdate(u acp.SessionUpdate) {
 }
 
 func (t *turnState) onPermission(req acp.PermissionRequest, chosen string) {
+	if t.wd != nil {
+		t.wd.poke()
+	}
 	t.emit(engine.Event{
 		Kind: engine.EventStageProgress, NodeID: t.env.Node.ID,
 		Message: "permission: " + req.ToolTitle,
@@ -329,6 +365,67 @@ func waitOrKill(cmd *exec.Cmd) {
 		<-done
 	}
 }
+
+// watchdog cancels the turn when the agent goes quiet for longer than
+// timeout. Each session/update pokes it, resetting the countdown; the
+// backend distinguishes a stall-triggered cancel via fired.
+type watchdog struct {
+	timeout time.Duration
+	cancel  context.CancelFunc
+	reset   chan struct{}
+	stop    chan struct{}
+	fired   atomic.Bool
+	started atomic.Bool
+}
+
+func newWatchdog(timeout time.Duration, cancel context.CancelFunc) *watchdog {
+	return &watchdog{
+		timeout: timeout,
+		cancel:  cancel,
+		reset:   make(chan struct{}, 1),
+		stop:    make(chan struct{}),
+	}
+}
+
+// start arms the stall countdown, launching the timer goroutine. Called
+// once, after session setup (initialize/session-new), so a slow agent boot
+// with no session updates is not mistaken for a stall. Idempotent.
+func (w *watchdog) start() {
+	if w.started.CompareAndSwap(false, true) {
+		go w.run()
+	}
+}
+
+func (w *watchdog) run() {
+	timer := time.NewTimer(w.timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-w.reset:
+			if !timer.Stop() {
+				<-timer.C
+			}
+			timer.Reset(w.timeout)
+		case <-w.stop:
+			return
+		case <-timer.C:
+			w.fired.Store(true)
+			w.cancel()
+			return
+		}
+	}
+}
+
+// poke signals activity. Non-blocking: a full buffer already carries a
+// pending reset, which is all the run loop needs.
+func (w *watchdog) poke() {
+	select {
+	case w.reset <- struct{}{}:
+	default:
+	}
+}
+
+func (w *watchdog) close() { close(w.stop) }
 
 // agentErr decorates a protocol error with the agent's stderr tail so
 // startup failures (bad auth, missing binary deps) surface usefully.
