@@ -28,6 +28,8 @@ func main() {
 		exit(cli.Render(os.Args[2:]))
 	case "serve":
 		exit(cli.Serve(os.Args[2:]))
+	case "automations":
+		exit(cli.Automations(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "attractor: unknown command %q\n\n", os.Args[1])
 		printUsage()
@@ -54,6 +56,7 @@ commands:
   validate <file>  lint a pipeline without executing
   render <file>    render a pipeline graph as SVG
   serve            run the HTTP pipeline server
+  automations      list or run saved automations (list | run <name>)
   version          print version
   help             print this message`)
 }
