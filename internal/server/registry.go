@@ -363,14 +363,11 @@ func (r *Run) execute() {
 	r.writeManifest()
 }
 
+// fanOutEvents buffers events in memory and fans them out to live SSE
+// subscribers. Durable persistence to events.jsonl is the engine's job
+// (it writes the same LogsRoot), so this loop no longer touches disk.
 func (r *Run) fanOutEvents(src <-chan engine.Event, done chan<- struct{}) {
-	eventsFile := r.openEventsFile()
-	defer func() {
-		if eventsFile != nil {
-			_ = eventsFile.Close()
-		}
-		close(done)
-	}()
+	defer close(done)
 	for ev := range src {
 		r.mu.Lock()
 		r.history = append(r.history, ev)
@@ -383,12 +380,6 @@ func (r *Run) fanOutEvents(src <-chan engine.Event, done chan<- struct{}) {
 			select {
 			case ch <- ev:
 			default:
-			}
-		}
-		if eventsFile != nil {
-			if data, err := json.Marshal(ev); err == nil {
-				eventsFile.Write(data)
-				eventsFile.Write([]byte("\n"))
 			}
 		}
 	}
@@ -443,22 +434,6 @@ func (r *Run) writeSource() {
 	}
 	_ = os.MkdirAll(r.logsRoot, 0o755)
 	_ = os.WriteFile(filepath.Join(r.logsRoot, "source.dot"), []byte(r.source), 0o644)
-}
-
-// openEventsFile opens events.jsonl in append mode for fan-out.
-func (r *Run) openEventsFile() *os.File {
-	if r.logsRoot == "" {
-		return nil
-	}
-	if err := os.MkdirAll(r.logsRoot, 0o755); err != nil {
-		return nil
-	}
-	f, err := os.OpenFile(filepath.Join(r.logsRoot, "events.jsonl"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return nil
-	}
-	return f
 }
 
 // replayEvents reads and parses the persisted events.jsonl. Used by SSE
