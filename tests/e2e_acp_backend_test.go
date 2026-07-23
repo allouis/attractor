@@ -230,6 +230,67 @@ func TestACPBackend_NodeTimeoutAttr(t *testing.T) {
 	}
 }
 
+func TestACPBackend_StallTimeoutFires(t *testing.T) {
+	// hang sends no updates after the prompt; the stall watchdog should
+	// kill the turn well before the process's 30s sleep.
+	b := &acpbackend.Backend{
+		Command:      fakeACPCommand(t, "FAKE_ACP_MODE=hang"),
+		StallTimeout: 300 * time.Millisecond,
+	}
+	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{}})
+	start := time.Now()
+	_, err := b.Run(env, "hello")
+	if err == nil {
+		t.Fatal("expected stall error when the agent goes quiet")
+	}
+	if !strings.Contains(err.Error(), "stall") {
+		t.Fatalf("error should mention stall, got %v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("stall watchdog did not fire promptly, took %v", time.Since(start))
+	}
+}
+
+func TestACPBackend_StallTimeoutNodeAttr(t *testing.T) {
+	// The node stall_timeout attribute overrides the backend default.
+	b := &acpbackend.Backend{
+		Command:      fakeACPCommand(t, "FAKE_ACP_MODE=hang"),
+		StallTimeout: time.Hour,
+	}
+	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{
+		"stall_timeout": "300ms",
+	}})
+	start := time.Now()
+	_, err := b.Run(env, "hello")
+	if err == nil {
+		t.Fatal("expected stall error from node stall_timeout attr")
+	}
+	if !strings.Contains(err.Error(), "stall") {
+		t.Fatalf("error should mention stall, got %v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("node stall_timeout not honoured, took %v", time.Since(start))
+	}
+}
+
+func TestACPBackend_StallTimeoutNoFalsePositive(t *testing.T) {
+	// A normal turn streams updates and finishes quickly; a generous
+	// stall timeout must not trip it.
+	b := &acpbackend.Backend{
+		Command:      fakeACPCommand(t),
+		StallTimeout: 10 * time.Second,
+	}
+	env, _ := acpEnv(t, &graph.Node{ID: "plan", Attrs: map[string]string{}})
+	result, err := b.Run(env, "hello")
+	must(t, err)
+	if result.Outcome != nil {
+		t.Fatalf("happy path must not force an outcome: %+v", result.Outcome)
+	}
+	if !strings.Contains(result.ResponseText, "echo:hello") {
+		t.Fatalf("expected agent text, got %q", result.ResponseText)
+	}
+}
+
 func TestACPBackend_TimeoutKillsAgent(t *testing.T) {
 	b := &acpbackend.Backend{
 		Command: fakeACPCommand(t, "FAKE_ACP_MODE=hang"),
