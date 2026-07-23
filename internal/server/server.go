@@ -16,12 +16,15 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/fabro/attractor/internal/automation"
 	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/handler"
 	"github.com/fabro/attractor/internal/interviewer"
 	"github.com/fabro/attractor/internal/render"
+	"github.com/fabro/attractor/internal/scheduler"
 	"github.com/fabro/attractor/internal/setup"
 )
 
@@ -39,6 +42,12 @@ type Server struct {
 	makeHandlers HandlerFactory
 	authToken    string
 	dispatcher   *dispatcher
+
+	automationsDir string
+	sched          *scheduler.Scheduler
+
+	mu          sync.RWMutex
+	automations []automation.Automation
 }
 
 // HandlerFactory builds an engine.Registry suitable for executing a
@@ -59,6 +68,9 @@ type Config struct {
 	// MaxConcurrentRuns bounds how many submitted runs execute at once;
 	// the rest queue FIFO. Zero or negative uses defaultMaxConcurrentRuns.
 	MaxConcurrentRuns int
+	// AutomationsDir holds the TOML automation files (service-spec §5).
+	// Empty disables the automations endpoints and cron scheduler.
+	AutomationsDir string
 }
 
 // New constructs an unstarted server.
@@ -73,12 +85,13 @@ func New(cfg Config) *Server {
 		cfg.MakeHandlers = DefaultHandlers(handler.Codergen{})
 	}
 	s := &Server{
-		addr:         cfg.Addr,
-		logsRoot:     cfg.LogsRoot,
-		registry:     newRunRegistry(cfg.LogsRoot),
-		makeHandlers: cfg.MakeHandlers,
-		authToken:    cfg.AuthToken,
-		dispatcher:   newDispatcher(cfg.MaxConcurrentRuns),
+		addr:           cfg.Addr,
+		logsRoot:       cfg.LogsRoot,
+		registry:       newRunRegistry(cfg.LogsRoot),
+		makeHandlers:   cfg.MakeHandlers,
+		authToken:      cfg.AuthToken,
+		dispatcher:     newDispatcher(cfg.MaxConcurrentRuns),
+		automationsDir: cfg.AutomationsDir,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
@@ -92,6 +105,8 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
+	mux.HandleFunc("GET /automations", s.listAutomations)
+	mux.HandleFunc("POST /automations/{name}/run", s.runAutomation)
 	mux.HandleFunc("GET /ui", s.serveUI)
 	mux.HandleFunc("GET /ui/", s.serveUI)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
@@ -105,6 +120,16 @@ func New(cfg Config) *Server {
 // Start binds the address and begins serving in a goroutine. The
 // returned Addr returns the live address (useful for ephemeral ports).
 func (s *Server) Start() error {
+	if s.automationsDir != "" {
+		autos, err := automation.Load(s.automationsDir)
+		if err != nil {
+			return fmt.Errorf("load automations: %w", err)
+		}
+		s.mu.Lock()
+		s.automations = autos
+		s.mu.Unlock()
+		s.sched = scheduler.New(autos, s.fireAutomation, time.Now)
+	}
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return err
@@ -112,6 +137,9 @@ func (s *Server) Start() error {
 	s.listener = ln
 	s.addr = ln.Addr().String()
 	go s.dispatcher.run()
+	if s.sched != nil {
+		go s.sched.Run()
+	}
 	go s.httpsrv.Serve(ln)
 	return nil
 }
@@ -124,6 +152,9 @@ func (s *Server) URL() string { return "http://" + s.addr }
 
 // Close shuts down the HTTP server gracefully.
 func (s *Server) Close() error {
+	if s.sched != nil {
+		s.sched.Stop()
+	}
 	s.dispatcher.close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
