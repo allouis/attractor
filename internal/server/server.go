@@ -92,6 +92,8 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
+	mux.HandleFunc("GET /ui", s.serveUI)
+	mux.HandleFunc("GET /ui/", s.serveUI)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	s.httpsrv = &http.Server{
 		Handler:           withRecoverer(s.withAuth(mux)),
