@@ -34,7 +34,17 @@ type SessionUpdate struct {
 	Text string
 	// ToolCall is set for tool_call / tool_call_update kinds.
 	ToolCall *ToolCallUpdate
-	Raw      json.RawMessage
+	// Usage is set when the update carries a token-usage payload (the
+	// `usage` sub-object, present on the "usage" sessionUpdate variant
+	// or piggybacked on another update). Nil when absent.
+	Usage *TokenUsage
+	Raw   json.RawMessage
+}
+
+// TokenUsage carries the agent-reported token counts for a turn.
+type TokenUsage struct {
+	InputTokens  int
+	OutputTokens int
 }
 
 // ToolCallUpdate carries the common fields of tool_call and
@@ -180,6 +190,10 @@ func (c *Client) handleUpdate(params json.RawMessage) {
 		Title      string `json:"title"`
 		Kind       string `json:"kind"`
 		Status     string `json:"status"`
+		Usage      *struct {
+			InputTokens  int `json:"inputTokens"`
+			OutputTokens int `json:"outputTokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(note.Update, &body); err != nil {
 		return
@@ -189,6 +203,12 @@ func (c *Client) handleUpdate(params json.RawMessage) {
 		Kind:      body.SessionUpdate,
 		Text:      body.Content.Text,
 		Raw:       note.Update,
+	}
+	if body.Usage != nil {
+		u.Usage = &TokenUsage{
+			InputTokens:  body.Usage.InputTokens,
+			OutputTokens: body.Usage.OutputTokens,
+		}
 	}
 	if body.ToolCallID != "" {
 		u.ToolCall = &ToolCallUpdate{

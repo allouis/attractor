@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/fabro/attractor/internal/acp"
 )
@@ -118,6 +119,53 @@ func TestACPClient_LifecycleAndUpdates(t *testing.T) {
 	if updates[2].Kind != "tool_call_update" || updates[2].ToolCall == nil ||
 		updates[2].ToolCall.Status != "completed" {
 		t.Fatalf("tool_call_update wrong: %+v", updates[2])
+	}
+}
+
+// TestACPClient_ParsesUsageUpdate checks a session/update carrying a
+// token-usage payload surfaces on SessionUpdate.Usage, and that updates
+// without usage leave it nil.
+func TestACPClient_ParsesUsageUpdate(t *testing.T) {
+	p := newConnPeer(t)
+
+	var mu sync.Mutex
+	var updates []acp.SessionUpdate
+	acp.NewClient(p.conn, acp.ClientConfig{
+		OnUpdate: func(u acp.SessionUpdate) {
+			mu.Lock()
+			defer mu.Unlock()
+			updates = append(updates, u)
+		},
+	})
+
+	p.writeLine(t, `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"usage","usage":{"inputTokens":1200,"outputTokens":340}}}}`)
+	p.writeLine(t, `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}}`)
+
+	// Poll until both updates land (dispatch is async on the read loop).
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(updates)
+		mu.Unlock()
+		if n >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(updates) < 2 {
+		t.Fatalf("expected 2 updates, got %d: %+v", len(updates), updates)
+	}
+	if updates[0].Usage == nil {
+		t.Fatalf("usage update should populate Usage, got %+v", updates[0])
+	}
+	if updates[0].Usage.InputTokens != 1200 || updates[0].Usage.OutputTokens != 340 {
+		t.Fatalf("usage tokens wrong: %+v", updates[0].Usage)
+	}
+	if updates[1].Usage != nil {
+		t.Fatalf("non-usage update must leave Usage nil, got %+v", updates[1].Usage)
 	}
 }
 
