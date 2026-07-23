@@ -50,17 +50,25 @@ Or run directly against a path:
 ./result/bin/attractor run --backend simulation --var name=world examples/hello/pipeline.dot
 ```
 
-`--backend simulation` (the default) skips the LLM and returns
+Without `--backend`, each codergen node is routed to a backend via the
+provider config (`~/.attractor/config.toml`, overlaid by
+`./.attractor/config.toml`) per its `llm_provider` / `llm_model` — see
+[provider-config](./docs/provider-config.md). With no config the run
+falls back to simulation.
+
+`--backend` / `--acp-cmd` are run-wide overrides for debugging that
+bypass the config. `--backend simulation` skips the LLM and returns
 synthetic responses, useful for wiring tests. `--backend claude` runs
 Claude Code via its stream-JSON CLI. `--backend acp` drives any
 [Agent Client Protocol](https://agentclientprotocol.com) agent over
 stdio. Backend selection is always explicit — a run never spawns an
 agent you didn't ask for.
 
-The ACP agent command has no default. Supply it per node or per graph
-with the `acp_command` attribute, or run-wide with `--acp-cmd`; node
-beats graph beats flag. Leading `NAME=value` tokens become process
-environment, which is how you pick a model per node:
+The ACP agent command has no default. Supply it via the provider
+config, per node or per graph with the `acp_command` attribute, or
+run-wide with `--acp-cmd`; node beats graph beats provider config.
+Leading `NAME=value` tokens become process environment, which is one
+way to pick a model per node:
 
 ```dot
 plan  [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-opus-4-8 claude-agent-acp"]
