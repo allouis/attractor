@@ -49,10 +49,10 @@ Or run directly against a path:
 ./result/bin/attractor run --backend simulation --var name=world examples/hello/pipeline.dot
 ```
 
-`--backend simulation` skips the LLM and returns synthetic responses,
-useful for wiring tests. `--backend auto` picks Claude Code when the
-`claude` binary is on `PATH` and auth is detectable; otherwise it falls
-back to simulation with a stderr note. `--backend claude` forces Claude.
+`--backend simulation` (the default) skips the LLM and returns
+synthetic responses, useful for wiring tests. `--backend claude` runs
+Claude Code. Backend selection is always explicit — a run never spawns
+an agent you didn't ask for.
 
 ## CLI
 
@@ -67,7 +67,7 @@ back to simulation with a stderr note. `--backend claude` forces Claude.
 Common flags for `run`:
 
 ```
---backend auto|claude|simulation   codergen backend (default: auto)
+--backend claude|simulation        codergen backend (default: simulation)
 --logs DIR                         pipeline artefact directory (default: ~/.attractor/runs/<run-id>, outside the working tree)
 --var name=value                   pipeline variable; repeatable; required for every name in graph attr `vars`
 --json                             emit one JSON event per line on stdout

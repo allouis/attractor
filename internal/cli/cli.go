@@ -33,11 +33,12 @@ func cryptoRandRead(b []byte) (int, error) { return rand.Read(b) }
 func hexEncode(b []byte) string            { return hex.EncodeToString(b) }
 
 // BackendChoice selects the codergen backend wired into the CLI's
-// default handler set.
+// default handler set. Selection is always explicit: there is no
+// auto-detection, so a run never spawns an agent the user didn't ask
+// for.
 type BackendChoice string
 
 const (
-	BackendAuto       BackendChoice = "auto"
 	BackendClaude     BackendChoice = "claude"
 	BackendSimulation BackendChoice = "simulation"
 )
@@ -66,16 +67,15 @@ func Validate(args []string) error {
 }
 
 // Run executes a pipeline end-to-end. The --backend flag selects the
-// codergen backend; auto picks claude if `claude` is on PATH and auth
-// is detected, else falls back to simulation mode with a stderr note.
-// The positional argument is either a path to a .dot file or a
-// pipeline name that resolves via lookup (see resolvePipelinePath).
+// codergen backend (default: simulation). The positional argument is
+// either a path to a .dot file or a pipeline name that resolves via
+// lookup (see resolvePipelinePath).
 func Run(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	logs := fs.String("logs", "", "directory for run artefacts (default: $XDG_DATA_HOME/attractor/runs/<run-id> or ~/.attractor/runs/<run-id>)")
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
-	backendFlag := fs.String("backend", "auto", "codergen backend: auto | claude | simulation")
+	backendFlag := fs.String("backend", "simulation", "codergen backend: claude | simulation")
 	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
 	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
 	var vars varFlags
@@ -115,7 +115,10 @@ func Run(args []string) error {
 	}
 
 	// Resolve backend + auxiliary ingest server.
-	choice := resolveBackend(BackendChoice(*backendFlag))
+	choice, err := parseBackendChoice(*backendFlag)
+	if err != nil {
+		return err
+	}
 	ingestSrv, codergenBackend, err := startCodergen(choice, g, logsRoot, *hookshim)
 	if err != nil {
 		return err
@@ -288,21 +291,13 @@ func defaultLogsRoot() string {
 
 // ---------------------------------------------------------------------------
 
-// resolveBackend turns `auto` into a concrete choice based on what's
-// detectable on the host.
-func resolveBackend(choice BackendChoice) BackendChoice {
-	if choice != BackendAuto {
-		return choice
+// parseBackendChoice validates the --backend flag value.
+func parseBackendChoice(raw string) (BackendChoice, error) {
+	switch c := BackendChoice(raw); c {
+	case BackendClaude, BackendSimulation:
+		return c, nil
 	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		fmt.Fprintln(os.Stderr, "attractor: claude binary not on PATH — falling back to simulation mode")
-		return BackendSimulation
-	}
-	if !claudecode.AvailableAuth() {
-		fmt.Fprintln(os.Stderr, "attractor: no Claude auth detected — falling back to simulation mode")
-		return BackendSimulation
-	}
-	return BackendClaude
+	return "", fmt.Errorf("run: unknown backend %q (valid: claude, simulation)", raw)
 }
 
 // startCodergen constructs the codergen backend matching `choice`. For
