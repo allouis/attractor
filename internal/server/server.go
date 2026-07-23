@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -86,6 +87,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/events", s.streamEvents)
 	mux.HandleFunc("POST /pipelines/{id}/cancel", s.cancelPipeline)
 	mux.HandleFunc("GET /pipelines/{id}/graph", s.getGraph)
+	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", s.getArtifact)
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.listQuestions)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
@@ -275,6 +277,26 @@ func (s *Server) getGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Write(svg)
+}
+
+// getArtifact serves a read-only file from the run's logs directory,
+// backing the UI node pane's prompt.md / response.md / tool_calls/ links
+// (service-spec §4). The requested path is cleaned and confined to the
+// run's logsRoot so it cannot escape into the wider filesystem.
+func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.registry.Get(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	root := filepath.Clean(run.logsRoot)
+	// Leading slash makes Clean collapse any leading ".." segments.
+	full := filepath.Join(root, filepath.Clean("/"+r.PathValue("path")))
+	if full != root && !strings.HasPrefix(full, root+string(filepath.Separator)) {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, full)
 }
 
 func (s *Server) listQuestions(w http.ResponseWriter, r *http.Request) {
