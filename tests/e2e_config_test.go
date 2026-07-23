@@ -67,6 +67,29 @@ command = "cwd-agent"
 	}
 }
 
+func TestConfig_IgnoresNonProviderTables(t *testing.T) {
+	cfg, err := config.Parse([]byte(`
+default_provider = "anthropic"
+
+[providers.anthropic]
+backend = "acp"
+
+[experimental]
+default_provider = "leaked"
+foo = "bar"
+`))
+	must(t, err)
+	if _, ok := cfg.Providers[""]; ok {
+		t.Fatalf("non-provider table must not create an empty provider: %+v", cfg.Providers)
+	}
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("expected only the anthropic provider, got %+v", cfg.Providers)
+	}
+	if cfg.DefaultProvider != "anthropic" {
+		t.Fatalf("keys in an ignored table must not leak; default_provider=%q", cfg.DefaultProvider)
+	}
+}
+
 func TestConfig_LoadMissingFilesIsEmpty(t *testing.T) {
 	cfg, err := config.Load(t.TempDir(), t.TempDir())
 	must(t, err)

@@ -14,6 +14,7 @@ import (
 func Parse(data []byte) (Config, error) {
 	cfg := Config{Providers: map[string]Provider{}}
 	var curProvider string // name of the [providers.<name>] table in scope
+	ignore := false        // inside a non-providers table: skip its keys
 	for i, raw := range strings.Split(string(data), "\n") {
 		line := stripComment(raw)
 		if line == "" {
@@ -25,14 +26,20 @@ func Parse(data []byte) (Config, error) {
 				return Config{}, fmt.Errorf("config line %d: %w", i+1, err)
 			}
 			curProvider = name
-			if _, ok := cfg.Providers[name]; !ok {
-				cfg.Providers[name] = Provider{}
+			ignore = name == ""
+			if !ignore {
+				if _, ok := cfg.Providers[name]; !ok {
+					cfg.Providers[name] = Provider{}
+				}
 			}
 			continue
 		}
 		key, val, err := parseKeyValue(line)
 		if err != nil {
 			return Config{}, fmt.Errorf("config line %d: %w", i+1, err)
+		}
+		if ignore {
+			continue
 		}
 		if curProvider == "" {
 			if key == "default_provider" {
