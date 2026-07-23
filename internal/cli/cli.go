@@ -84,10 +84,11 @@ func providerLintRules(cfg config.Config) []lint.Rule {
 	}
 }
 
-// Run executes a pipeline end-to-end. The --backend flag selects the
-// codergen backend (default: simulation). The positional argument is
-// either a path to a .dot file or a pipeline name that resolves via
-// lookup (see resolvePipelinePath).
+// Run executes a pipeline end-to-end. By default each codergen node is
+// routed to a backend via the provider config (service-spec §1); the
+// --backend / --acp-cmd flags are run-wide overrides that bypass it.
+// The positional argument is either a path to a .dot file or a pipeline
+// name that resolves via lookup (see resolvePipelinePath).
 func Run(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
