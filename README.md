@@ -76,6 +76,28 @@ plan  [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-opus-4-8 claude-
 build [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-sonnet-5 claude-agent-acp"]
 ```
 
+## Token usage and the stall watchdog
+
+The ACP backend reads the agent's per-turn token counts from its
+`usage` session updates and emits one `usage` event per stage
+(`{input_tokens, output_tokens}`). The engine sums them across the run
+and attaches the rollup to the terminal `pipeline_completed` /
+`pipeline_failed` event; `serve` also exposes the run total as `tokens`
+in the `GET /pipelines` summaries and persists it to `manifest.json`.
+A stage that reports no usage emits nothing, so zero stays unambiguous.
+
+A **stall watchdog** guards against agents that go silent without ever
+hitting the overall `timeout` — stuck on a tool, wedged in a retry. Set
+`stall_timeout` on a node (or graph) and the ACP backend kills the turn
+if no session update arrives within that window; each update resets the
+countdown. A stall is reported as `acp: stalled: no activity for <d>`,
+distinct from a plain timeout. Absent (or zero) `stall_timeout` leaves
+the watchdog off.
+
+```dot
+build [type="codergen.acp", timeout="30m", stall_timeout="3m"]
+```
+
 ## CLI
 
 | Command | Purpose |
@@ -191,7 +213,7 @@ Run data layout (file-backed, survives server restart):
 ```
 ~/.attractor/runs/
   <run-id>/
-    manifest.json        # run metadata + final status
+    manifest.json        # run metadata + final status + token rollup
     source.dot           # the submitted DOT
     events.jsonl         # append-only event log for replay
     checkpoint.json      # engine state for resume
