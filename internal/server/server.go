@@ -17,12 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fabro/attractor/internal/dot"
 	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
 	"github.com/fabro/attractor/internal/handler"
 	"github.com/fabro/attractor/internal/interviewer"
 	"github.com/fabro/attractor/internal/render"
+	"github.com/fabro/attractor/internal/setup"
 )
 
 // Server is the HTTP-mode Attractor service.
@@ -148,32 +147,36 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body.Close()
 	source := string(body)
+	var vars map[string]string
+	var cwd string
 	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "application/json") {
 		var payload struct {
-			Dot string `json:"dot"`
+			Dot  string            `json:"dot"`
+			Vars map[string]string `json:"vars"`
+			Cwd  string            `json:"cwd"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		source = payload.Dot
+		vars = payload.Vars
+		cwd = payload.Cwd
 	}
-	file, err := dot.Parse(source)
-	if err != nil {
-		http.Error(w, "parse: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	g, err := graph.Build(file)
-	if err != nil {
-		http.Error(w, "build: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	prepared, err := engine.Prepare(g)
+	// Run the shared setup path (service-spec §2): @file prompts resolve
+	// against the submission cwd, $vars expand, and the payload cwd
+	// becomes the graph-level cwd default (node/graph attrs still win).
+	prepared, err := setup.Prepare(setup.Options{
+		Source:  source,
+		Vars:    vars,
+		BaseDir: cwd,
+		Cwd:     cwd,
+	})
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	run := s.registry.NewRun(source, g, prepared, s.logsRoot, s.makeHandlers)
+	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers)
 	go run.execute()
 	writeJSON(w, http.StatusCreated, map[string]any{"id": run.ID})
 }
