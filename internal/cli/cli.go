@@ -244,10 +244,14 @@ func Serve(args []string) error {
 		token = t
 		fmt.Fprintf(os.Stderr, "attractor: bearer token stored at %s — clients must send `Authorization: Bearer <token>`\n", apiKeyPath())
 	}
+	handlers, err := ServeHandlerFactory()
+	if err != nil {
+		return err
+	}
 	srv := server.New(server.Config{
 		Addr:         *bind,
 		LogsRoot:     *logs,
-		MakeHandlers: server.DefaultHandlers(handler.Codergen{Backend: nil}),
+		MakeHandlers: handlers,
 		AuthToken:    token,
 	})
 	if err := srv.Start(); err != nil {
@@ -255,6 +259,18 @@ func Serve(args []string) error {
 	}
 	fmt.Println("attractor serving on", srv.URL())
 	select {}
+}
+
+// ServeHandlerFactory builds the server's handler factory from the
+// machine-local provider config (service-spec §1–2): each codergen node
+// is routed to a backend via the router, giving `serve` the same real
+// backends as `run`. This replaces the former simulation-only wiring.
+func ServeHandlerFactory() (server.HandlerFactory, error) {
+	cfg, err := loadProviderConfig()
+	if err != nil {
+		return nil, err
+	}
+	return server.DefaultHandlers(handler.Codergen{Backend: router.New(cfg)}), nil
 }
 
 // bindIsLoopback returns true for 127.0.0.1, ::1, or localhost bind
