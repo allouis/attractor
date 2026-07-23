@@ -206,7 +206,7 @@ Only that pipeline (or a human) edits this column.
 | M1 | Provider config + per-node routing in `run` | — | done |
 | M2 | Shared setup path; serve parity (vars, prompts, backends, cwd payload) | M1 | done |
 | M3 | Queue + run states + concurrency limit; `GET /pipelines`; shared events.jsonl | M2 | done |
-| M4 | UI v1 (run list, live graph, node pane, human dock) | M2 | todo |
+| M4 | UI v1 (run list, live graph, node pane, human dock) | M2 | done |
 | M5 | Automations (TOML + cron + manual trigger) | M3 | todo |
 | M6 | Stall watchdog; usage events | any | todo |
 
