@@ -65,9 +65,23 @@ func Validate(args []string) error {
 	if err != nil {
 		return err
 	}
-	diags, err := lint.ValidateOrError(g)
+	cfg, err := loadProviderConfig()
+	if err != nil {
+		return err
+	}
+	diags, err := lint.ValidateOrError(g, providerLintRules(cfg)...)
 	printDiagnostics(os.Stdout, diags)
 	return err
+}
+
+// providerLintRules returns the config-aware lint rules (service-spec
+// §1). They are not part of lint.BuiltIn() because they depend on the
+// machine-local provider config; callers pass them as extra rules.
+func providerLintRules(cfg config.Config) []lint.Rule {
+	return []lint.Rule{
+		lint.ProviderKnownRule{Config: cfg},
+		lint.ModelEnvMissingRule{Config: cfg},
+	}
 }
 
 // Run executes a pipeline end-to-end. The --backend flag selects the
@@ -138,6 +152,11 @@ func Run(args []string) error {
 		cfg, err := loadProviderConfig()
 		if err != nil {
 			return err
+		}
+		// Surface config-aware warnings (unknown provider, missing
+		// model_env) to stderr so --json stdout stays clean.
+		for _, rule := range providerLintRules(cfg) {
+			printDiagnostics(os.Stderr, rule.Apply(g))
 		}
 		codergenBackend = router.New(cfg)
 	}
