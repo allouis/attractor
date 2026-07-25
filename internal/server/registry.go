@@ -213,35 +213,39 @@ func (r *Run) Source() string {
 // Subscribe registers a new SSE consumer and replays the buffered
 // history into the returned channel before live events stream in.
 func (r *Run) Subscribe() chan engine.Event {
-	ch := make(chan engine.Event, 128)
 	r.mu.Lock()
+	finished := r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled
+	if finished {
+		// Snapshot history under the lock: fanOutEvents may still be
+		// appending on a cancelled-but-running run, so reading r.history
+		// after unlocking would be a data race. No live events will follow
+		// a finished run, so deliver the full history in one shot with a
+		// buffer sized to fit it — a non-blocking send into a fixed 128-slot
+		// buffer would drop the tail, including the terminal event the UI
+		// needs to stop reconnecting.
+		history := append([]engine.Event(nil), r.history...)
+		r.mu.Unlock()
+		if len(history) == 0 {
+			// Resumed run: history lives only on disk.
+			history = r.replayEvents()
+		}
+		ch := make(chan engine.Event, len(history)+1)
+		for _, ev := range history {
+			ch <- ev
+		}
+		close(ch)
+		return ch
+	}
+	// Live run: replay buffered history, then register for live events.
+	ch := make(chan engine.Event, 128)
 	for _, ev := range r.history {
 		select {
 		case ch <- ev:
 		default:
 		}
 	}
-	finished := r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled
-	// Only register live runs. For a finished run this channel is closed
-	// below, so registering it would let the handler's deferred
-	// Unsubscribe close it a second time (panicking under r.mu.Lock and
-	// leaking the write lock).
-	if !finished {
-		r.subscribers[ch] = struct{}{}
-	}
+	r.subscribers[ch] = struct{}{}
 	r.mu.Unlock()
-	if finished {
-		// Replay disk history if no in-memory history (resumed run).
-		if len(r.history) == 0 {
-			for _, ev := range r.replayEvents() {
-				select {
-				case ch <- ev:
-				default:
-				}
-			}
-		}
-		close(ch)
-	}
 	return ch
 }
 
