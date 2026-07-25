@@ -89,8 +89,16 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 
 	if autostart {
 		go func() {
-			go consumeChildEvents(childEng.Events(), childStatus, env)
+			consumeDone := make(chan struct{})
+			go func() {
+				consumeChildEvents(childEng.Events(), childStatus, env)
+				close(consumeDone)
+			}()
 			out, _ := childEng.Run(prepared)
+			// Wait for the event consumer to drain before reporting done, so
+			// it never calls env.Emit after Execute returns and the parent
+			// engine closes its event channel (send-on-closed-channel race).
+			<-consumeDone
 			doneCh <- out
 		}()
 	}

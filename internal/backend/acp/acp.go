@@ -118,11 +118,19 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 	}
 
 	conn := acp.NewConn(stdin, stdout)
-	defer func() {
-		conn.Close()
-		_ = stdin.Close()
-		waitOrKill(cmd)
-	}()
+	// teardown closes the streams and reaps the process. Run once, either
+	// eagerly before reading stderr on the error path (so the os/exec
+	// stderr copier goroutine has finished writing the buffer) or via the
+	// deferred call on the success path.
+	var teardownOnce sync.Once
+	teardown := func() {
+		teardownOnce.Do(func() {
+			conn.Close()
+			_ = stdin.Close()
+			waitOrKill(cmd)
+		})
+	}
+	defer teardown()
 
 	turn := &turnState{env: env}
 	if stall > 0 {
@@ -142,6 +150,10 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		if turn.wd != nil && turn.wd.fired.Load() {
 			return backend.Result{}, fmt.Errorf("acp: stalled: no activity for %s", stall)
 		}
+		// Reap the process before reading stderr: cmd.Wait (inside
+		// teardown) joins the os/exec copier goroutine still writing the
+		// buffer, so stderr.Bytes() is race-free.
+		teardown()
 		return backend.Result{}, agentErr(err, stderr.Bytes())
 	}
 	turn.emitUsage()
