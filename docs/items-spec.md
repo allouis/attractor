@@ -143,7 +143,7 @@ Status flipped to `done` in the milestone's final commit):
 |---|---|---|---|
 | I1 | `item_ref` `(source,type,external-id)` on runs — set at creation, exposed in the run summary / API | — | done |
 | I2 | Sources (server-side): `GET /items?source=…&filter=assigned` — GitHub via `gh`, Linear via config API key; annotate each item with linked-run state | I1 | done |
-| I3 | repo→path config (`~/.attractor/repos.toml`): `owner/name → local jj-colocated checkout` | — | todo |
+| I3 | repo→path config (`~/.attractor/repos.toml`): `owner/name → local jj-colocated checkout` | — | done |
 | I4 | `POST /items/run {item_ref, pipeline, repo}` — resolve item → vars, repo → `cwd`, stamp `item_ref`, start a run; PR auto-fills repo, non-PR picks from the map | I1, I2, I3 | todo |
 | I5 | a `review` pipeline (first node `gh pr checkout`, then a codergen review stage) | — | todo |
 | I6 | TUI Items view — list items, in-progress badge, **pick item → pick workflow → pick repo → run** | I4, tui branch | blocked |
