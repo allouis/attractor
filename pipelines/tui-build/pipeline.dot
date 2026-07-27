@@ -1,0 +1,44 @@
+// TUI build pipeline: implements the next `todo` milestone from
+// docs/tui-spec.md and flips its Status to done. One milestone per run.
+//
+//   attractor run --backend acp pipelines/tui-build/pipeline.dot
+//
+// Codergen stages share thread "tui" under full fidelity. verify runs
+// the suite under -race AND nix build (T4 changes flake.nix / adds the
+// first external deps, so the build must stay green).
+
+digraph tui_build {
+    goal = "Implement the next todo milestone from docs/tui-spec.md"
+    acp_command = "claude-agent-acp"
+    max_node_visits = 5
+
+    start [shape=Mdiamond]
+
+    plan [type="codergen.acp", thread_id="tui", fidelity="full",
+          timeout="20m", prompt="@prompts/plan.md"]
+
+    implement [type="codergen.acp", thread_id="tui", fidelity="full",
+               timeout="120m", goal_gate=true, retry_target="plan",
+               prompt="@prompts/implement.md"]
+
+    verify [type="tool", timeout="30m",
+            tool_command="cd /home/agent/attractor && nix develop -c go test ./... -race -count=1 && nix build .#attractor && test -z \"$(nix develop -c gofmt -l . 2>/dev/null)\" && test -z \"$(jj resolve --list 2>/dev/null)\""]
+
+    review [type="codergen.acp", thread_id="tui", fidelity="full",
+            timeout="30m", prompt="@prompts/review.md"]
+
+    record [type="codergen.acp", thread_id="tui", fidelity="full",
+            timeout="15m", prompt="@prompts/record.md"]
+
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> implement
+    implement -> verify [condition="outcome=success"]
+    implement -> plan   [condition="outcome=fail", label="Replan"]
+    verify -> review    [condition="outcome=success"]
+    verify -> implement [condition="outcome=fail", label="Fix"]
+    review -> record    [condition="outcome=success"]
+    review -> implement [condition="outcome=fail", label="Fix findings"]
+    record -> done
+}
