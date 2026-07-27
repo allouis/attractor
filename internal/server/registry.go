@@ -211,8 +211,11 @@ func (r *Run) Source() string {
 }
 
 // Subscribe registers a new SSE consumer and replays the buffered
-// history into the returned channel before live events stream in.
-func (r *Run) Subscribe() chan engine.Event {
+// history into the returned channel before live events stream in. When
+// since > 0 only events with seq > since are replayed, so a client
+// resuming a dropped stream (GET ...?since=<seq>) never sees a duplicate
+// (tui-spec T3). since <= 0 replays the full history.
+func (r *Run) Subscribe(since int64) chan engine.Event {
 	r.mu.Lock()
 	finished := r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled
 	if finished {
@@ -231,6 +234,9 @@ func (r *Run) Subscribe() chan engine.Event {
 		}
 		ch := make(chan engine.Event, len(history)+1)
 		for _, ev := range history {
+			if since > 0 && ev.Seq <= since {
+				continue
+			}
 			ch <- ev
 		}
 		close(ch)
@@ -239,6 +245,9 @@ func (r *Run) Subscribe() chan engine.Event {
 	// Live run: replay buffered history, then register for live events.
 	ch := make(chan engine.Event, 128)
 	for _, ev := range r.history {
+		if since > 0 && ev.Seq <= since {
+			continue
+		}
 		select {
 		case ch <- ev:
 		default:

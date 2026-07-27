@@ -18,7 +18,7 @@ func TestCancelledQueuedRunClosesSubscribers(t *testing.T) {
 		questions:   map[string]*pendingQuestion{},
 	}
 
-	ch := r.Subscribe()
+	ch := r.Subscribe(0)
 	r.Cancel()
 
 	done := make(chan struct{})
