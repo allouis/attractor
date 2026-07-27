@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -278,7 +279,8 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	stream := run.Subscribe()
+	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	stream := run.Subscribe(since)
 	defer run.Unsubscribe(stream)
 	ctx := r.Context()
 	for {
