@@ -134,26 +134,23 @@ further runs (a router run → a work run).
 **No routing, no dispatch node, no `Runner` seam.** You pick the item,
 the workflow, and the repo; the daemon just starts the run. This
 validates the whole spine (item ↔ run link, item data → workflow, repo
-selection) with the least machinery. Ordered:
+selection) with the least machinery.
 
-1. **`item_ref` on runs** — `(source, type, external-id)` field, set at
-   run creation, exposed in the run summary / API / TUI.
-2. **Sources (server-side fetch)** — GitHub via `gh`, Linear via an API
-   key in config: `GET /items?source=…&filter=assigned`, each item
-   annotated with linked-run state (in-progress / has run #N).
-3. **repo→path config** (`~/.attractor/repos.toml`) — the set of known
-   repos, mapping `owner/name → local jj-colocated checkout`.
-4. **`POST /items/run {item_ref, pipeline, repo}`** — human supplies
-   the workflow + repo; daemon resolves item → vars, repo → `cwd`,
-   stamps `item_ref`, starts a run through the existing admission path.
-   PR auto-fills its repo; a non-PR item makes you pick from the map.
-5. **Workflow(s) to run** — a `review` pipeline (first node
-   `gh pr checkout`, then a codergen review), plus whatever you'll pick
-   for issues (`implement` / `bug-fix`).
-6. **TUI Items view** — list items, in-progress badge, and the action
-   **pick item → pick workflow → pick repo → run**.
+Milestone ledger (consumed by the generic build pipeline; one per run,
+Status flipped to `done` in the milestone's final commit):
 
-Validate steps 1–5 by `curl` before wiring the TUI view (6).
+| # | Milestone | Deps | Status |
+|---|---|---|---|
+| I1 | `item_ref` `(source,type,external-id)` on runs — set at creation, exposed in the run summary / API | — | todo |
+| I2 | Sources (server-side): `GET /items?source=…&filter=assigned` — GitHub via `gh`, Linear via config API key; annotate each item with linked-run state | I1 | todo |
+| I3 | repo→path config (`~/.attractor/repos.toml`): `owner/name → local jj-colocated checkout` | — | todo |
+| I4 | `POST /items/run {item_ref, pipeline, repo}` — resolve item → vars, repo → `cwd`, stamp `item_ref`, start a run; PR auto-fills repo, non-PR picks from the map | I1, I2, I3 | todo |
+| I5 | a `review` pipeline (first node `gh pr checkout`, then a codergen review stage) | — | todo |
+| I6 | TUI Items view — list items, in-progress badge, **pick item → pick workflow → pick repo → run** | I4, tui branch | blocked |
+
+I1–I5 are the backend spine, buildable on this `items` branch and
+validatable by `curl`. **I6 is `blocked`** — it needs the TUI, whose
+fate (rebase vs redo) is undecided; skip it until then.
 
 ## Phase 2 — Workflow dispatch (routing)
 
