@@ -30,6 +30,9 @@ type Provider struct {
 type Config struct {
 	DefaultProvider string
 	Providers       map[string]Provider
+	// LinearAPIKey authenticates the Linear source (items-spec I2). The
+	// daemon can't borrow the session's MCP, so the key lives in config.
+	LinearAPIKey string
 }
 
 // Load reads ~/.attractor/config.toml then overlays
@@ -63,6 +66,9 @@ func Load(homeDir, cwd string) (Config, error) {
 func (c *Config) overlay(src Config) {
 	if src.DefaultProvider != "" {
 		c.DefaultProvider = src.DefaultProvider
+	}
+	if src.LinearAPIKey != "" {
+		c.LinearAPIKey = src.LinearAPIKey
 	}
 	if c.Providers == nil {
 		c.Providers = map[string]Provider{}

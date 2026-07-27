@@ -35,3 +35,25 @@ func TestParseDottedProviderName(t *testing.T) {
 		t.Errorf("provider %q missing; got providers %v", "foo.bar", cfg.Providers)
 	}
 }
+
+// TestParseLinearAPIKey captures the [linear] api_key table key
+// (items-spec I2: Linear source authenticates via a config API key).
+func TestParseLinearAPIKey(t *testing.T) {
+	cfg, err := Parse([]byte("[linear]\napi_key = \"lin_abc123\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.LinearAPIKey != "lin_abc123" {
+		t.Errorf("LinearAPIKey = %q, want %q", cfg.LinearAPIKey, "lin_abc123")
+	}
+}
+
+// TestLinearAPIKeyOverlay checks a later layer (cwd) wins over home.
+func TestLinearAPIKeyOverlay(t *testing.T) {
+	cfg := Config{Providers: map[string]Provider{}}
+	cfg.overlay(Config{LinearAPIKey: "home"})
+	cfg.overlay(Config{LinearAPIKey: "cwd"})
+	if cfg.LinearAPIKey != "cwd" {
+		t.Errorf("LinearAPIKey = %q, want %q", cfg.LinearAPIKey, "cwd")
+	}
+}
