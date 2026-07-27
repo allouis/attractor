@@ -30,17 +30,18 @@ const (
 // run is queued and updated again when it terminates so a server
 // restart can reconstruct the registry from disk alone.
 type Manifest struct {
-	ID            string        `json:"id"`
-	Status        RunStatus     `json:"status"`
-	StartedAt     time.Time     `json:"started_at"`
-	CompletedAt   time.Time     `json:"completed_at,omitempty"`
-	GraphName     string        `json:"graph_name,omitempty"`
-	GraphGoal     string        `json:"graph_goal,omitempty"`
-	Cwd           string        `json:"cwd,omitempty"`
-	Outcome       string        `json:"outcome,omitempty"`
-	FailureReason string        `json:"failure_reason,omitempty"`
-	LogsRoot      string        `json:"logs_root"`
-	Tokens        *engine.Usage `json:"tokens,omitempty"`
+	ID            string          `json:"id"`
+	Status        RunStatus       `json:"status"`
+	StartedAt     time.Time       `json:"started_at"`
+	CompletedAt   time.Time       `json:"completed_at,omitempty"`
+	GraphName     string          `json:"graph_name,omitempty"`
+	GraphGoal     string          `json:"graph_goal,omitempty"`
+	Cwd           string          `json:"cwd,omitempty"`
+	Outcome       string          `json:"outcome,omitempty"`
+	FailureReason string          `json:"failure_reason,omitempty"`
+	LogsRoot      string          `json:"logs_root"`
+	Tokens        *engine.Usage   `json:"tokens,omitempty"`
+	ItemRef       *engine.ItemRef `json:"item_ref,omitempty"`
 }
 
 // runRegistry holds active and completed runs by ID.
@@ -94,6 +95,7 @@ func (r *runRegistry) reload() {
 			completedAt: m.CompletedAt,
 			graphName:   m.GraphName,
 			cwd:         m.Cwd,
+			itemRef:     m.ItemRef,
 			subscribers: map[chan engine.Event]struct{}{},
 			questions:   map[string]*pendingQuestion{},
 			persisted:   true,
@@ -112,7 +114,10 @@ func (r *runRegistry) reload() {
 	}
 }
 
-func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory) *Run {
+// NewRun mints a run. itemRef, when non-nil, records the external Item
+// that spawned it (items-spec I1); it is stamped at creation, persisted
+// in the manifest, and surfaced in the run summary.
+func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef *engine.ItemRef) *Run {
 	id := newRunID()
 	logsRoot := filepath.Join(baseDir, id)
 	run := &Run{
@@ -124,6 +129,7 @@ func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.Pre
 		status:      RunQueued,
 		startedAt:   time.Now(),
 		factory:     makeHandlers,
+		itemRef:     itemRef,
 		subscribers: map[chan engine.Event]struct{}{},
 		questions:   map[string]*pendingQuestion{},
 		persisted:   true,
@@ -173,6 +179,7 @@ type Run struct {
 	factory   HandlerFactory
 	graphName string
 	cwd       string
+	itemRef   *engine.ItemRef
 
 	mu          sync.RWMutex
 	status      RunStatus
@@ -322,6 +329,9 @@ func (r *Run) Summary() map[string]any {
 	if r.usage.InputTokens != 0 || r.usage.OutputTokens != 0 {
 		resp["tokens"] = r.usage
 	}
+	if r.itemRef != nil {
+		resp["item_ref"] = *r.itemRef
+	}
 	return resp
 }
 
@@ -469,6 +479,7 @@ func (r *Run) writeManifest() {
 	}
 	m.GraphName = r.graphName
 	m.Cwd = r.cwd
+	m.ItemRef = r.itemRef
 	if r.graph != nil {
 		m.GraphGoal = r.graph.Goal()
 	}

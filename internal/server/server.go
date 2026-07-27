@@ -198,11 +198,13 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	source := string(body)
 	var vars map[string]string
 	var cwd string
+	var itemRef *engine.ItemRef
 	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "application/json") {
 		var payload struct {
-			Dot  string            `json:"dot"`
-			Vars map[string]string `json:"vars"`
-			Cwd  string            `json:"cwd"`
+			Dot     string            `json:"dot"`
+			Vars    map[string]string `json:"vars"`
+			Cwd     string            `json:"cwd"`
+			ItemRef *engine.ItemRef   `json:"item_ref"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -211,8 +213,15 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		source = payload.Dot
 		vars = payload.Vars
 		cwd = payload.Cwd
+		if payload.ItemRef != nil {
+			if payload.ItemRef.Source == "" || payload.ItemRef.Type == "" || payload.ItemRef.ExternalID == "" {
+				http.Error(w, "item_ref requires source, type, and external_id", http.StatusBadRequest)
+				return
+			}
+			itemRef = payload.ItemRef
+		}
 	}
-	id, err := s.submit(source, vars, cwd)
+	id, err := s.submit(source, vars, cwd, itemRef)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -226,8 +235,10 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 // triggers (POST /automations/{name}/run), and the cron scheduler, so
 // every route enqueues runs identically. @file prompts resolve against
 // cwd, $vars expand, and cwd becomes the graph-level cwd default
-// (node/graph attrs still win).
-func (s *Server) submit(source string, vars map[string]string, cwd string) (string, error) {
+// (node/graph attrs still win). itemRef, when non-nil, stamps the run
+// with the external Item that spawned it (items-spec I1); automation and
+// cron callers pass nil.
+func (s *Server) submit(source string, vars map[string]string, cwd string, itemRef *engine.ItemRef) (string, error) {
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  source,
 		Vars:    vars,
@@ -237,7 +248,7 @@ func (s *Server) submit(source string, vars map[string]string, cwd string) (stri
 	if err != nil {
 		return "", err
 	}
-	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers)
+	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef)
 	s.dispatcher.enqueue(run)
 	return run.ID, nil
 }
