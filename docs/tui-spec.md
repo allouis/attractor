@@ -64,7 +64,7 @@ the build change.
 | # | Deliverable | Depends on | Status |
 |---|---|---|---|
 | T1 | Typed API client package (`internal/client`) | — | done |
-| T2 | Inline stage-output endpoint + `client.GetStage` | T1 | todo |
+| T2 | Inline stage-output endpoint + `client.GetStage` | T1 | done |
 | T3 | SSE replay cursor (`?since=`) + client resume | T1 | todo |
 | T4 | Bubble Tea deps + `attractor tui` + live run-list view | T1 | todo |
 | T5 | Run-detail view: stage list + live node-output tail | T2, T3, T4 | todo |
