@@ -18,6 +18,9 @@ type Event struct {
 	Detail     map[string]string `json:"detail,omitempty"`
 	QuestionID string            `json:"question_id,omitempty"`
 	Usage      *Usage            `json:"usage,omitempty"`
+	// Seq is a monotonic per-run sequence number stamped by emit. It lets
+	// SSE consumers resume with ?since=<seq> without duplicating events (T3).
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // Usage carries token accounting: per-stage on an EventUsage event, or

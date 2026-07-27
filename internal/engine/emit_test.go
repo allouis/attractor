@@ -10,6 +10,51 @@ import (
 	"testing"
 )
 
+// TestEmitStampsMonotonicSeq verifies that emit assigns each event a
+// unique, monotonic per-run sequence number, persisted to events.jsonl so
+// the same seq survives a replay from disk (the SSE resume cursor, T3).
+func TestEmitStampsMonotonicSeq(t *testing.T) {
+	dir := t.TempDir()
+	e := New(Config{LogsRoot: dir, RunID: "run-seq"})
+	e.openEventsFile()
+	defer e.closeEventsFile()
+
+	const n = 200
+	for i := 0; i < n; i++ {
+		e.emit(Event{Kind: EventStageProgress})
+	}
+	e.closeEventsFile()
+
+	f, err := os.Open(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("open events.jsonl: %v", err)
+	}
+	defer f.Close()
+
+	seen := map[int64]bool{}
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for scanner.Scan() {
+		if len(scanner.Bytes()) == 0 {
+			continue
+		}
+		var ev Event
+		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+			t.Fatalf("bad line: %v", err)
+		}
+		if ev.Seq < 1 || ev.Seq > n {
+			t.Fatalf("seq %d out of range 1..%d", ev.Seq, n)
+		}
+		if seen[ev.Seq] {
+			t.Fatalf("duplicate seq %d", ev.Seq)
+		}
+		seen[ev.Seq] = true
+	}
+	if len(seen) != n {
+		t.Fatalf("got %d distinct seq, want %d", len(seen), n)
+	}
+}
+
 // TestEmitConcurrentWritesAreLineAtomic verifies that concurrent emit calls
 // never interleave a payload and its trailing newline, so every line of
 // events.jsonl remains a parseable JSON object. Run under -race.
