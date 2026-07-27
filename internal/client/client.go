@@ -111,6 +111,14 @@ func (c *Client) GetRun(ctx context.Context, id string) (RunSummary, error) {
 	return run, err
 }
 
+// GetStage returns a stage's inline output (prompt, response, tool calls,
+// and self-reported status) for run id and node.
+func (c *Client) GetStage(ctx context.Context, id, node string) (StageDetail, error) {
+	var detail StageDetail
+	err := c.getJSON(ctx, "/pipelines/"+id+"/stages/"+node, &detail)
+	return detail, err
+}
+
 // Submit enqueues a new run and returns its id.
 func (c *Client) Submit(ctx context.Context, req SubmitRequest) (string, error) {
 	var body struct {

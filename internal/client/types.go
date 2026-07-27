@@ -1,6 +1,9 @@
 package client
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // RunSummary is one entry in the daemon's run list (GET /pipelines) and
 // the shape of GET /pipelines/{id}. It mirrors the server's Summary()
@@ -57,6 +60,17 @@ type Question struct {
 type Option struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
+}
+
+// StageDetail is a single stage's inline output (tui-spec T2), returned by
+// GET /pipelines/{id}/stages/{node}. Status mirrors the stage's status.json
+// outcome ("" while still running). ToolCalls holds each tool_calls/*.json
+// payload verbatim so the client stays agnostic about the hook wire shape.
+type StageDetail struct {
+	Status    string            `json:"status"`
+	Prompt    string            `json:"prompt"`
+	Response  string            `json:"response"`
+	ToolCalls []json.RawMessage `json:"tool_calls"`
 }
 
 // SubmitRequest is the body of POST /pipelines: the DOT source plus the
