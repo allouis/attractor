@@ -7,6 +7,64 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
+    let
+      # NixOS systemd.services.<name> definition (system service).
+      nixosServiceModule = { config, lib, pkgs }:
+        let
+          cfg = config.services.attractor;
+        in {
+          description = "Attractor pipeline server";
+          after = [ "network-online.target" ];
+          wants = [ "network-online.target" ];
+          wantedBy = [ "multi-user.target" ];
+          serviceConfig = {
+            ExecStart = lib.concatStringsSep " " ([
+              "${cfg.package}/bin/attractor"
+              "serve"
+              "--bind"
+              cfg.bind
+              "--logs"
+              cfg.logsDir
+              "--max-concurrent-runs"
+              (toString cfg.maxConcurrentRuns)
+            ] ++ cfg.extraArgs);
+            Restart = "on-failure";
+            RestartSec = 3;
+            DynamicUser = true;
+            StateDirectory = "attractor";
+          };
+        };
+
+      mkOptions = { lib, pkgs, defaultLogsDir }: {
+        enable = lib.mkEnableOption "attractor pipeline server";
+        package = lib.mkOption {
+          type = lib.types.package;
+          default = self.packages.${pkgs.system}.attractor;
+          description = "The attractor package to run (graphviz-wrapped).";
+        };
+        bind = lib.mkOption {
+          type = lib.types.str;
+          default = "127.0.0.1:7681";
+          description = "TCP bind address. Non-loopback needs --auth-token or --insecure via extraArgs; front it with Tailscale Serve for HTTPS.";
+        };
+        logsDir = lib.mkOption {
+          type = lib.types.str;
+          default = defaultLogsDir;
+          description = "Directory for run artefacts (manifest, events.jsonl, per-stage prompt/response).";
+        };
+        maxConcurrentRuns = lib.mkOption {
+          type = lib.types.int;
+          default = 4;
+          description = "Concurrent run cap; the rest queue FIFO.";
+        };
+        extraArgs = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          example = [ "--insecure" ];
+          description = "Extra flags appended to `attractor serve`.";
+        };
+      };
+    in
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
@@ -89,5 +147,50 @@
             installPhase = "mkdir -p $out";
           };
         };
-      });
+      }) // {
+        # System service: `services.attractor.enable = true;` on NixOS.
+        nixosModules.default = { config, lib, pkgs, ... }: {
+          options.services.attractor = mkOptions {
+            inherit lib pkgs;
+            defaultLogsDir = "/var/lib/attractor/runs";
+          };
+          config = lib.mkIf config.services.attractor.enable {
+            environment.systemPackages = [ config.services.attractor.package ];
+            systemd.services.attractor =
+              nixosServiceModule { inherit config lib pkgs; };
+          };
+        };
+
+        # User service: `services.attractor.enable = true;` in home-manager.
+        homeManagerModules.default = { config, lib, pkgs, ... }: {
+          options.services.attractor = mkOptions {
+            inherit lib pkgs;
+            defaultLogsDir = "%h/.attractor/runs";
+          };
+          config = lib.mkIf config.services.attractor.enable {
+            home.packages = [ config.services.attractor.package ];
+            systemd.user.services.attractor = {
+              Unit = {
+                Description = "Attractor pipeline server";
+                After = [ "network-online.target" ];
+              };
+              Service = {
+                ExecStart = lib.concatStringsSep " " ([
+                  "${config.services.attractor.package}/bin/attractor"
+                  "serve"
+                  "--bind"
+                  config.services.attractor.bind
+                  "--logs"
+                  config.services.attractor.logsDir
+                  "--max-concurrent-runs"
+                  (toString config.services.attractor.maxConcurrentRuns)
+                ] ++ config.services.attractor.extraArgs);
+                Restart = "on-failure";
+                RestartSec = 3;
+              };
+              Install.WantedBy = [ "default.target" ];
+            };
+          };
+        };
+      };
 }
