@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/fabro/attractor/internal/toml"
@@ -17,6 +19,34 @@ type Repos map[string]string
 func (r Repos) Path(repo string) (string, bool) {
 	p, ok := r[repo]
 	return p, ok
+}
+
+// LoadRepos reads ~/.attractor/repos.toml then overlays
+// ./.attractor/repos.toml (cwd wins), mirroring Load. Missing files are
+// not an error: they yield an empty map.
+func LoadRepos(homeDir, cwd string) (Repos, error) {
+	repos := Repos{}
+	paths := []string{
+		filepath.Join(homeDir, ".attractor", "repos.toml"),
+		filepath.Join(cwd, ".attractor", "repos.toml"),
+	}
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		layer, err := ParseRepos(data)
+		if err != nil {
+			return nil, err
+		}
+		for name, path := range layer {
+			repos[name] = path
+		}
+	}
+	return repos, nil
 }
 
 // ParseRepos reads a repos.toml: a single `[repos]` table whose keys are

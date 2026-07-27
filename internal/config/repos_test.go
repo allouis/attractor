@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TestParseReposBasic captures the [repos] table shape from items-spec I3:
 // `owner/name = "/local/checkout"` entries, looked up via Path.
@@ -58,5 +62,47 @@ func TestParseReposIgnoresOtherTables(t *testing.T) {
 func TestParseReposMalformed(t *testing.T) {
 	if _, err := ParseRepos([]byte("[repos]\ngarbage\n")); err == nil {
 		t.Fatalf("ParseRepos: want error on malformed line, got nil")
+	}
+}
+
+// TestLoadReposMissingFilesEmpty: absent repos.toml yields an empty map,
+// not an error (mirrors Load).
+func TestLoadReposMissingFilesEmpty(t *testing.T) {
+	repos, err := LoadRepos(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadRepos: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Errorf("LoadRepos = %v, want empty", repos)
+	}
+}
+
+// TestLoadReposOverlay: home then cwd, cwd winning per key; the union of
+// keys survives.
+func TestLoadReposOverlay(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeRepos(t, filepath.Join(home, ".attractor", "repos.toml"),
+		"[repos]\na/b = \"/home\"\nc/d = \"/home2\"\n")
+	writeRepos(t, filepath.Join(cwd, ".attractor", "repos.toml"),
+		"[repos]\na/b = \"/cwd\"\n")
+	repos, err := LoadRepos(home, cwd)
+	if err != nil {
+		t.Fatalf("LoadRepos: %v", err)
+	}
+	if got, _ := repos.Path("a/b"); got != "/cwd" {
+		t.Errorf("Path(a/b) = %q, want /cwd (cwd wins)", got)
+	}
+	if got, _ := repos.Path("c/d"); got != "/home2" {
+		t.Errorf("Path(c/d) = %q, want /home2 (home-only survives)", got)
+	}
+}
+
+func writeRepos(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
