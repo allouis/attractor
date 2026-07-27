@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fabro/attractor/internal/artifact"
@@ -35,6 +36,7 @@ type Engine struct {
 	restartCount    int
 	usageMu         sync.Mutex
 	usageTotal      Usage
+	seq             atomic.Int64
 }
 
 // Config configures a new Engine.
@@ -604,6 +606,7 @@ func (e *Engine) emit(ev Event) {
 	if ev.RunID == "" {
 		ev.RunID = e.RunID
 	}
+	ev.Seq = e.seq.Add(1)
 	// Accumulate per-stage usage and attach the run rollup to the
 	// terminal pipeline event (service-spec §6). Guarded because parallel
 	// handler branches may emit concurrently.
