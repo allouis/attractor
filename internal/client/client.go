@@ -110,3 +110,19 @@ func (c *Client) GetRun(ctx context.Context, id string) (RunSummary, error) {
 	err := c.getJSON(ctx, "/pipelines/"+id, &run)
 	return run, err
 }
+
+// Submit enqueues a new run and returns its id.
+func (c *Client) Submit(ctx context.Context, req SubmitRequest) (string, error) {
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := c.postJSON(ctx, "/pipelines", req, &body); err != nil {
+		return "", err
+	}
+	return body.ID, nil
+}
+
+// Cancel requests cancellation of a run.
+func (c *Client) Cancel(ctx context.Context, id string) error {
+	return c.postJSON(ctx, "/pipelines/"+id+"/cancel", nil, nil)
+}
