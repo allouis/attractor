@@ -271,6 +271,18 @@ func Serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	repos, err := serveRepos(home, cwd)
+	if err != nil {
+		return err
+	}
 	srv := server.New(server.Config{
 		Addr:              *bind,
 		LogsRoot:          *logs,
@@ -279,6 +291,7 @@ func Serve(args []string) error {
 		MaxConcurrentRuns: *maxConcurrent,
 		AutomationsDir:    automationsDir(),
 		Sources:           sources,
+		Repos:             repos,
 	})
 	if err := srv.Start(); err != nil {
 		return err
@@ -312,6 +325,13 @@ func serveSources() (map[string]source.Source, error) {
 		sources["linear"] = source.NewLinear(cfg.LinearAPIKey)
 	}
 	return sources, nil
+}
+
+// serveRepos loads the daemon's repo→path map from ~/.attractor and cwd
+// repos.toml (items-spec I3), backing POST /items/run's repo → cwd
+// resolution. A missing repos.toml is not an error: an empty map.
+func serveRepos(home, cwd string) (config.Repos, error) {
+	return config.LoadRepos(home, cwd)
 }
 
 // bindIsLoopback returns true for 127.0.0.1, ::1, or localhost bind
