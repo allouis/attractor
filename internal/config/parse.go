@@ -16,22 +16,25 @@ import (
 func Parse(data []byte) (Config, error) {
 	cfg := Config{Providers: map[string]Provider{}}
 	var curProvider string // name of the [providers.<name>] table in scope
-	ignore := false        // inside a non-providers table: skip its keys
+	var curTable string    // raw first segment of the table in scope (e.g. "linear")
 	for i, raw := range strings.Split(string(data), "\n") {
 		line := toml.StripComment(raw)
 		if line == "" {
 			continue
 		}
 		if strings.HasPrefix(line, "[") {
-			name, err := parseProviderHeader(line)
+			path, err := toml.TableHeader(line)
 			if err != nil {
 				return Config{}, fmt.Errorf("config line %d: %w", i+1, err)
 			}
-			curProvider = name
-			ignore = name == ""
-			if !ignore {
-				if _, ok := cfg.Providers[name]; !ok {
-					cfg.Providers[name] = Provider{}
+			curTable = path[0]
+			curProvider, err = parseProviderHeader(line)
+			if err != nil {
+				return Config{}, fmt.Errorf("config line %d: %w", i+1, err)
+			}
+			if curProvider != "" {
+				if _, ok := cfg.Providers[curProvider]; !ok {
+					cfg.Providers[curProvider] = Provider{}
 				}
 			}
 			continue
@@ -40,12 +43,12 @@ func Parse(data []byte) (Config, error) {
 		if err != nil {
 			return Config{}, fmt.Errorf("config line %d: %w", i+1, err)
 		}
-		if ignore {
-			continue
-		}
 		if curProvider == "" {
-			if key == "default_provider" {
+			switch {
+			case curTable == "" && key == "default_provider":
 				cfg.DefaultProvider = val
+			case curTable == "linear" && key == "api_key":
+				cfg.LinearAPIKey = val
 			}
 			continue
 		}
