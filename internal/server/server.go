@@ -27,6 +27,7 @@ import (
 	"github.com/fabro/attractor/internal/render"
 	"github.com/fabro/attractor/internal/scheduler"
 	"github.com/fabro/attractor/internal/setup"
+	"github.com/fabro/attractor/internal/source"
 )
 
 // defaultMaxConcurrentRuns bounds runs executing at once when the config
@@ -43,6 +44,7 @@ type Server struct {
 	makeHandlers HandlerFactory
 	authToken    string
 	dispatcher   *dispatcher
+	sources      map[string]source.Source
 
 	automationsDir string
 	sched          *scheduler.Scheduler
@@ -72,6 +74,9 @@ type Config struct {
 	// AutomationsDir holds the TOML automation files (service-spec §5).
 	// Empty disables the automations endpoints and cron scheduler.
 	AutomationsDir string
+	// Sources maps a source name (github, linear) to its Source, backing
+	// GET /items (items-spec §11). Empty disables the endpoint's sources.
+	Sources map[string]source.Source
 }
 
 // New constructs an unstarted server.
@@ -93,6 +98,7 @@ func New(cfg Config) *Server {
 		authToken:      cfg.AuthToken,
 		dispatcher:     newDispatcher(cfg.MaxConcurrentRuns),
 		automationsDir: cfg.AutomationsDir,
+		sources:        cfg.Sources,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
@@ -107,6 +113,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
+	mux.HandleFunc("GET /items", s.listItems)
 	mux.HandleFunc("GET /automations", s.listAutomations)
 	mux.HandleFunc("POST /automations/{name}/run", s.runAutomation)
 	mux.HandleFunc("GET /ui", s.serveUI)

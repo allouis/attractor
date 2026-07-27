@@ -168,6 +168,24 @@ func (r *runRegistry) List() []*Run {
 	return out
 }
 
+// RunsForItem returns the runs stamped with itemRef, newest first. It
+// backs GET /items' linked-run annotation (items-spec §11): the registry
+// is the sole source of truth for which runs an Item has spawned.
+func (r *runRegistry) RunsForItem(ref engine.ItemRef) []*Run {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []*Run
+	for _, run := range r.runs {
+		if run.itemRef != nil && *run.itemRef == ref {
+			out = append(out, run)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].startedAt.After(out[j].startedAt)
+	})
+	return out
+}
+
 // Run is one in-memory pipeline execution.
 type Run struct {
 	ID string
@@ -295,6 +313,13 @@ func (r *Run) Cancel() {
 	}
 	r.mu.Unlock()
 	r.writeManifest()
+}
+
+// Status returns the run's current lifecycle state under the lock.
+func (r *Run) Status() RunStatus {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.status
 }
 
 // IsCancelled reports whether Cancel has been called.
