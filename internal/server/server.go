@@ -101,6 +101,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /pipelines/{id}/cancel", s.cancelPipeline)
 	mux.HandleFunc("GET /pipelines/{id}/graph", s.getGraph)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", s.getArtifact)
+	mux.HandleFunc("GET /pipelines/{id}/stages/{node}", s.getStage)
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.listQuestions)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
