@@ -10,7 +10,7 @@ import (
 
 func TestAutomation_Parse(t *testing.T) {
 	src := `# nightly triage
-pipeline = "~/attractor-pipelines/triage/pipeline.dot"
+pipeline = "~/.attractor/pipelines/triage/pipeline.dot"
 cwd      = "/home/agent/repo-a"
 
 [vars]
@@ -25,7 +25,7 @@ cron = "0 3 * * *"
 	if a.Name != "nightly-triage" {
 		t.Fatalf("name = %q", a.Name)
 	}
-	if a.Pipeline != "~/attractor-pipelines/triage/pipeline.dot" {
+	if a.Pipeline != "~/.attractor/pipelines/triage/pipeline.dot" {
 		t.Fatalf("pipeline = %q", a.Pipeline)
 	}
 	if a.Cwd != "/home/agent/repo-a" {

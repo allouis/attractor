@@ -158,7 +158,7 @@ under `~/.attractor/automations/` (file-first, like pipelines; no DB):
 
 ```toml
 # ~/.attractor/automations/nightly-triage.toml
-pipeline = "~/attractor-pipelines/triage/pipeline.dot"
+pipeline = "~/.attractor/pipelines/triage/pipeline.dot"
 cwd      = "/home/agent/repo-a"
 
 [vars]

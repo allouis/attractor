@@ -584,8 +584,8 @@ func (v *varFlags) Set(raw string) error {
 //
 //  1. ./pipelines/<name>/pipeline.dot
 //  2. ./pipelines/<name>.dot
-//  3. ~/attractor-pipelines/<name>/pipeline.dot
-//  4. ~/attractor-pipelines/<name>.dot
+//  3. ~/.attractor/pipelines/<name>/pipeline.dot
+//  4. ~/.attractor/pipelines/<name>.dot
 //
 // Paths with a separator or .dot extension are returned verbatim
 // (relative paths resolved against the current working directory).
@@ -608,8 +608,8 @@ func resolvePipelinePath(arg string) (string, error) {
 	}
 	if home != "" {
 		candidates = append(candidates,
-			filepath.Join(home, "attractor-pipelines", arg, "pipeline.dot"),
-			filepath.Join(home, "attractor-pipelines", arg+".dot"),
+			filepath.Join(home, ".attractor", "pipelines", arg, "pipeline.dot"),
+			filepath.Join(home, ".attractor", "pipelines", arg+".dot"),
 		)
 	}
 	for _, c := range candidates {

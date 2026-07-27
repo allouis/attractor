@@ -105,7 +105,7 @@ func automationsRun(name string) error {
 }
 
 // expandHome replaces a leading ~ with the user's home directory so a
-// pipeline reference like ~/attractor-pipelines/x.dot resolves.
+// pipeline reference like ~/.attractor/pipelines/x.dot resolves.
 func expandHome(path string) string {
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {

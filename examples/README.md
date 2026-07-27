@@ -17,7 +17,7 @@ attractor run --backend simulation --var name=world examples/hello/pipeline.dot
 Or copy them into your personal library so they resolve by bare name:
 
 ```
-cp -r examples/hello ~/attractor-pipelines/
+cp -r examples/hello ~/.attractor/pipelines/
 attractor run --backend simulation --var name=world hello
 ```
 
