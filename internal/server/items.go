@@ -1,8 +1,12 @@
 package server
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 
+	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/source"
 )
 
@@ -42,6 +46,75 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		out = append(out, s.annotate(it))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+}
+
+// runItemRequest is the POST /items/run body (items-spec I4): the human
+// supplies the item, the workflow, and (for non-PR items) the repo.
+type runItemRequest struct {
+	ItemRef  engine.ItemRef `json:"item_ref"`
+	Pipeline string         `json:"pipeline"`
+	Repo     string         `json:"repo"`
+}
+
+// runItem dispatches a single Item to a chosen pipeline (items-spec I4:
+// MVP, no routing). It resolves the item → vars via its Source, the repo
+// → a local checkout for the run's cwd, stamps item_ref, and starts the
+// run through the shared admission path. A PR item auto-fills its repo;
+// any other item takes the repo from the request.
+func (s *Server) runItem(w http.ResponseWriter, r *http.Request) {
+	var req runItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ItemRef.Source == "" || req.ItemRef.Type == "" || req.ItemRef.ExternalID == "" {
+		http.Error(w, "item_ref requires source, type, and external_id", http.StatusBadRequest)
+		return
+	}
+	src, ok := s.sources[req.ItemRef.Source]
+	if !ok {
+		http.Error(w, "unknown source "+req.ItemRef.Source, http.StatusBadRequest)
+		return
+	}
+	item, err := src.Get(r.Context(), req.ItemRef)
+	if err != nil {
+		http.Error(w, "resolve item: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	cwd, err := s.resolveRepoPath(item, req.Repo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	dot, err := os.ReadFile(expandTilde(req.Pipeline))
+	if err != nil {
+		http.Error(w, "read pipeline: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	id, err := s.submit(string(dot), item.Vars, cwd, &req.ItemRef)
+	if err != nil {
+		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+// resolveRepoPath picks the repo (item's `repo` var — a PR auto-fills it —
+// else the request's repo) and maps it to a local checkout. An unset or
+// unmapped repo is a 422: attractor can't set the run's cwd.
+func (s *Server) resolveRepoPath(item source.Item, reqRepo string) (string, error) {
+	repo := item.Vars["repo"]
+	if repo == "" {
+		repo = reqRepo
+	}
+	if repo == "" {
+		return "", fmt.Errorf("no repo: item carries no repo and none supplied in the request")
+	}
+	path, ok := s.repos.Path(repo)
+	if !ok {
+		return "", fmt.Errorf("repo %q not mapped in repos.toml", repo)
+	}
+	return path, nil
 }
 
 // annotate marks an Item with its linked runs. In-progress is derived,

@@ -1,12 +1,17 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/fabro/attractor/internal/config"
 	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/source"
 )
@@ -34,12 +39,185 @@ func (f *fakeSource) Get(_ context.Context, ref engine.ItemRef) (source.Item, er
 
 func itemsServer(t *testing.T, sources map[string]source.Source) *Server {
 	t.Helper()
-	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir(), Sources: sources})
+	return itemsServerWithRepos(t, sources, nil)
+}
+
+func itemsServerWithRepos(t *testing.T, sources map[string]source.Source, repos config.Repos) *Server {
+	t.Helper()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir(), Sources: sources, Repos: repos})
 	if err := srv.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	return srv
+}
+
+// A minimal start->done graph completes instantly with no codergen
+// backend, so a dispatched run terminates deterministically.
+const doneGraph = "digraph { start [shape=Mdiamond]; done [shape=Msquare]; start -> done }"
+
+// writeGraph writes doneGraph to a temp .dot and returns its path.
+func writeGraph(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "pipe.dot")
+	if err := os.WriteFile(p, []byte(doneGraph), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// postRunItem POSTs POST /items/run and returns the response plus decoded id.
+func postRunItem(t *testing.T, url string, body map[string]any) (*http.Response, string) {
+	t.Helper()
+	buf, _ := json.Marshal(body)
+	resp, err := http.Post(url+"/items/run", "application/json", bytes.NewReader(buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		ID string `json:"id"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	return resp, out.ID
+}
+
+// pollRunSummary fetches GET /pipelines/{id} until terminal, returning the
+// last summary so cleanup races the writer goroutine to a stop.
+func pollRunSummary(t *testing.T, url, id string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := http.Get(url + "/pipelines/" + id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var summary map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&summary)
+		resp.Body.Close()
+		status, _ := summary["status"].(string)
+		if status == string(RunCompleted) || status == string(RunFailed) || status == string(RunCancelled) {
+			return summary
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run %s did not terminate; last status = %q", id, status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func prItem() source.Item {
+	return source.Item{
+		Ref:   engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
+		Title: "Fix login",
+		Vars: map[string]string{
+			"repo":      "allouis/attractor",
+			"pr_number": "42",
+		},
+	}
+}
+
+func TestRunItemPRAutofillsRepo(t *testing.T) {
+	repoDir := t.TempDir()
+	fs := &fakeSource{getItem: prItem()}
+	repos := config.Repos{"allouis/attractor": repoDir}
+	srv := itemsServerWithRepos(t, map[string]source.Source{"github": fs}, repos)
+
+	ref := engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
+	resp, id := postRunItem(t, srv.URL(), map[string]any{
+		"item_ref": ref,
+		"pipeline": writeGraph(t),
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	if fs.gotRef != ref {
+		t.Errorf("source.Get ref = %+v, want %+v", fs.gotRef, ref)
+	}
+	summary := pollRunSummary(t, srv.URL(), id)
+	if got, _ := summary["cwd"].(string); got != repoDir {
+		t.Errorf("run cwd = %q, want %q (repo auto-filled from item)", got, repoDir)
+	}
+	if summary["item_ref"] == nil {
+		t.Error("run summary missing item_ref")
+	}
+	if runs := srv.registry.RunsForItem(ref); len(runs) != 1 {
+		t.Errorf("RunsForItem = %d runs, want 1", len(runs))
+	}
+}
+
+func TestRunItemNonPRUsesRequestRepo(t *testing.T) {
+	repoDir := t.TempDir()
+	// A Linear-style item carries no `repo` var, so the request supplies it.
+	fs := &fakeSource{getItem: source.Item{
+		Ref:  engine.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
+		Vars: map[string]string{"identifier": "ENG-42"},
+	}}
+	repos := config.Repos{"allouis/attractor": repoDir}
+	srv := itemsServerWithRepos(t, map[string]source.Source{"linear": fs}, repos)
+
+	resp, id := postRunItem(t, srv.URL(), map[string]any{
+		"item_ref": engine.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
+		"pipeline": writeGraph(t),
+		"repo":     "allouis/attractor",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	summary := pollRunSummary(t, srv.URL(), id)
+	if got, _ := summary["cwd"].(string); got != repoDir {
+		t.Errorf("run cwd = %q, want %q (repo from request)", got, repoDir)
+	}
+}
+
+func TestRunItemUnknownSource(t *testing.T) {
+	srv := itemsServer(t, map[string]source.Source{})
+	resp, _ := postRunItem(t, srv.URL(), map[string]any{
+		"item_ref": engine.ItemRef{Source: "nope", Type: "pr", ExternalID: "x#1"},
+		"pipeline": writeGraph(t),
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestRunItemRepoUnmapped(t *testing.T) {
+	fs := &fakeSource{getItem: prItem()}
+	srv := itemsServerWithRepos(t, map[string]source.Source{"github": fs}, config.Repos{})
+	resp, _ := postRunItem(t, srv.URL(), map[string]any{
+		"item_ref": engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
+		"pipeline": writeGraph(t),
+	})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestRunItemNoRepo(t *testing.T) {
+	// Non-PR item with no repo var and no request repo → unresolvable.
+	fs := &fakeSource{getItem: source.Item{
+		Ref: engine.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
+	}}
+	srv := itemsServerWithRepos(t, map[string]source.Source{"linear": fs}, config.Repos{})
+	resp, _ := postRunItem(t, srv.URL(), map[string]any{
+		"item_ref": engine.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
+		"pipeline": writeGraph(t),
+	})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestRunItemGetFails(t *testing.T) {
+	fs := &fakeSource{getErr: errors.New("gh: not found")}
+	srv := itemsServerWithRepos(t, map[string]source.Source{"github": fs}, config.Repos{})
+	resp, _ := postRunItem(t, srv.URL(), map[string]any{
+		"item_ref": engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
+		"pipeline": writeGraph(t),
+	})
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
+	}
 }
 
 func getItems(t *testing.T, url string) (*http.Response, []map[string]any) {
