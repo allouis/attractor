@@ -28,9 +28,10 @@ type Filter struct {
 	Assigned bool
 }
 
-// Source fetches Items from one external system. Get(item_ref) — needed
-// to resolve an item to workflow vars at dispatch time — arrives with
-// its consumer in I4; List backs GET /items today.
+// Source fetches Items from one external system. List backs GET /items;
+// Get resolves a single item_ref to its workflow vars at dispatch time
+// (items-spec I4: POST /items/run).
 type Source interface {
 	List(ctx context.Context, filter Filter) ([]Item, error)
+	Get(ctx context.Context, ref engine.ItemRef) (Item, error)
 }

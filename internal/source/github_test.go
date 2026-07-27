@@ -55,6 +55,50 @@ func TestGitHubListParsesPRs(t *testing.T) {
 	}
 }
 
+const ghPRJSON = `{"number": 42, "title": "Fix login", "url": "https://github.com/allouis/attractor/pull/42", "repository": {"nameWithOwner": "allouis/attractor"}}`
+
+func TestGitHubGet(t *testing.T) {
+	fr := &fakeRunner{out: []byte(ghPRJSON)}
+	src := &GitHub{run: fr.run}
+
+	ref := engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
+	item, err := src.Get(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	want := Item{
+		Ref:   ref,
+		Title: "Fix login",
+		URL:   "https://github.com/allouis/attractor/pull/42",
+		Vars: map[string]string{
+			"repo":      "allouis/attractor",
+			"pr_number": "42",
+			"url":       "https://github.com/allouis/attractor/pull/42",
+			"title":     "Fix login",
+		},
+	}
+	if !reflect.DeepEqual(item, want) {
+		t.Errorf("item =\n %+v\nwant\n %+v", item, want)
+	}
+	joined := strings.Join(fr.args, " ")
+	if !strings.Contains(joined, "pr view") && !(strings.Contains(joined, "pr") && strings.Contains(joined, "view")) {
+		t.Errorf("gh args %q not a `pr view` call", joined)
+	}
+	if !strings.Contains(joined, "--repo allouis/attractor") {
+		t.Errorf("gh args %q missing --repo allouis/attractor", joined)
+	}
+	if !strings.Contains(joined, "42") {
+		t.Errorf("gh args %q missing PR number", joined)
+	}
+}
+
+func TestGitHubGetBadRef(t *testing.T) {
+	src := &GitHub{run: (&fakeRunner{out: []byte(ghPRJSON)}).run}
+	if _, err := src.Get(context.Background(), engine.ItemRef{Source: "github", Type: "pr", ExternalID: "no-hash"}); err == nil {
+		t.Fatal("expected error for external id without owner/repo#number")
+	}
+}
+
 func TestGitHubListFilterAssigned(t *testing.T) {
 	fr := &fakeRunner{out: []byte("[]")}
 	src := &GitHub{run: fr.run}

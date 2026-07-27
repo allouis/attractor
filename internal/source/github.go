@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/fabro/attractor/internal/engine"
 )
@@ -63,19 +64,57 @@ func (g *GitHub) List(ctx context.Context, filter Filter) ([]Item, error) {
 	}
 	items := make([]Item, 0, len(prs))
 	for _, pr := range prs {
-		repo := pr.Repository.NameWithOwner
-		num := strconv.Itoa(pr.Number)
-		items = append(items, Item{
-			Ref:   engine.ItemRef{Source: "github", Type: "pr", ExternalID: repo + "#" + num},
-			Title: pr.Title,
-			URL:   pr.URL,
-			Vars: map[string]string{
-				"repo":      repo,
-				"pr_number": num,
-				"url":       pr.URL,
-				"title":     pr.Title,
-			},
-		})
+		items = append(items, pr.item())
 	}
 	return items, nil
+}
+
+// Get resolves a single PR to an Item. The external id is
+// `owner/repo#number` (unique across repos); `gh pr view` fetches the one
+// PR so a dispatch can read its vars.
+func (g *GitHub) Get(ctx context.Context, ref engine.ItemRef) (Item, error) {
+	repo, num, ok := splitPRRef(ref.ExternalID)
+	if !ok {
+		return Item{}, fmt.Errorf("github: invalid pr ref %q: want owner/repo#number", ref.ExternalID)
+	}
+	// `gh pr view` has no `repository` JSON field (unlike `gh search
+	// prs`); the repo is already known from the ref, so we set it below.
+	out, err := g.run(ctx, "pr", "view", num, "--repo", repo, "--json", "number,title,url")
+	if err != nil {
+		return Item{}, err
+	}
+	var pr ghPR
+	if err := json.Unmarshal(out, &pr); err != nil {
+		return Item{}, fmt.Errorf("parse gh output: %w", err)
+	}
+	pr.Repository.NameWithOwner = repo
+	return pr.item(), nil
+}
+
+// splitPRRef splits an `owner/repo#number` external id. Both halves must
+// be non-empty.
+func splitPRRef(externalID string) (repo, num string, ok bool) {
+	repo, num, found := strings.Cut(externalID, "#")
+	if !found || repo == "" || num == "" {
+		return "", "", false
+	}
+	return repo, num, true
+}
+
+// item maps a fetched PR to the generic Item, the single source of the
+// PR→Item shape shared by List and Get.
+func (pr ghPR) item() Item {
+	repo := pr.Repository.NameWithOwner
+	num := strconv.Itoa(pr.Number)
+	return Item{
+		Ref:   engine.ItemRef{Source: "github", Type: "pr", ExternalID: repo + "#" + num},
+		Title: pr.Title,
+		URL:   pr.URL,
+		Vars: map[string]string{
+			"repo":      repo,
+			"pr_number": num,
+			"url":       pr.URL,
+			"title":     pr.Title,
+		},
+	}
 }

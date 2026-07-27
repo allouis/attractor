@@ -14,14 +14,22 @@ import (
 // fakeSource is an injectable Source recording the filter it was called
 // with and replaying canned items.
 type fakeSource struct {
-	items  []source.Item
-	err    error
-	filter source.Filter
+	items   []source.Item
+	err     error
+	filter  source.Filter
+	getItem source.Item
+	getErr  error
+	gotRef  engine.ItemRef
 }
 
 func (f *fakeSource) List(_ context.Context, filter source.Filter) ([]source.Item, error) {
 	f.filter = filter
 	return f.items, f.err
+}
+
+func (f *fakeSource) Get(_ context.Context, ref engine.ItemRef) (source.Item, error) {
+	f.gotRef = ref
+	return f.getItem, f.getErr
 }
 
 func itemsServer(t *testing.T, sources map[string]source.Source) *Server {
