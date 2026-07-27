@@ -20,12 +20,21 @@ type RunSummary struct {
 	Events        int       `json:"events,omitempty"`
 	LogsRoot      string    `json:"logs_root,omitempty"`
 	Tokens        *Usage    `json:"tokens,omitempty"`
+	ItemRef       *ItemRef  `json:"item_ref,omitempty"`
 }
 
 // Usage is per-run token accounting rolled up on the terminal event.
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+}
+
+// ItemRef is the external Item a run was dispatched for (items-spec I1).
+// It mirrors engine.ItemRef so this package stays dependency-free.
+type ItemRef struct {
+	Source     string `json:"source"`
+	Type       string `json:"type"`
+	ExternalID string `json:"external_id"`
 }
 
 // Event is one engine event as delivered over the SSE stream. It mirrors
@@ -76,7 +85,8 @@ type StageDetail struct {
 // SubmitRequest is the body of POST /pipelines: the DOT source plus the
 // optional variable bindings and working directory (service-spec §2).
 type SubmitRequest struct {
-	Dot  string            `json:"dot"`
-	Cwd  string            `json:"cwd,omitempty"`
-	Vars map[string]string `json:"vars,omitempty"`
+	Dot     string            `json:"dot"`
+	Cwd     string            `json:"cwd,omitempty"`
+	Vars    map[string]string `json:"vars,omitempty"`
+	ItemRef *ItemRef          `json:"item_ref,omitempty"`
 }
