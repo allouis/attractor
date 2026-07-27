@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/fabro/attractor/internal/automation"
+	"github.com/fabro/attractor/internal/config"
 	"github.com/fabro/attractor/internal/engine"
 	"github.com/fabro/attractor/internal/handler"
 	"github.com/fabro/attractor/internal/interviewer"
@@ -45,6 +46,7 @@ type Server struct {
 	authToken    string
 	dispatcher   *dispatcher
 	sources      map[string]source.Source
+	repos        config.Repos
 
 	automationsDir string
 	sched          *scheduler.Scheduler
@@ -77,6 +79,10 @@ type Config struct {
 	// Sources maps a source name (github, linear) to its Source, backing
 	// GET /items (items-spec §11). Empty disables the endpoint's sources.
 	Sources map[string]source.Source
+	// Repos maps `owner/name` to a local checkout, resolving a dispatched
+	// item's repo to the run's cwd (items-spec I3/I4). Empty means no repo
+	// resolves, so POST /items/run rejects any non-PR / unmapped item.
+	Repos config.Repos
 }
 
 // New constructs an unstarted server.
@@ -99,6 +105,7 @@ func New(cfg Config) *Server {
 		dispatcher:     newDispatcher(cfg.MaxConcurrentRuns),
 		automationsDir: cfg.AutomationsDir,
 		sources:        cfg.Sources,
+		repos:          cfg.Repos,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
@@ -114,6 +121,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
 	mux.HandleFunc("GET /items", s.listItems)
+	mux.HandleFunc("POST /items/run", s.runItem)
 	mux.HandleFunc("GET /automations", s.listAutomations)
 	mux.HandleFunc("POST /automations/{name}/run", s.runAutomation)
 	mux.HandleFunc("GET /ui", s.serveUI)
