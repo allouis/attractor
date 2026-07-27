@@ -30,6 +30,7 @@ import (
 	"github.com/fabro/attractor/internal/render"
 	"github.com/fabro/attractor/internal/server"
 	"github.com/fabro/attractor/internal/setup"
+	"github.com/fabro/attractor/internal/source"
 )
 
 func cryptoRandRead(b []byte) (int, error) { return rand.Read(b) }
@@ -266,6 +267,10 @@ func Serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	sources, err := serveSources()
+	if err != nil {
+		return err
+	}
 	srv := server.New(server.Config{
 		Addr:              *bind,
 		LogsRoot:          *logs,
@@ -273,6 +278,7 @@ func Serve(args []string) error {
 		AuthToken:         token,
 		MaxConcurrentRuns: *maxConcurrent,
 		AutomationsDir:    automationsDir(),
+		Sources:           sources,
 	})
 	if err := srv.Start(); err != nil {
 		return err
@@ -291,6 +297,21 @@ func ServeHandlerFactory() (server.HandlerFactory, error) {
 		return nil, err
 	}
 	return server.DefaultHandlers(handler.Codergen{Backend: router.New(cfg)}), nil
+}
+
+// serveSources builds the daemon's Source map (items-spec §8): GitHub
+// via the machine-authed `gh` CLI (always available), and Linear when a
+// config API key is present. GET /items dispatches to these by name.
+func serveSources() (map[string]source.Source, error) {
+	cfg, err := loadProviderConfig()
+	if err != nil {
+		return nil, err
+	}
+	sources := map[string]source.Source{"github": source.NewGitHub()}
+	if cfg.LinearAPIKey != "" {
+		sources["linear"] = source.NewLinear(cfg.LinearAPIKey)
+	}
+	return sources, nil
 }
 
 // bindIsLoopback returns true for 127.0.0.1, ::1, or localhost bind
