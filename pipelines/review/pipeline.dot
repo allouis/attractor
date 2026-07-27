@@ -1,0 +1,28 @@
+// review — dispatch a GitHub PR Item to a code review (items-spec I5).
+//
+// The daemon dispatches this via POST /items/run: it resolves the PR
+// Item to vars (repo, pr_number, url, title), maps repo -> a local
+// jj-colocated checkout, and sets that as the run's cwd. The first node
+// is a deterministic tool node — attractor never trusts the agent to
+// check the branch out — then a codergen stage reviews the diff.
+//
+//   attractor run review -var repo=owner/name -var pr_number=42 \
+//     -var url=… -var title=…
+digraph review {
+    goal = "Review PR #$pr_number ($title) in $repo"
+    vars = "repo,pr_number,url,title"
+    max_node_visits = 2
+
+    start [shape=Mdiamond]
+
+    checkout [type="tool", timeout="5m",
+              tool_command="gh pr checkout $pr_number --repo $repo"]
+
+    review [timeout="30m", prompt="@prompts/review.md"]
+
+    done [shape=Msquare]
+
+    start -> checkout
+    checkout -> review [condition="outcome=success"]
+    review -> done
+}
