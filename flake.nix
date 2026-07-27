@@ -116,7 +116,9 @@
           ];
           shellHook = ''
             export GOFLAGS=-mod=mod
-            echo "attractor dev shell: $(go version)"
+            # Banner to stderr so `$(nix develop -c <cmd>)` captures only
+            # the command's own stdout (e.g. `gofmt -l .` for drift gates).
+            echo "attractor dev shell: $(go version)" >&2
           '';
         };
 
