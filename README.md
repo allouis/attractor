@@ -39,8 +39,8 @@ observability and graph-level `tool_hooks.*` dispatch.
 nix build .#attractor              # produces ./result/bin/attractor + ./result/bin/hookshim
 
 # Run a pipeline from the personal library.
-mkdir -p ~/attractor-pipelines
-cp -r examples/hello ~/attractor-pipelines/
+mkdir -p ~/.attractor/pipelines
+cp -r examples/hello ~/.attractor/pipelines/
 
 ./result/bin/attractor run --backend simulation --var name=world hello
 ```
@@ -129,14 +129,14 @@ A pipeline is a directory. The CLI resolves bare names (no `/`, no
 
 1. `./pipelines/<name>/pipeline.dot`
 2. `./pipelines/<name>.dot`
-3. `~/attractor-pipelines/<name>/pipeline.dot`
-4. `~/attractor-pipelines/<name>.dot`
+3. `~/.attractor/pipelines/<name>/pipeline.dot`
+4. `~/.attractor/pipelines/<name>.dot`
 
 Paths with separators or a `.dot` extension bypass the lookup and are
 loaded directly. A typical pipeline directory:
 
 ```
-~/attractor-pipelines/<name>/
+~/.attractor/pipelines/<name>/
   pipeline.dot           # the graph
   pipeline.md            # human-readable description (optional)
   prompts/               # external prompt files
@@ -236,7 +236,7 @@ per automation under `~/.attractor/automations/` (file-first, no DB):
 
 ```toml
 # ~/.attractor/automations/nightly-triage.toml
-pipeline = "~/attractor-pipelines/triage/pipeline.dot"
+pipeline = "~/.attractor/pipelines/triage/pipeline.dot"
 cwd      = "/home/agent/repo-a"
 
 [vars]
