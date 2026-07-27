@@ -117,6 +117,61 @@ func TestStreamEventsEOFCloses(t *testing.T) {
 	}
 }
 
+// TestStreamEventsSincePassesCursor checks the resume path: StreamEventsSince
+// sends ?since=<seq> and delivers only the replayed tail without duplication
+// (tui-spec T3 regression guard for the reconnect-dup bug).
+func TestStreamEventsSincePassesCursor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("since"); got != "100" {
+			t.Errorf("since query = %q, want 100", got)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		w.WriteHeader(http.StatusOK)
+		f.Flush()
+		writeSSE(w, f, "stage_progress", `{"kind":"stage_progress","seq":101}`)
+		writeSSE(w, f, "stage_completed", `{"kind":"stage_completed","seq":102}`)
+		writeSSE(w, f, "pipeline_completed", `{"kind":"pipeline_completed","seq":103}`)
+	}))
+	defer srv.Close()
+
+	ch, err := newTestClient(srv).StreamEventsSince(context.Background(), "abc", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := drain(t, ch)
+	if len(got) != 3 {
+		t.Fatalf("want 3 events, got %d: %+v", len(got), got)
+	}
+	if got[0].Seq != 101 || got[2].Seq != 103 {
+		t.Errorf("seq mismatch: %+v", got)
+	}
+}
+
+// TestStreamEventsOmitsSinceWhenZero verifies the default StreamEvents does not
+// send a since query so it gets a full replay.
+func TestStreamEventsOmitsSinceWhenZero(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("unexpected query %q, want none", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		w.WriteHeader(http.StatusOK)
+		f.Flush()
+		writeSSE(w, f, "pipeline_completed", `{"kind":"pipeline_completed","seq":1}`)
+	}))
+	defer srv.Close()
+
+	ch, err := newTestClient(srv).StreamEvents(context.Background(), "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, ch); len(got) != 1 {
+		t.Fatalf("want 1 event, got %d", len(got))
+	}
+}
+
 func TestStreamEventsNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -16,7 +17,19 @@ import (
 // request (e.g. unknown run) is reported as an error rather than a
 // silently-closed channel.
 func (c *Client) StreamEvents(ctx context.Context, id string) (<-chan Event, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, "/pipelines/"+id+"/events", nil)
+	return c.StreamEventsSince(ctx, id, 0)
+}
+
+// StreamEventsSince is StreamEvents resuming after a known sequence number:
+// when since > 0 it requests GET /pipelines/{id}/events?since=<since> so the
+// daemon replays only events with seq > since, letting a reconnecting client
+// pick up where it left off without duplicating events (tui-spec T3).
+func (c *Client) StreamEventsSince(ctx context.Context, id string, since int64) (<-chan Event, error) {
+	path := "/pipelines/" + id + "/events"
+	if since > 0 {
+		path += "?since=" + strconv.FormatInt(since, 10)
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
