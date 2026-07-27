@@ -126,3 +126,19 @@ func (c *Client) Submit(ctx context.Context, req SubmitRequest) (string, error) 
 func (c *Client) Cancel(ctx context.Context, id string) error {
 	return c.postJSON(ctx, "/pipelines/"+id+"/cancel", nil, nil)
 }
+
+// ListQuestions returns a run's open human gates.
+func (c *Client) ListQuestions(ctx context.Context, id string) ([]Question, error) {
+	var body struct {
+		Questions []Question `json:"questions"`
+	}
+	if err := c.getJSON(ctx, "/pipelines/"+id+"/questions", &body); err != nil {
+		return nil, err
+	}
+	return body.Questions, nil
+}
+
+// Answer selects an option for a pending question, resuming the run.
+func (c *Client) Answer(ctx context.Context, id, qid, optionID string) error {
+	return c.postJSON(ctx, "/pipelines/"+id+"/questions/"+qid+"/answer", map[string]string{"key": optionID}, nil)
+}
