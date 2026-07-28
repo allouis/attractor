@@ -268,22 +268,25 @@ func (s *Server) submit(source string, vars map[string]string, cwd string, itemR
 	return run.ID, nil
 }
 
-// seedContext builds the run's initial context from an Item: its vars
-// under plain names plus the Ref-derived item.type/item.source/item.id the
-// router branches on at runtime (router-spec §"Seeded initial context").
-// Returns nil when there is no Item (automation/cron callers pass nil
-// itemRef), so those runs start unseeded.
+// seedContext builds the run's initial context: the submitted vars under
+// plain names (so `$context.k` resolves at runtime, C3) plus, when an Item
+// spawned the run, the Ref-derived item.type/item.source/item.id the router
+// branches on (router-spec §"Seeded initial context"). Returns nil only
+// when there is nothing to seed — no vars and no Item — so a bare run
+// starts unseeded.
 func seedContext(vars map[string]string, itemRef *engine.ItemRef) map[string]string {
-	if itemRef == nil {
+	if len(vars) == 0 && itemRef == nil {
 		return nil
 	}
 	seed := make(map[string]string, len(vars)+3)
 	for k, v := range vars {
 		seed[k] = v
 	}
-	seed["item.type"] = itemRef.Type
-	seed["item.source"] = itemRef.Source
-	seed["item.id"] = itemRef.ExternalID
+	if itemRef != nil {
+		seed["item.type"] = itemRef.Type
+		seed["item.source"] = itemRef.Source
+		seed["item.id"] = itemRef.ExternalID
+	}
 	return seed
 }
 
