@@ -50,6 +50,7 @@ type Server struct {
 	repos        items.Repos
 
 	automationsDir string
+	workflowsDir   string
 	sched          *scheduler.Scheduler
 
 	mu          sync.RWMutex
@@ -84,6 +85,10 @@ type Config struct {
 	// item's repo to the run's cwd (items-spec I3/I4). Empty means no repo
 	// resolves, so POST /items/run rejects any non-PR / unmapped item.
 	Repos items.Repos
+	// WorkflowsDir is the catalog root scanned by GET /workflows for
+	// `<name>/pipeline.dot` definitions (web-ui-spec W2). Empty defaults to
+	// ~/.attractor/pipelines.
+	WorkflowsDir string
 }
 
 // New constructs an unstarted server.
@@ -97,6 +102,9 @@ func New(cfg Config) *Server {
 	if cfg.MakeHandlers == nil {
 		cfg.MakeHandlers = DefaultHandlers(handler.Codergen{})
 	}
+	if cfg.WorkflowsDir == "" {
+		cfg.WorkflowsDir = defaultWorkflowsDir()
+	}
 	s := &Server{
 		addr:           cfg.Addr,
 		logsRoot:       cfg.LogsRoot,
@@ -105,6 +113,7 @@ func New(cfg Config) *Server {
 		authToken:      cfg.AuthToken,
 		dispatcher:     newDispatcher(cfg.MaxConcurrentRuns),
 		automationsDir: cfg.AutomationsDir,
+		workflowsDir:   cfg.WorkflowsDir,
 		sources:        cfg.Sources,
 		repos:          cfg.Repos,
 	}
@@ -122,6 +131,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
 	httpapi.Register(mux, itemsDeps{s})
+	mux.HandleFunc("GET /workflows", s.listWorkflows)
 	mux.HandleFunc("GET /automations", s.listAutomations)
 	mux.HandleFunc("POST /automations/{name}/run", s.runAutomation)
 	mux.HandleFunc("GET /ui", s.serveUI)
