@@ -1,7 +1,7 @@
 You are working in the attractor repo. Plan the next milestone from the
-spec `$spec`. Write no code and make no commits in this stage.
+spec `$context.spec`. Write no code and make no commits in this stage.
 
-1. Read `$spec` in full — the design and the milestone table (the one
+1. Read `$context.spec` in full — the design and the milestone table (the one
    with a Status column).
 2. Pick the first milestone whose Status is `todo` and whose
    dependencies are all `done`. Read `jj log --limit 20` and the source

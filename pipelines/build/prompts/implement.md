@@ -1,4 +1,4 @@
-Implement the milestone exactly as planned. Follow the spec `$spec`.
+Implement the milestone exactly as planned. Follow the spec `$context.spec`.
 
 Rules:
 - TDD: write the failing test first, watch it fail, then make it pass

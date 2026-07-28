@@ -10,7 +10,7 @@
 // `done` in the milestone's final commit. Standard CI-equivalent gate.
 
 digraph build {
-    goal = "Implement the next todo milestone from $spec"
+    goal = "Implement the next todo milestone from $context.spec"
     acp_command = "claude-agent-acp"
     cwd = "/home/agent/attractor"
     vars = "spec"

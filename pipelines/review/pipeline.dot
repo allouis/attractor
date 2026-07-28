@@ -9,14 +9,14 @@
 //   attractor run review -var repo=owner/name -var pr_number=42 \
 //     -var url=… -var title=…
 digraph review {
-    goal = "Review PR #$pr_number ($title) in $repo"
+    goal = "Review PR #$context.pr_number ($context.title) in $context.repo"
     vars = "repo,pr_number,url,title"
     max_node_visits = 2
 
     start [shape=Mdiamond]
 
     checkout [type="tool", timeout="5m",
-              tool_command="gh pr checkout $pr_number --repo $repo"]
+              tool_command="gh pr checkout $context.pr_number --repo $context.repo"]
 
     review [timeout="30m", prompt="@prompts/review.md"]
 

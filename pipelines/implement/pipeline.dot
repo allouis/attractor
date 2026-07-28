@@ -10,7 +10,7 @@
 // These are exactly the vars a Linear issue Item supplies
 // (internal/source/linear.go), plus `repo` from the run request.
 digraph implement {
-    goal = "Implement issue $identifier — \"$title\" — in $repo"
+    goal = "Implement issue $context.identifier — \"$context.title\" — in $context.repo"
     vars = "repo,identifier,url,title"
     max_node_visits = 3
 
