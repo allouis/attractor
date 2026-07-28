@@ -271,22 +271,23 @@ function highlightNav(tab) {
 // view). itemsCache holds the merged set; renderItems draws from it so
 // filters re-render without refetching.
 let itemsCache = [];
-let itemsLoaded = false;   // cache warm — reused across navigations
+let itemsRendered = false; // suppresses the loading flash on a background refresh
 let itemsGen = 0;          // request generation; only the latest fetch renders
 
-// showItems renders the Items view, fetching the merged set only on the
-// first entry — re-entering the tab (e.g. back from a run) reuses the cache
-// so the user's filter selections survive and no redundant fetch races.
+// showItems renders the Items view and refreshes it on every entry, so live
+// status badges and newly-assigned items stay current (a stale, never-
+// refreshing list defeats the view's purpose). The first entry shows a
+// loading placeholder; a re-entry refetches in the background — keeping the
+// current rows and the user's filter selections visible until fresh data
+// lands. itemsGen guards out-of-order fetches: only the latest render wins.
 function showItems() {
-  if (itemsLoaded) { renderItems(); return; }
   fetchItems();
 }
 
 async function fetchItems() {
   const gen = ++itemsGen;
   const listEl = $('items-list');
-  listEl.innerHTML = '<p class="muted">loading…</p>';
-  renderSourceWarning([]);
+  if (!itemsRendered) listEl.innerHTML = '<p class="muted">loading…</p>';
   let sources;
   try {
     const r = await fetch('/items/sources');
@@ -294,8 +295,15 @@ async function fetchItems() {
     sources = (await r.json()).sources || [];
   } catch (e) {
     if (gen !== itemsGen) return;   // superseded by a newer fetch
-    itemsCache = [];
-    listEl.innerHTML = '<p class="banner error">could not reach the daemon to load item sources</p>';
+    // A refresh failure keeps the last-known list rather than wiping it; a
+    // first-load failure has nothing to keep, so it shows the error inline.
+    if (itemsRendered) {
+      setItemsWarning('could not refresh items — showing the last-loaded set');
+    } else {
+      itemsCache = [];
+      renderSourceWarning([]);
+      listEl.innerHTML = '<p class="banner error">could not reach the daemon to load item sources</p>';
+    }
     return;
   }
   // Fetch each source independently and record which failed, so a partial
@@ -312,21 +320,28 @@ async function fetchItems() {
   }));
   if (gen !== itemsGen) return;     // a newer fetch superseded this one
   itemsCache = per.flat();
-  itemsLoaded = true;
+  itemsRendered = true;
   renderSourceWarning(failed);
   populateItemFilters();
   renderItems();
 }
 
-// renderSourceWarning surfaces sources that failed to load. An empty list
-// clears the banner; a non-empty one names the failed sources so the user
-// knows the list is incomplete rather than reading it as "nothing assigned".
-function renderSourceWarning(failed) {
+// setItemsWarning shows an error banner above the list, or clears it when
+// text is empty.
+function setItemsWarning(text) {
   const el = $('items-warning');
   if (!el) return;
-  if (!failed.length) { el.textContent = ''; el.className = ''; return; }
-  el.className = 'banner error';
-  el.textContent = `could not load: ${failed.join(', ')} — showing the remaining sources only`;
+  el.textContent = text || '';
+  el.className = text ? 'banner error' : '';
+}
+
+// renderSourceWarning surfaces sources that failed to load, naming them so
+// the user reads the list as incomplete rather than as "nothing assigned".
+// An empty list clears the banner.
+function renderSourceWarning(failed) {
+  setItemsWarning(failed.length
+    ? `could not load: ${failed.join(', ')} — showing the remaining sources only`
+    : '');
 }
 
 // itemRepo / itemSource / itemType read the fields the filters key on.
