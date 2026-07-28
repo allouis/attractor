@@ -3,18 +3,18 @@ package attractor_test
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/allouis/attractor/internal/setup"
 )
 
-// TestSetup_PrepareInlinesFileAndExpandsVars exercises the shared setup
-// path: an @file prompt is inlined relative to BaseDir and $var
-// placeholders are expanded, in one pass.
-func TestSetup_PrepareInlinesFileAndExpandsVars(t *testing.T) {
+// TestSetup_PrepareInlinesFilePrompt exercises the shared setup path: an
+// @file prompt is inlined relative to BaseDir, leaving any `$context.*`
+// placeholder verbatim for runtime interpolation (prepare time no longer
+// expands vars — spec §4.5, C7).
+func TestSetup_PrepareInlinesFilePrompt(t *testing.T) {
 	dir := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(dir, "plan.md"), []byte("Plan: $task"), 0o644))
+	must(t, os.WriteFile(filepath.Join(dir, "plan.md"), []byte("Plan: $context.task"), 0o644))
 
 	src := `digraph g {
 		vars = "task"
@@ -25,13 +25,12 @@ func TestSetup_PrepareInlinesFileAndExpandsVars(t *testing.T) {
 	}`
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  src,
-		Vars:    map[string]string{"task": "ship it"},
 		BaseDir: dir,
 	})
 	must(t, err)
 	got := prepared.Graph.Nodes["plan"].Prompt()
-	if !strings.Contains(got, "Plan: ship it") {
-		t.Fatalf("@file + $var not resolved: %q", got)
+	if got != "Plan: $context.task" {
+		t.Fatalf("@file inlining should preserve $context. placeholder: %q", got)
 	}
 }
 

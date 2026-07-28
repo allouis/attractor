@@ -118,7 +118,6 @@ func Run(args []string) error {
 	}
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  string(src),
-		Vars:    vars,
 		BaseDir: filepath.Dir(dotPath),
 	})
 	if err != nil {
@@ -583,9 +582,9 @@ func printDiagnostics(w io.Writer, diags []lint.Diagnostic) {
 	}
 }
 
-// varFlags is a repeatable -var name=value flag. The CLI honours
-// pipeline-level $name placeholders by passing this map into the
-// VariableExpansion transform.
+// varFlags is a repeatable -var name=value flag. The CLI seeds this map
+// into the run's initial context, so `$context.<name>` interpolates at
+// runtime (spec §4.5).
 type varFlags map[string]string
 
 // String returns a stable comma-joined form for `-h` help output.

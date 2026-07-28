@@ -2,9 +2,12 @@ package attractor_test
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/allouis/attractor/internal/cli"
 )
 
 // shippedPipelineFiles are the dotfiles and prompt files that interpolate
@@ -44,5 +47,34 @@ func TestShippedPipelines_UseContextSyntax(t *testing.T) {
 		if m := bareVarRe.FindString(s); m != "" {
 			t.Errorf("%s: bare variable reference %q — migrate to $context. syntax", f, m)
 		}
+	}
+}
+
+// TestBareVar_NoLongerExpands pins the C7 removal: with the prepare-time
+// VariableExpansion transform gone, a bare `$epic_id` is left verbatim
+// (the shell owns `$`), while the seeded `$context.epic_id` still resolves
+// at runtime. Both names are seeded by the same `-var epic_id=ABC-123`.
+func TestBareVar_NoLongerExpands(t *testing.T) {
+	tmp := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(tmp, "pipeline.dot"), []byte(`digraph demo {
+		vars = "epic_id"
+		start [shape=Mdiamond]
+		work [prompt="legacy $epic_id vs $context.epic_id"]
+		done [shape=Msquare]
+		start -> work -> done
+	}`), 0o644))
+
+	logsRoot := t.TempDir()
+	err := cli.Run([]string{
+		"--backend", "simulation",
+		"--logs", logsRoot,
+		"--var", "epic_id=ABC-123",
+		filepath.Join(tmp, "pipeline.dot"),
+	})
+	must(t, err)
+	body, err := os.ReadFile(filepath.Join(logsRoot, "work", "prompt.md"))
+	must(t, err)
+	if got := string(body); !strings.Contains(got, "legacy $epic_id vs ABC-123") {
+		t.Fatalf("bare $var should stay literal, $context. should resolve: %q", got)
 	}
 }

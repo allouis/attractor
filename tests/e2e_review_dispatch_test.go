@@ -35,12 +35,6 @@ func TestReviewPipeline_DispatchRunsCheckoutInCwd(t *testing.T) {
 		Source:  string(src),
 		BaseDir: baseDir,
 		Cwd:     cwd,
-		Vars: map[string]string{
-			"repo":      "owner/repo",
-			"pr_number": "42",
-			"url":       "https://github.com/owner/repo/pull/42",
-			"title":     "Fix login",
-		},
 	})
 	must(t, err)
 

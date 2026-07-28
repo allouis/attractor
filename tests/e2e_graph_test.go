@@ -160,25 +160,6 @@ func TestNodeDurationParsing(t *testing.T) {
 	}
 }
 
-func TestVariableExpansionTransform(t *testing.T) {
-	g := buildGraph(t, `digraph g {
-		goal = "Add a sort function"
-		start [shape=Mdiamond]
-		plan [prompt="Plan: $goal"]
-		impl [prompt="Implement: $goal, all of it"]
-		done [shape=Msquare]
-		start -> plan -> impl -> done
-	}`)
-	g, err := transform.Apply(g, []transform.Transform{transform.VariableExpansion{}})
-	must(t, err)
-	if got := g.Nodes["plan"].Prompt(); got != "Plan: Add a sort function" {
-		t.Fatalf("plan prompt=%q", got)
-	}
-	if got := g.Nodes["impl"].Prompt(); got != "Implement: Add a sort function, all of it" {
-		t.Fatalf("impl prompt=%q", got)
-	}
-}
-
 func TestStylesheetSpecificity(t *testing.T) {
 	g := buildGraph(t, `digraph g {
 		model_stylesheet = "

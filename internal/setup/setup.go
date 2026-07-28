@@ -1,10 +1,11 @@
 // Package setup is the one shared pipeline preparation path used by both
 // entry points — the CLI `run` command and the HTTP `serve` daemon
-// (service-spec §2). It parses DOT source, validates supplied vars,
-// applies the standard transforms (@file prompt inlining, $var
-// expansion), defaults the graph-level cwd, and lints, returning a
-// PreparedGraph ready for engine.Run. Keeping this in one place is what
-// gives run/serve parity: both accept vars, @file prompts, and a cwd.
+// (service-spec §2). It parses DOT source, applies the standard transforms
+// (@file prompt inlining, stylesheet), defaults the graph-level cwd, and
+// lints, returning a PreparedGraph ready for engine.Run. Keeping this in
+// one place is what gives run/serve parity: both accept @file prompts and
+// a cwd. Vars are seeded into the run context by the caller (C3), not here;
+// `$context.*` interpolates at runtime (spec §4.5).
 package setup
 
 import (
@@ -20,9 +21,6 @@ import (
 type Options struct {
 	// Source is the raw DOT text of the pipeline.
 	Source string
-	// Vars maps $placeholder names (without the leading $) to expansion
-	// values, supplied by CLI -var flags or the serve submit payload.
-	Vars map[string]string
 	// BaseDir resolves @file prompt references. The CLI passes the .dot
 	// file's directory; serve passes the submission cwd.
 	BaseDir string
@@ -51,6 +49,5 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 	}
 	return engine.Prepare(g,
 		transform.PromptFile{BaseDir: o.BaseDir},
-		transform.VariableExpansion{Vars: o.Vars},
 	)
 }
