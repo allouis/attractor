@@ -4,7 +4,7 @@ digraph child_vars {
     vars = "x"
     goal = "child with vars"
     start    [shape=Mdiamond]
-    childwork [shape=box, prompt="value=$x"]
+    childwork [shape=box, prompt="value=$context.x"]
     done     [shape=Msquare]
     start -> childwork -> done
 }
