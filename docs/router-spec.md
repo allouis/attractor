@@ -93,31 +93,29 @@ Attractor has two value systems:
 - **runtime context** — the KV store handlers read/write during the run
   (attractor-spec §5.1 / §11.7).
 
-Handlers do **not** interpolate context into attrs/prompts: the `tool`
-handler runs `tool_command` verbatim (`/bin/sh -c`), and prompt
-expansion is simple `$goal` replacement ("not a templating engine").
+Handlers interpolate `$context.<key>` into prompts and `tool_command`
+against the **live context** at execute time (attractor-spec §4.5); every
+other `$` passes through to the shell.
 
-The child pipeline (`review.dot`) is authored against the prepare-time
-contract — it declares `vars="repo,pr_number,url,title"` and runs
-standalone as `attractor run review -var pr_number=42`. So
-`manager_loop` supplies those `-var`s **from context** at child-prepare
-time — doing programmatically what a human types on the CLI:
+The child pipeline (`review.dot`) declares `vars="repo,pr_number,url,title"`
+and reads them as `$context.repo`, `$context.pr_number`, … at runtime. So
+`manager_loop` **seeds the child's initial context** from a snapshot of
+the live parent context — the child then interpolates `$context.*` itself,
+exactly as `-var repo=… pr_number=…` on the CLI would seed it:
 
 ```
-for name in child.declared_vars:        // the child's `vars="..."` list
-    vars[name] = context.get(name)
-merge stack.child.var.* node overrides into vars
-prepared = setup.Prepare(childSource, vars)
+seed = snapshot(parent context)          // minus the parent's own graph/cwd keys
+merge stack.child.var.* node overrides into seed
+childEngine = engine.New(InitialContext: seed)
 ```
 
-The daemon **seeds** the item vars into the router run's initial context
-at dispatch, so the *same* values feed both the router's conditional
-edges (runtime) and the child prepare (the loop above). **Context is the
-single carrier end-to-end**; prepare-time vars appear only at the
-child's own prepare boundary, because that is the child pipeline's
-authored input contract. Pushing context *past* that boundary into the
-child's nodes would require runtime attribute templating the spec
-deliberately omits.
+No prepare-time declared-vars conversion: the child's `vars=` is validated
+at its run start (required keys present in the seeded context, fail-fast),
+not string-substituted into the graph. The daemon **seeds** the item vars
+into the router run's initial context at dispatch, so the *same* values
+feed both the router's conditional edges and the child. **Context is the
+single carrier end-to-end** — parent context flows into the child's
+context, and the child's own nodes resolve `$context.*` at runtime.
 
 ### manager_loop enhancements
 
@@ -130,10 +128,10 @@ small changes:
    `stack.child_workdir` as **node** attrs (fall back to graph attrs),
    so multiple `manager_loop` nodes can coexist in one router graph.
    Backward-compatible — single-child graphs are unchanged.
-2. **Vars from context (R3).** Prepare the child via
-   `setup.Prepare(childSrc, vars)` with `vars` pulled from context per
-   the child's declared `vars=`, plus `stack.child.var.*` node
-   overrides.
+2. **Context from context (R3).** Seed the child's initial context from a
+   snapshot of the live parent context (plus `stack.child.var.*` node
+   overrides); the child interpolates `$context.*` at runtime. No
+   prepare-time declared-vars conversion.
 
 Cancelling the inline child on early return is **not** in scope here —
 the engine has no cancellation primitive and routing never early-returns
@@ -172,7 +170,7 @@ For anyone building the engine to match this:
 | # | Deviation | Spec today | Change | Nature |
 |---|---|---|---|---|
 | A | Child-selection attr **scope** | `stack.child_dotfile` / `stack.child_workdir` are graph attrs (§4.11, graph-attr table) | Also readable as **node** attrs; graph attr is the fallback | Backward-compatible extension |
-| B | **Seeded initial context** + child vars from context | Fresh runs start with empty context + `MirrorGraph` (§5.1); child prepare has no var source | Run accepts a seeded initial context; `manager_loop` prepares its child with vars pulled from context | Additive; uses §11.7 context + the `vars` attr |
+| B | **Seeded initial context** + child inherits parent context | Fresh runs start with empty context + `MirrorGraph` (§5.1); child has no var source | Run accepts a seeded initial context; `manager_loop` seeds its child's initial context from the parent snapshot; the child interpolates `$context.*` at runtime | Additive; uses §11.7 context + the `vars` attr |
 
 `manager_loop` cancelling its inline child on early return is a **bug
 fix**, not a deviation.
@@ -204,7 +202,7 @@ cancelable work runs; it is not needed for the review/implement roadmap.
 |---|---|---|---|
 | R1 | `manager_loop` reads `stack.child_dotfile`/`child_workdir` as node attrs (graph fallback) | — | done |
 | R2 | Run accepts a seeded initial context (`ctx.Apply` on start); the `/items/run` submit path seeds the Item's vars **+ `item.type`/`item.source`/`item.id`** from the Ref | — | done |
-| R3 | `manager_loop` prepares its child via `setup.Prepare` with vars from context (+ `stack.child.var.*` overrides) | R1, R2 | done |
+| R3 | `manager_loop` seeds its child's initial context from the parent snapshot (+ `stack.child.var.*` overrides); child interpolates `$context.*` at runtime | R1, R2 | done |
 | R6 | A `router` pipeline (conditionals on `item.type` → `manager_loop` targets; agent fallback → `decision`), run via `POST /items/run` | R1, R3 | done |
 | R7 | Docs: deviations (this spec), items-spec 4/6/7 reversal, attractor-spec back-pointers | — | done |
 
@@ -228,9 +226,9 @@ cancelable work runs; it is not needed for the review/implement roadmap.
   `stack.child_dotfile` each run their own child.
 - **R2**: a run started with a seeded context exposes those keys to the
   first node (a conditional branches on a seeded value).
-- **R3**: a `manager_loop` whose child declares `vars="x"` prepares the
-  child with `x` sourced from context; `stack.child.var.x` overrides
-  context.
+- **R3**: a `manager_loop` whose child declares `vars="x"` seeds the
+  child's context with `x` from the parent context (child reads
+  `$context.x` at runtime); `stack.child.var.x` overrides the seed.
 - **R6**: `POST /items/run {item_ref, pipeline: router, repo}` for a PR
   item runs the router, whose `item.type == pr` edge routes to the review
   child; the single run carries `item_ref`.

@@ -94,12 +94,13 @@ chosen work pipeline **inline** as a sub-pipeline (see
    original node was **fire-and-forget** and produced a first-class
    child run via `Runner.Submit`. **Now:** the router uses
    `stack.manager_loop`, which runs its child **inline** and supervises
-   it (so a router *can* branch on the child's failure). The prepare-
-   time-var constraint still holds — prompts/attrs can't read runtime
-   context — and is honoured by `manager_loop` feeding the child its
-   `-var`s from context at child-prepare (see router-spec §"Child
-   pipeline gets its vars from context"). `item_ref` stays on the router
-   run only; the engine never touches it.
+   it (so a router *can* branch on the child's failure). Prompts and
+   `tool_command` interpolate `$context.*` from the live context at
+   runtime (attractor-spec §4.5); `manager_loop` seeds the child's
+   initial context from the parent snapshot, so the child resolves those
+   values itself (see router-spec §"Child pipeline gets its vars from
+   context"). `item_ref` stays on the router run only; the engine never
+   touches it.
 
 8. **Sources are pull/on-demand in v1** (fetch when the list opens or
    refreshes; webhooks are the later automated-trigger layer). A
