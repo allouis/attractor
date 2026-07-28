@@ -5,10 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/allouis/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/engine"
 	graphpkg "github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/lint"
-	"github.com/allouis/attractor/internal/transform"
 )
 
 // reviewPipelineSrc reads the shipped review pipeline (items-spec I5).
@@ -88,19 +87,19 @@ func TestReviewPipeline_CheckoutThenReviewShape(t *testing.T) {
 // TestReviewPipeline_ExpandsItemVars confirms the checkout command wires
 // the item's `repo`/`pr_number` vars — the exact keys a GitHub PR Item
 // supplies (internal/source/github.go) — into a concrete gh invocation.
+// Post-C5 the pipeline uses `$context.` syntax resolved at runtime from
+// the live context (spec §4.5), so this drives the same `Context.Expand`
+// the tool handler calls, not the removed prepare-time transform.
 func TestReviewPipeline_ExpandsItemVars(t *testing.T) {
-	file, err := dot.Parse(reviewPipelineSrc(t))
-	must(t, err)
-	g, err := graphpkg.Build(file)
-	must(t, err)
-	g, err = transform.VariableExpansion{Vars: map[string]string{
+	g := buildReviewGraph(t)
+	checkout := g.Nodes[g.OutgoingEdges("start")[0].To]
+
+	ctx := engine.NewContextFrom(map[string]string{
 		"repo":      "owner/repo",
 		"pr_number": "42",
-	}}.Apply(g)
+	})
+	got, err := ctx.Expand(checkout.Attrs["tool_command"])
 	must(t, err)
-
-	checkout := g.Nodes[g.OutgoingEdges("start")[0].To]
-	got := checkout.Attrs["tool_command"]
 	if got != "gh pr checkout 42 --repo owner/repo" {
 		t.Fatalf("expanded checkout command=%q", got)
 	}
