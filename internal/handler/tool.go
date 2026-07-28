@@ -24,6 +24,16 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 	if cmd == "" {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: "tool: no tool_command specified"}
 	}
+	// Interpolate $context.* / $goal from the live context (spec §4.5,
+	// generalised to tool_command — the one documented deviation) before
+	// handing the command to the shell. Only $context.* is touched, so
+	// shell syntax ($HOME, $(…)) survives; an undefined key fails fast so
+	// no mangled command reaches /bin/sh.
+	expanded, err := expandContext(cmd, env.Context)
+	if err != nil {
+		return engine.Outcome{Status: engine.StatusFail, FailureReason: "tool: " + err.Error()}
+	}
+	cmd = expanded
 
 	ctx := context.Background()
 	if d, ok := env.Node.Duration("timeout"); ok && d > 0 {
@@ -48,7 +58,7 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 	var stdout, stderr bytes.Buffer
 	exe.Stdout = &stdout
 	exe.Stderr = &stderr
-	err := exe.Run()
+	err = exe.Run()
 
 	// Persist stdout/stderr to the stage dir regardless of cwd.
 	_ = os.WriteFile(filepath.Join(stageDir, "stdout.txt"), stdout.Bytes(), 0o644)
