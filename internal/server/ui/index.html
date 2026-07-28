@@ -4,43 +4,133 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>attractor</title>
+<script data-theme-preload>
+  // Apply the persisted theme before first paint to avoid a flash of the
+  // wrong palette. Absent a stored choice, the CSS media query drives it.
+  (function () {
+    try {
+      const t = localStorage.getItem('theme');
+      if (t) document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { /* localStorage may be unavailable; fall back to OS pref */ }
+  })();
+</script>
 <style>
-  :root { --bg:#fff; --fg:#1a1a1a; --muted:#666; --line:#ddd;
-          --green:#1a7f37; --red:#cf222e; --amber:#bf8700; --active:#0969da; }
+  /* Design tokens (web-ui-spec W1). Every view consumes tokens only — no
+     ad-hoc colours/sizes. Light is the base :root; dark values arrive via
+     the data-theme override (manual toggle) and prefers-color-scheme. */
+  :root {
+    /* surface + text ramp */
+    --surface-0: #ffffff;   /* page background */
+    --surface-1: #f6f8fa;   /* raised panels */
+    --surface-2: #eaeef2;   /* inset / hover */
+    --text: #1f2328;
+    --text-muted: #656d76;
+    --border: #d0d7de;
+    --accent: #0969da;
+    /* spacing scale */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    /* type scale */
+    --font-sm: 12px;
+    --font-base: 14px;
+    --font-lg: 18px;
+    /* semantic state palette — the load-bearing colour decision.
+       needs-human is deliberately the highest-attention hue. */
+    --state-queued: #64748b;
+    --state-running: #2563eb;
+    --state-success: #16a34a;
+    --state-failed: #dc2626;
+    --state-needs-human: #d97706;
+    --state-retrying: #ea580c;
+    --state-cancelled: #94a3b8;
+  }
+  /* Dark tokens. Duplicated across an explicit override and the media
+     query so a manual choice always wins over the OS preference:
+       no data-theme        -> follow prefers-color-scheme
+       data-theme="dark"     -> dark regardless of OS
+       data-theme="light"    -> stay on the light :root base */
+  :root[data-theme="dark"] {
+    --surface-0: #0d1117;
+    --surface-1: #161b22;
+    --surface-2: #21262d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --border: #30363d;
+    --accent: #4493f8;
+    --state-queued: #94a3b8;
+    --state-running: #60a5fa;
+    --state-success: #4ade80;
+    --state-failed: #f87171;
+    --state-needs-human: #fbbf24;
+    --state-retrying: #fb923c;
+    --state-cancelled: #64748b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface-0: #0d1117;
+      --surface-1: #161b22;
+      --surface-2: #21262d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --border: #30363d;
+      --accent: #4493f8;
+      --state-queued: #94a3b8;
+      --state-running: #60a5fa;
+      --state-success: #4ade80;
+      --state-failed: #f87171;
+      --state-needs-human: #fbbf24;
+      --state-retrying: #fb923c;
+      --state-cancelled: #64748b;
+    }
+  }
   * { box-sizing: border-box; }
-  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; color: var(--fg); background: var(--bg); }
-  header { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  body { font: var(--font-base)/1.5 system-ui, sans-serif; margin: 0; color: var(--text); background: var(--surface-0); }
+  header { display: flex; align-items: center; justify-content: space-between;
+           padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-weight: 600; }
   header a { color: inherit; text-decoration: none; }
-  main { padding: 12px 16px; }
+  #theme-toggle { font-weight: 400; }
+  main { padding: var(--space-3) var(--space-4); }
   #run-view { display: none; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 600; }
-  a { color: var(--active); }
+  th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 600; }
+  a { color: var(--accent); }
   .status { font-weight: 600; text-transform: capitalize; }
-  .status.completed { color: var(--green); }
-  .status.failed, .status.cancelled { color: var(--red); }
-  .status.running { color: var(--active); }
-  .status.queued { color: var(--muted); }
-  .layout { display: grid; grid-template-columns: 1fr 360px; gap: 16px; align-items: start; }
+  .status.completed { color: var(--state-success); }
+  .status.failed { color: var(--state-failed); }
+  .status.cancelled { color: var(--state-cancelled); }
+  .status.running { color: var(--state-running); }
+  .status.retrying { color: var(--state-retrying); }
+  .status.queued { color: var(--state-queued); }
+  .layout { display: grid; grid-template-columns: 1fr 360px; gap: var(--space-4); align-items: start; }
   #graph svg { max-width: 100%; height: auto; }
   #graph g.node { cursor: pointer; }
-  #node-pane { border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-height: 120px; }
-  #node-pane h3 { margin: 0 0 8px; }
-  #node-links a { margin-right: 12px; }
-  #node-log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, monospace;
-              margin-top: 10px; max-height: 320px; overflow: auto; }
-  .tool { color: var(--muted); }
-  #human-dock { margin-top: 16px; }
-  #human-dock .q { border: 1px solid var(--amber); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+  #node-pane { border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3);
+               min-height: 120px; background: var(--surface-1); }
+  #node-pane h3 { margin: 0 0 var(--space-2); }
+  #node-links a { margin-right: var(--space-3); }
+  #node-log { white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
+              margin-top: var(--space-2); max-height: 320px; overflow: auto; }
+  .tool { color: var(--text-muted); }
+  #human-dock { margin-top: var(--space-4); }
+  #human-dock .q { border: 1px solid var(--state-needs-human); border-radius: 6px;
+                   padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
   .pulse { animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
-  .muted { color: var(--muted); }
-  button { font: inherit; padding: 4px 10px; cursor: pointer; }
+  .muted { color: var(--text-muted); }
+  button { font: inherit; padding: var(--space-1) var(--space-3); cursor: pointer;
+           background: var(--surface-1); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+  button:hover { background: var(--surface-2); }
 </style>
 </head>
 <body>
-<header><a href="#" onclick="showList();return false">attractor</a></header>
+<header>
+  <a href="#" onclick="showList();return false">attractor</a>
+  <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle theme">&#9790;</button>
+</header>
 <main>
   <section id="run-list"></section>
   <section id="run-view">
@@ -63,6 +153,28 @@ let selectedNode = null;       // node id in the pane
 const nodeLog = {};            // node id -> accumulated log html chunks
 const nodeState = {};          // node id -> status class
 let dockTimer = null;
+
+// ---- theme -------------------------------------------------------------
+// currentTheme resolves the effective palette: an explicit manual choice
+// (data-theme) wins, else the OS preference.
+function currentTheme() {
+  const set = document.documentElement.getAttribute('data-theme');
+  if (set) return set;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+// syncToggle points the toggle glyph at the palette it switches *to*.
+function syncToggle() {
+  const btn = $('theme-toggle');
+  if (btn) btn.innerHTML = currentTheme() === 'dark' ? '&#9728;' : '&#9790;';
+}
+
+function toggleTheme() {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('theme', next); } catch (e) { /* best-effort */ }
+  document.documentElement.setAttribute('data-theme', next);
+  syncToggle();
+}
 
 // showView switches the single visible top-level section by id.
 function showView(name) {
@@ -145,8 +257,8 @@ function paintNode(id, cls) {
   const g = [...$('graph').querySelectorAll('g.node')]
     .find(g => g.querySelector('title')?.textContent === id);
   if (!g) return;
-  const color = { running: 'var(--active)', completed: 'var(--green)',
-                  failed: 'var(--red)', retrying: 'var(--amber)' }[cls];
+  const color = { running: 'var(--state-running)', completed: 'var(--state-success)',
+                  failed: 'var(--state-failed)', retrying: 'var(--state-retrying)' }[cls];
   g.classList.toggle('pulse', cls === 'running');
   g.querySelectorAll('polygon, ellipse, path').forEach(shape => {
     if (color) shape.setAttribute('stroke', color);
@@ -275,6 +387,7 @@ function escapeHtml(s) {
 
 // ---- boot --------------------------------------------------------------
 window.addEventListener('load', () => {
+  syncToggle();
   const m = location.hash.match(/^#run\/(.+)$/);
   if (m) openRun(m[1]); else showList();
 });
