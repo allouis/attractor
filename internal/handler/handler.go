@@ -95,7 +95,17 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 		}
 	}
 
+	// An agent whose cwd is a work dir (a repo, via the node's `cwd`
+	// attribute, or attractor's own cwd when unset) may write its
+	// status.json there rather than to the stage dir the contract expects.
+	// Probe that location so a status.json which appears during the turn is
+	// relocated into the stage dir afterwards — otherwise the engine misses
+	// the agent's self-report (silently defaulting to SUCCESS) and the file
+	// leaks into the work dir / a tracked repo.
+	workStatus, workStatusExisted := leakedStatusProbe(env, statusPath)
+
 	result, err := h.Backend.Run(env, prompt)
+	relocateLeakedStatus(workStatus, statusPath, workStatusExisted)
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: err.Error()}
 	}
@@ -140,6 +150,49 @@ func setIfAbsent(m map[string]string, key, value string) {
 	if _, ok := m[key]; !ok {
 		m[key] = value
 	}
+}
+
+// leakedStatusProbe returns the path where the agent might write its
+// status.json instead of the stage dir — its work dir (env.Cwd, falling
+// back to attractor's cwd) — and whether a file already exists there. An
+// empty work dir, or one whose status.json coincides with the stage dir,
+// yields an empty path (nothing to relocate).
+func leakedStatusProbe(env engine.HandlerEnv, stageStatus string) (path string, existed bool) {
+	workDir := env.Cwd
+	if workDir == "" {
+		workDir, _ = os.Getwd()
+	}
+	if workDir == "" {
+		return "", false
+	}
+	ws := filepath.Join(workDir, "status.json")
+	if ws == stageStatus {
+		return "", false
+	}
+	_, err := os.Stat(ws)
+	return ws, err == nil
+}
+
+// relocateLeakedStatus moves a status.json the agent wrote into its work
+// dir (cwd) into the stage dir, so the status-file contract reads it and
+// it does not leak into the work dir (e.g. a tracked repo). It acts only
+// on a file that APPEARED during the turn: a status.json that predated the
+// turn is left untouched (it is not this agent's self-report). If the
+// agent also wrote to the stage dir, that copy wins and the work-dir file
+// is merely cleaned up.
+func relocateLeakedStatus(workStatus, stageStatus string, existedBefore bool) {
+	if workStatus == "" || existedBefore {
+		return
+	}
+	data, err := os.ReadFile(workStatus)
+	if err != nil {
+		return // agent wrote nothing to its cwd
+	}
+	_ = os.Remove(workStatus) // clean up the leak
+	if _, err := os.Stat(stageStatus); err == nil {
+		return // agent also wrote the stage-dir copy; keep that one
+	}
+	_ = os.WriteFile(stageStatus, data, 0o644)
 }
 
 // readAgentStatus reads the agent-authored status.json if present and

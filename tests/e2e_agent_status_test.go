@@ -2,6 +2,7 @@ package attractor_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,52 @@ func TestAgentStatus_AgentCanFailStage(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(string(data), "no prior context available") {
 		t.Fatalf("agent failure_reason missing from final status.json: %s", data)
+	}
+}
+
+// TestAgentStatus_AgentWritesToCwdIsAdoptedAndCleanedUp exercises the
+// bug where an agent whose working directory is a work dir (a repo, via
+// the node's `cwd` attribute) writes its status.json relative to that cwd
+// rather than to the stage dir. The engine must still honour the
+// self-report (here a FAIL) AND must not leave the status.json behind in
+// the work dir, where it would leak into the repo / get committed.
+func TestAgentStatus_AgentWritesToCwdIsAdoptedAndCleanedUp(t *testing.T) {
+	workDir := t.TempDir()
+	src := fmt.Sprintf(`digraph t {
+		start [shape=Mdiamond]
+		stuck [prompt="x", cwd=%q]
+		fix   [prompt="fix", retry_target="stuck"]
+		done  [shape=Msquare]
+		start -> stuck
+		stuck -> done [condition="outcome=success"]
+		stuck -> fix  [condition="outcome=fail"]
+		fix -> done
+	}`, workDir)
+
+	// The agent writes status.json into its cwd (workDir), NOT the stage dir.
+	wrapper := backend.Func(func(env engine.HandlerEnv, prompt string) (backend.Result, error) {
+		if env.Node.ID == "stuck" {
+			payload := map[string]any{
+				"outcome":        "fail",
+				"failure_reason": "agent wrote status to its cwd, not the stage dir",
+			}
+			data, _ := json.Marshal(payload)
+			must(t, os.WriteFile(filepath.Join(workDir, "status.json"), data, 0o644))
+		}
+		return backend.Result{ResponseText: "text"}, nil
+	})
+
+	out, _, logs := runFixture(t, src, wrapper, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("pipeline should reach SUCCESS via the fail edge; got %s reason=%q", out.Status, out.FailureReason)
+	}
+	// The fail edge was taken (engine adopted the cwd-written FAIL).
+	if _, err := os.Stat(filepath.Join(logs, "fix", "status.json")); err != nil {
+		t.Fatalf("fail edge not taken — agent's cwd status.json was not adopted: %v", err)
+	}
+	// The status.json must be relocated out of the work dir (no leak).
+	if _, err := os.Stat(filepath.Join(workDir, "status.json")); !os.IsNotExist(err) {
+		t.Fatalf("agent status.json leaked in the work dir; want removed (err=%v)", err)
 	}
 }
 
