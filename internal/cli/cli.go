@@ -159,7 +159,7 @@ func Run(args []string) error {
 	}
 
 	iv := resolveInterviewer(*humanFlag)
-	return runEngine(prepared, codergenBackend, iv, logsRoot, *jsonOut)
+	return runEngine(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars)
 }
 
 // providerBackend builds the config-routed codergen backend used when no
@@ -180,10 +180,11 @@ func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
 // runEngine wires the built-in handlers around a codergen backend and
 // executes prepared to completion, streaming events to stdout (one JSON
 // object per line when jsonOut). Shared standalone-run core of `run` and
-// `automations run`.
-func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool) error {
+// `automations run`. initialContext seeds the run's context with the
+// `-var`/automation vars so `$context.<var>` resolves at runtime (C3).
+func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string) error {
 	registry := buildRegistryWith(handler.Codergen{Backend: cb}, iv)
-	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot})
+	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, InitialContext: initialContext})
 	done := make(chan struct{})
 	go func() {
 		for ev := range eng.Events() {

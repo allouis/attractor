@@ -101,7 +101,7 @@ func automationsRun(name string) error {
 	if err != nil {
 		return err
 	}
-	return runEngine(prepared, cb, resolveInterviewer("auto"), logsRoot, false)
+	return runEngine(prepared, cb, resolveInterviewer("auto"), logsRoot, false, found.Vars)
 }
 
 // expandHome replaces a leading ~ with the user's home directory so a
