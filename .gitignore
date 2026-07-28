@@ -3,3 +3,4 @@
 *.swp
 .DS_Store
 .playwright-mcp/
+.attractor-runs/

@@ -1,8 +1,0 @@
-{
-  "outcome": "success",
-  "context_updates": {
-    "last_response": "[simulated] plan",
-    "last_stage": "plan"
-  },
-  "notes": "Stage completed (simulated): plan"
-}
