@@ -387,7 +387,8 @@ function renderItems() {
   const groups = new Map();
   for (const it of list) {
     const g = key(it) || '(none)';
-    (groups.get(g) || groups.set(g, []).get(g)).push(it);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(it);
   }
   $('items-list').innerHTML = [...groups.keys()].sort().map(g =>
     `<div class="group-head">${escapeHtml(g)}</div>${itemsTable(groups.get(g))}`).join('');
@@ -430,13 +431,14 @@ function safeUrl(url) {
 // a loud in-progress chip when a linked run is queued/running, then one
 // status-tinted pill per linked run linking to #run/<id>.
 function itemBadges(it) {
-  let html = it.in_progress ? '<span class="badge in-progress">in progress</span>' : '';
-  for (const run of it.linked_runs || []) {
+  const chip = it.in_progress ? '<span class="badge in-progress">in progress</span>' : '';
+  const runs = (it.linked_runs || []).map(run => {
     const id = run.id || '';
-    html += `<a class="badge status ${escapeHtml(run.status || '')}" href="#run/${escapeHtml(id)}"` +
-            ` title="${escapeHtml(run.status || '')}">${escapeHtml(id.slice(0, 8))}</a>`;
-  }
-  return html;
+    const status = escapeHtml(run.status || '');
+    return `<a class="badge status ${status}" href="#run/${escapeHtml(id)}"` +
+           ` title="${status}">${escapeHtml(id.slice(0, 8))}</a>`;
+  }).join('');
+  return chip + runs;
 }
 
 async function renderList() {
