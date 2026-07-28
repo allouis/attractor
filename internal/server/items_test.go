@@ -307,7 +307,7 @@ func TestItemsListAnnotatesLinkedRuns(t *testing.T) {
 	srv := itemsServer(t, map[string]source.Source{"github": fs})
 
 	// A queued run carrying the same item_ref makes the item in-progress.
-	run := srv.registry.NewRun("", nil, nil, srv.registry.baseDir, nil, &ref)
+	run := srv.registry.NewRun("", nil, nil, srv.registry.baseDir, nil, &ref, nil)
 
 	_, items := getItems(t, srv.URL()+"/items?source=github")
 	if len(items) != 1 {
@@ -346,9 +346,9 @@ func TestRunsForItem(t *testing.T) {
 	reg := newRunRegistry(t.TempDir())
 	ref := engine.ItemRef{Source: "github", Type: "pr", ExternalID: "o/r#1"}
 	other := engine.ItemRef{Source: "github", Type: "pr", ExternalID: "o/r#2"}
-	a := reg.NewRun("", nil, nil, reg.baseDir, nil, &ref)
-	reg.NewRun("", nil, nil, reg.baseDir, nil, &other)
-	reg.NewRun("", nil, nil, reg.baseDir, nil, nil)
+	a := reg.NewRun("", nil, nil, reg.baseDir, nil, &ref, nil)
+	reg.NewRun("", nil, nil, reg.baseDir, nil, &other, nil)
+	reg.NewRun("", nil, nil, reg.baseDir, nil, nil, nil)
 
 	got := reg.RunsForItem(ref)
 	if len(got) != 1 || got[0].ID != a.ID {

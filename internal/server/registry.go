@@ -117,22 +117,23 @@ func (r *runRegistry) reload() {
 // NewRun mints a run. itemRef, when non-nil, records the external Item
 // that spawned it (items-spec I1); it is stamped at creation, persisted
 // in the manifest, and surfaced in the run summary.
-func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef *engine.ItemRef) *Run {
+func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef *engine.ItemRef, initialContext map[string]string) *Run {
 	id := newRunID()
 	logsRoot := filepath.Join(baseDir, id)
 	run := &Run{
-		ID:          id,
-		source:      source,
-		graph:       g,
-		prepared:    prepared,
-		logsRoot:    logsRoot,
-		status:      RunQueued,
-		startedAt:   time.Now(),
-		factory:     makeHandlers,
-		itemRef:     itemRef,
-		subscribers: map[chan engine.Event]struct{}{},
-		questions:   map[string]*pendingQuestion{},
-		persisted:   true,
+		ID:             id,
+		source:         source,
+		graph:          g,
+		prepared:       prepared,
+		logsRoot:       logsRoot,
+		status:         RunQueued,
+		startedAt:      time.Now(),
+		factory:        makeHandlers,
+		itemRef:        itemRef,
+		initialContext: initialContext,
+		subscribers:    map[chan engine.Event]struct{}{},
+		questions:      map[string]*pendingQuestion{},
+		persisted:      true,
 	}
 	if g != nil {
 		run.graphName = g.Name
@@ -198,6 +199,9 @@ type Run struct {
 	graphName string
 	cwd       string
 	itemRef   *engine.ItemRef
+	// initialContext seeds the run's context at start (Item vars + item.*
+	// metadata); nil for runs with no seed (router-spec deviation B).
+	initialContext map[string]string
 
 	mu          sync.RWMutex
 	status      RunStatus
@@ -421,7 +425,7 @@ func (r *Run) execute() {
 
 	iv := &remoteInterviewer{run: r}
 	registry := r.factory(iv)
-	eng := engine.New(engine.Config{Registry: registry, LogsRoot: r.logsRoot, RunID: r.ID})
+	eng := engine.New(engine.Config{Registry: registry, LogsRoot: r.logsRoot, RunID: r.ID, InitialContext: r.initialContext})
 
 	done := make(chan struct{})
 	go r.fanOutEvents(eng.Events(), done)
