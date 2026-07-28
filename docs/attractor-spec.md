@@ -162,6 +162,7 @@ Graph attributes are declared in a `graph [ ... ]` block or as top-level `key = 
 | `reasoning_effort`  | String   | `"high"`        | LLM reasoning effort: `low`, `medium`, `high`. |
 | `auto_status`       | Boolean  | `false`         | If `true` and the handler writes no status, the engine auto-generates a SUCCESS outcome. |
 | `allow_partial`     | Boolean  | `false`         | Accept PARTIAL_SUCCESS when retries are exhausted instead of failing. |
+| `output_key`        | String   | `""`            | If set, the node's full untruncated response is written to `context_updates[<output_key>]` (alongside the truncated `last_response`), without clobbering keys the node's own status.json already set. Inside a `parallel` branch it lands in that branch's `parallel.results` entry. |
 
 The external DOT attribute name is `type`. Implementations may use an internal field name such as `node_type` to avoid reserved-word conflicts, but the externally visible behavior must remain identical.
 
