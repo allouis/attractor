@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/allouis/attractor/internal/items"
@@ -54,6 +57,14 @@ type fakeDeps struct {
 func (d *fakeDeps) Source(name string) (source.Source, bool) {
 	s, ok := d.sources[name]
 	return s, ok
+}
+
+func (d *fakeDeps) SourceNames() []string {
+	names := make([]string, 0, len(d.sources))
+	for name := range d.sources {
+		names = append(names, name)
+	}
+	return names
 }
 
 func (d *fakeDeps) RepoPath(repo string) (string, bool) { return d.repos.Path(repo) }
@@ -331,6 +342,55 @@ func TestItemsListUnknownSource(t *testing.T) {
 	resp, _ := getItems(t, url+"/items?source=nope")
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func getSources(t *testing.T, url string) (*http.Response, []string) {
+	t.Helper()
+	resp, err := http.Get(url + "/items/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Sources []string `json:"sources"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	return resp, body.Sources
+}
+
+// TestListSources proves GET /items/sources reports the configured source
+// names, sorted, so the UI discovers what to fetch instead of hardcoding
+// the list (web-ui-spec W3, review B2).
+func TestListSources(t *testing.T) {
+	deps := &fakeDeps{sources: map[string]source.Source{
+		"linear": &fakeSource{},
+		"github": &fakeSource{},
+	}}
+	url := itemsServer(t, deps)
+
+	resp, got := getSources(t, url)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	want := []string{"github", "linear"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("sources = %v, want %v (sorted)", got, want)
+	}
+}
+
+// TestListSourcesEmpty proves an unconfigured daemon reports an empty list
+// (JSON []), not null — the UI must distinguish "no sources" from an error.
+func TestListSourcesEmpty(t *testing.T) {
+	url := itemsServer(t, &fakeDeps{sources: map[string]source.Source{}})
+	resp, err := http.Get(url + "/items/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if got := strings.TrimSpace(string(body)); got != `{"sources":[]}` {
+		t.Errorf("body = %s, want {\"sources\":[]}", got)
 	}
 }
 

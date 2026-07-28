@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/allouis/attractor/internal/items"
@@ -34,6 +35,10 @@ type LinkedRun struct {
 type Deps interface {
 	// Source returns the named Source, ok=false if unknown.
 	Source(name string) (source.Source, bool)
+	// SourceNames lists the configured source names (any order). Backs GET
+	// /items/sources so the UI discovers what to fetch instead of hardcoding
+	// the list across the API boundary (web-ui-spec W3).
+	SourceNames() []string
 	// RepoPath maps `owner/name` to a local checkout, ok=false if unmapped.
 	RepoPath(repo string) (string, bool)
 	// Submit runs the shared admission path, stamping the run with the
@@ -47,6 +52,7 @@ type Deps interface {
 func Register(mux *http.ServeMux, deps Deps) {
 	h := &handlers{deps: deps}
 	mux.HandleFunc("GET /items", h.listItems)
+	mux.HandleFunc("GET /items/sources", h.listSources)
 	mux.HandleFunc("POST /items/run", h.runItem)
 }
 
@@ -90,6 +96,18 @@ func (h *handlers) listItems(w http.ResponseWriter, r *http.Request) {
 		out = append(out, h.annotate(it))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+}
+
+// listSources serves GET /items/sources: the configured source names,
+// sorted, so the UI fetches exactly the sources the daemon has rather than
+// a hardcoded list (web-ui-spec W3). An unconfigured daemon returns [].
+func (h *handlers) listSources(w http.ResponseWriter, r *http.Request) {
+	names := h.deps.SourceNames()
+	if names == nil {
+		names = []string{}
+	}
+	sort.Strings(names)
+	writeJSON(w, http.StatusOK, map[string]any{"sources": names})
 }
 
 // runItemRequest is the POST /items/run body (items-spec I4): the human

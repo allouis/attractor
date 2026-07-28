@@ -267,6 +267,14 @@ func (d itemsDeps) Source(name string) (source.Source, bool) {
 	return src, ok
 }
 
+func (d itemsDeps) SourceNames() []string {
+	names := make([]string, 0, len(d.s.sources))
+	for name := range d.s.sources {
+		names = append(names, name)
+	}
+	return names
+}
+
 func (d itemsDeps) RepoPath(repo string) (string, bool) { return d.s.repos.Path(repo) }
 
 func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag string) (string, error) {
