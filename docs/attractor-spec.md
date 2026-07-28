@@ -918,6 +918,14 @@ ToolHandler:
 
 Orchestrates sprint-based iteration by supervising a child pipeline. The manager observes the child's telemetry, evaluates progress via a guard function, and optionally steers the child through intervention.
 
+> **Extension (see `docs/router-spec.md`).** `stack.child_dotfile` /
+> `stack.child_workdir` may also be set as **node** attrs (node value
+> wins, graph attr is the fallback), so multiple manager-loop nodes can
+> coexist in one graph — the basis for *routing*: conditional edges
+> (§10) select among static manager-loop nodes, one per target pipeline.
+> A manager loop may source its child's prepare-time `$vars` from the run
+> context (see §5.1's seeded initial context).
+
 ```
 ManagerLoopHandler:
     FUNCTION execute(node, context, graph, logs_root) -> Outcome:
@@ -1044,6 +1052,13 @@ Context:
             values[key] = value
         RELEASE write lock
 ```
+
+> **Extension (see `docs/router-spec.md`).** A run may be started with a
+> **seeded initial context** — the daemon applies a caller-supplied map
+> (e.g. an Item's fields) to the context before the start node runs, via
+> the same `apply_updates` used for checkpoint restore. This lets
+> external inputs drive conditional edges at runtime and be handed to an
+> inline child pipeline as its prepare-time `$vars`.
 
 **Built-in context keys set by the engine:**
 
@@ -1582,7 +1597,7 @@ Custom transforms run after built-in transforms. Order of custom transforms foll
 
 Attractor supports combining multiple DOT graphs through:
 
-**Sub-pipeline nodes:** A node whose handler runs an entire sub-graph as its execution. The manager loop handler (Section 4.11) is an example of this pattern.
+**Sub-pipeline nodes:** A node whose handler runs an entire sub-graph as its execution. The manager loop handler (Section 4.11) is an example of this pattern. Work routing is built on this primitive — a router graph selects among static manager-loop nodes with conditional edges; see `docs/router-spec.md`.
 
 **Graph merging (via transform):** A custom transform can merge nodes and edges from one graph into another, enabling modular pipeline definitions.
 
@@ -1994,8 +2009,8 @@ ASSERT "review" IN checkpoint.completed_nodes
 | `default_fidelity`      | String   | `""`    | Default context fidelity mode when explicitly set. Empty string means unset; runtime fallback is `compact`. |
 | `retry_target`          | String   | `""`    | Node to jump to on unsatisfied exit |
 | `fallback_retry_target` | String   | `""`    | Secondary jump target |
-| `stack.child_dotfile`   | String   | `""`    | Path to child DOT file for supervision |
-| `stack.child_workdir`   | String   | cwd     | Working directory for child run |
+| `stack.child_dotfile`   | String   | `""`    | Path to child DOT file for supervision. Also settable per-node (node wins); see §4.11 / `docs/router-spec.md`. |
+| `stack.child_workdir`   | String   | cwd     | Working directory for child run. Also settable per-node. |
 | `tool_hooks.pre`        | String   | `""`    | Shell command before each tool call |
 | `tool_hooks.post`       | String   | `""`    | Shell command after each tool call |
 
