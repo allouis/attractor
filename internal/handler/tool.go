@@ -29,7 +29,7 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 	// handing the command to the shell. Only $context.* is touched, so
 	// shell syntax ($HOME, $(…)) survives; an undefined key fails fast so
 	// no mangled command reaches /bin/sh.
-	expanded, err := expandContext(cmd, env.Context)
+	expanded, err := env.Context.Expand(cmd)
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: "tool: " + err.Error()}
 	}

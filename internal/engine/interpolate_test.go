@@ -1,14 +1,12 @@
-package handler
+package engine
 
 import (
 	"strings"
 	"testing"
-
-	"github.com/allouis/attractor/internal/engine"
 )
 
-func TestExpandContext(t *testing.T) {
-	ctx := engine.NewContext()
+func TestContextExpand(t *testing.T) {
+	ctx := NewContext()
 	ctx.Set("pr_number", "42")
 	ctx.Set("item.type", "pr")
 	ctx.Set("repo", "foo/bar")
@@ -31,20 +29,20 @@ func TestExpandContext(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := expandContext(tc.in, ctx)
+			got, err := ctx.Expand(tc.in)
 			if err != nil {
-				t.Fatalf("expandContext(%q) error: %v", tc.in, err)
+				t.Fatalf("Expand(%q) error: %v", tc.in, err)
 			}
 			if got != tc.want {
-				t.Fatalf("expandContext(%q) = %q, want %q", tc.in, got, tc.want)
+				t.Fatalf("Expand(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestExpandContext_UndefinedKeyFails(t *testing.T) {
-	ctx := engine.NewContext()
-	_, err := expandContext("value is $context.missing", ctx)
+func TestContextExpand_UndefinedKeyFails(t *testing.T) {
+	ctx := NewContext()
+	_, err := ctx.Expand("value is $context.missing")
 	if err == nil {
 		t.Fatal("expected error for undefined $context.missing")
 	}

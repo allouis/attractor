@@ -1,14 +1,12 @@
-package handler
+package engine
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/allouis/attractor/internal/engine"
 )
 
-// expandContext replaces runtime context placeholders in s from the live
-// context (spec §4.5). It recognises two forms:
+// Expand replaces runtime context placeholders in s from the live context
+// (spec §4.5). It recognises two forms:
 //
 //   - `$context.<dotted.key>` — looked up exactly in the flat context
 //     store. The key run is `[A-Za-z0-9_.]+` with trailing dots stripped
@@ -18,7 +16,7 @@ import (
 //
 // `$$` yields a literal `$`. Every other byte passes through untouched,
 // so shell syntax (`$HOME`, `$(…)`, a lone `$`) survives.
-func expandContext(s string, ctx *engine.Context) (string, error) {
+func (c *Context) Expand(s string) (string, error) {
 	const ctxPrefix = "$context."
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -33,7 +31,7 @@ func expandContext(s string, ctx *engine.Context) (string, error) {
 			continue
 		}
 		if end := i + len("$goal"); strings.HasPrefix(s[i:], "$goal") && (end >= len(s) || !isWordByte(s[end])) {
-			b.WriteString(ctx.Get("graph.goal"))
+			b.WriteString(c.Get("graph.goal"))
 			i = end
 			continue
 		}
@@ -46,7 +44,7 @@ func expandContext(s string, ctx *engine.Context) (string, error) {
 			// A trailing dot is not part of the key; restart scanning
 			// after the key so the dot passes through as a literal.
 			j = i + len(ctxPrefix) + len(key)
-			val, ok := ctx.Lookup(key)
+			val, ok := c.Lookup(key)
 			if !ok {
 				return "", fmt.Errorf("unresolved $context.%s", key)
 			}
