@@ -660,7 +660,7 @@ async function renderRuns() {
   if (!runs.length) { $('run-list').innerHTML = '<p class="muted">no runs yet</p>'; return; }
   const rows = runs.map(runRowHtml).join('');
   $('run-list').innerHTML = `<table>
-    <thead><tr><th>run</th><th>status</th><th>cwd</th><th>started</th><th></th></tr></thead>
+    <thead><tr><th>run</th><th>workflow</th><th>item</th><th>status</th><th>started</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -686,18 +686,24 @@ function countPill(state, n) {
   return `<span class="count count-${state}${loud}">${n} ${escapeHtml(state)}</span>`;
 }
 
-// runRowHtml builds one fleet row. Every attacker-controlled field
-// (graph_name, cwd, status come from the DOT source) is escaped before it
-// reaches innerHTML. Navigation is pure-hash: the row links to #run/<id>
-// and the router opens it, so no inline JS carries the id. A blocked run
-// carries the loud needs-human chip — the fleet's highest-attention flag.
+// runRowHtml builds one fleet row: the run (id → #run/<id>) alongside its
+// provenance — the workflow it ran (graph_name) and the item it was
+// dispatched for (item_ref). Both are surfaced as text here; W6 turns them
+// into navigable backlinks once the workflow view exists (items are not
+// hash-addressable in v1). Every attacker-controlled field (graph_name,
+// item_ref, status come from the DOT source / external item) is escaped
+// before it reaches innerHTML; navigation is pure-hash so no inline JS
+// carries the id. A live blocked run carries the loud needs-human chip —
+// the fleet's highest-attention flag.
 function runRowHtml(p) {
   const chip = runNeedsHuman(p) ? '<span class="chip needs-human">needs human</span>' : '';
+  const id = p.id || '';
   return `
     <tr>
-      <td><a href="#run/${escapeHtml(p.id)}">${escapeHtml(p.graph_name || p.id)}</a></td>
+      <td><a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a></td>
+      <td class="muted">${escapeHtml(p.graph_name || '')}</td>
+      <td class="muted">${escapeHtml(p.item_ref || '')}</td>
       <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}</td>
-      <td class="muted">${escapeHtml(p.cwd || '')}</td>
       <td class="muted">${escapeHtml(p.started_at || '')}</td>
       <td>${runCancelButton(p)}</td>
     </tr>`;
