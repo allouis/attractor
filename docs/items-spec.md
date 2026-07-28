@@ -54,12 +54,12 @@ chosen work pipeline **inline** as a sub-pipeline (see
 
 ### LOCKED
 
-> **Phase-2 redesign note.** Decisions **4, 6, 7** below are
+> **Phase-2 redesign note.** Decisions **4, 5, 6, 7** below are
 > **superseded** by `docs/spec/amendments/routing.md`: routing runs the chosen work
 > pipeline **inline** as a sub-pipeline (attractor-spec §9.4 /
-> `stack.manager_loop`), not via a `dispatch` node + `Runner` seam. The
-> intake spine (1, 2, 3, 5, 8–11) stands. Each superseded decision is
-> annotated inline.
+> `stack.manager_loop`), not via a `dispatch` node + `Runner` seam — which
+> also removes the daemon-only premise (decision 5). The intake spine
+> (1, 2, 3, 8–11) stands. Each superseded decision is annotated inline.
 
 1. **Items are live projections, never stored.** No item store, no
    sync/dedup problem. Identity `(source, type, external-id)`.
@@ -79,11 +79,17 @@ chosen work pipeline **inline** as a sub-pipeline (see
    `stack.manager_loop` nodes (one per target pipeline), each running
    its child **inline**. "Needs design" is a routing outcome (surface to
    human), never a stored status.
-5. **Execution is daemon-only.** `attractor serve` (the registry +
-   queue + scheduler) is the one execution substrate. `attractor run`
-   is a **thin client that requires a running daemon** (submits +
-   streams via `internal/client`); no daemon → clean error. No
-   ephemeral in-process core, no run/serve unification needed.
+5. ⚠ **Superseded — execution is *not* daemon-only.** This was a premise
+   for the dispatch node: §6's `Runner` seam needed the registry
+   in-process, so every run had to execute inside the daemon. The inline
+   `stack.manager_loop` model drops that — a router graph runs standalone
+   (no daemon/`Runner`), which the build pipeline exercises via plain
+   `attractor run`. **Now:** `attractor run` executes a pipeline
+   **standalone, in-process** (`engine.New` + `Run`), routers included.
+   `attractor serve` is a *second* substrate adding the registry, queue,
+   scheduler, web UI, item intake, and automations — used for those, not
+   required for execution. (A future daemon-client mode for `run`, so
+   standalone runs also show in the UI, is optional — not needed.)
 6. ⚠ **Superseded — no `Runner` seam** (`docs/spec/amendments/routing.md`). The
    original design added an `engine`-defined `Runner` interface,
    implemented by the registry, injected into `HandlerEnv`, so a

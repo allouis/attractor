@@ -106,9 +106,12 @@ interviewer, used by both CLI and server. Same idea.
   canceled` in the registry summary (superset of today).
 - **systemd unit** example in docs; the daemon is just
   `attractor serve --bind 127.0.0.1:7681`.
-- CLI convergence (later, docker-model): `attractor run` detects a
-  local daemon and submits + streams SSE back to the terminal;
-  standalone fallback unchanged. Until then `run` stays standalone.
+- CLI convergence (**optional**, docker-model): `attractor run` could
+  detect a local daemon and submit + stream SSE back to the terminal so
+  standalone runs also appear in the UI. **Not required** — standalone
+  in-process `run` is the intended execution path (the daemon-only
+  premise died with the dispatch node; see items-spec §5). This is a
+  nice-to-have for UI visibility, not a convergence the design depends on.
 
 Explicit non-goals for now (fabro has them, we don't want them yet):
 sandboxes/containers, git-branch checkpointing, child-run trees,
