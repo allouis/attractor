@@ -110,6 +110,18 @@
   .status.running { color: var(--state-running); }
   .status.retrying { color: var(--state-retrying); }
   .status.queued { color: var(--state-queued); }
+  /* Items filter/group toolbar. Controls consume tokens; they wrap on
+     narrow viewports rather than overflow. */
+  .toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
+             margin-bottom: var(--space-3); }
+  .toolbar select, .toolbar input { font: inherit; padding: var(--space-1) var(--space-2);
+             color: var(--text); background: var(--surface-1);
+             border: 1px solid var(--border); border-radius: 6px; }
+  .toolbar .check { display: inline-flex; align-items: center; gap: var(--space-1);
+             color: var(--text-muted); }
+  .group-head { margin: var(--space-4) 0 var(--space-1); color: var(--text-muted); font-size: var(--font-sm);
+             text-transform: uppercase; letter-spacing: .04em; }
+  .group-head:first-child { margin-top: 0; }
   /* Item badges: a linked-run pill (status-tinted, links to #run/<id>) and
      the deliberately loud in-progress chip. */
   .badge { display: inline-block; font-size: var(--font-sm); font-weight: 600;
@@ -149,6 +161,18 @@
 </header>
 <main>
   <section id="items-view">
+    <div id="items-toolbar" class="toolbar">
+      <select id="items-filter-source" title="source"><option value="">all sources</option></select>
+      <select id="items-filter-type" title="type"><option value="">all types</option></select>
+      <select id="items-filter-repo" title="repo"><option value="">all repos</option></select>
+      <input id="items-filter-text" type="search" placeholder="filter title…">
+      <label class="check"><input id="items-filter-progress" type="checkbox"> in progress</label>
+      <select id="items-group" title="group by">
+        <option value="">no grouping</option>
+        <option value="repo">group by repo</option>
+        <option value="source">group by source</option>
+      </select>
+    </div>
     <div id="items-list"></div>
   </section>
   <section id="runs-view">
@@ -252,14 +276,78 @@ async function fetchItems() {
     } catch (e) { return []; }
   }));
   itemsCache = per.flat();
+  populateItemFilters();
   renderItems();
 }
 
+// itemRepo / itemSource / itemType read the fields the filters key on.
+const itemRepo = (it) => (it.vars && it.vars.repo) || '';
+const itemSource = (it) => (it.ref && it.ref.source) || '';
+const itemType = (it) => (it.ref && it.ref.type) || '';
+
+// populateItemFilters fills the source/type/repo selects with the distinct
+// values present in the merged set, preserving the current selection.
+function populateItemFilters() {
+  fillOptions('items-filter-source', distinct(itemsCache.map(itemSource)));
+  fillOptions('items-filter-type', distinct(itemsCache.map(itemType)));
+  fillOptions('items-filter-repo', distinct(itemsCache.map(itemRepo)));
+}
+
+function distinct(values) {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+// fillOptions rebuilds a select's options below its first (all/none) option,
+// keeping the current choice selected when it still exists.
+function fillOptions(id, values) {
+  const sel = $(id);
+  if (!sel) return;
+  const prev = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  for (const v of values) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = v;
+    sel.appendChild(o);
+  }
+  sel.value = values.includes(prev) ? prev : '';
+}
+
+// applyFilters narrows the merged set by the toolbar controls (v1 narrows
+// only; broadening the candidate set is v2 backend work — web-ui-spec
+// §Items view).
+function applyFilters(list) {
+  const source = $('items-filter-source').value;
+  const type = $('items-filter-type').value;
+  const repo = $('items-filter-repo').value;
+  const text = $('items-filter-text').value.trim().toLowerCase();
+  const progressOnly = $('items-filter-progress').checked;
+  return list.filter(it =>
+    (!source || itemSource(it) === source) &&
+    (!type || itemType(it) === type) &&
+    (!repo || itemRepo(it) === repo) &&
+    (!text || (it.title || '').toLowerCase().includes(text)) &&
+    (!progressOnly || it.in_progress));
+}
+
 function renderItems() {
-  const list = itemsCache;
+  const list = applyFilters(itemsCache);
   if (!list.length) { $('items-list').innerHTML = '<p class="muted">no items</p>'; return; }
+  const groupBy = $('items-group').value;
+  const key = { repo: itemRepo, source: itemSource }[groupBy];
+  if (!key) { $('items-list').innerHTML = itemsTable(list); return; }
+  const groups = new Map();
+  for (const it of list) {
+    const g = key(it) || '(none)';
+    (groups.get(g) || groups.set(g, []).get(g)).push(it);
+  }
+  $('items-list').innerHTML = [...groups.keys()].sort().map(g =>
+    `<div class="group-head">${escapeHtml(g)}</div>${itemsTable(groups.get(g))}`).join('');
+}
+
+// itemsTable renders one table of item rows.
+function itemsTable(list) {
   const rows = list.map(itemRowHtml).join('');
-  $('items-list').innerHTML = `<table>
+  return `<table>
     <thead><tr><th>title</th><th>source</th><th>type</th><th>repo</th><th>runs</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
@@ -488,6 +576,12 @@ function escapeHtml(s) {
 // ---- boot --------------------------------------------------------------
 window.addEventListener('load', () => {
   syncToggle();
+  // Toolbar controls re-render from the cached merged set — no refetch.
+  for (const id of ['items-filter-source', 'items-filter-type', 'items-filter-repo',
+                    'items-filter-progress', 'items-group']) {
+    $(id)?.addEventListener('change', renderItems);
+  }
+  $('items-filter-text')?.addEventListener('input', renderItems);
   window.addEventListener('hashchange', route);
   route();
 });

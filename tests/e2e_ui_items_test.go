@@ -51,3 +51,26 @@ func TestServer_UI_Items_Badges(t *testing.T) {
 		t.Errorf("page missing itemBadges JS")
 	}
 }
+
+// TestServer_UI_Items_Filters guards the frontend filter + sort/group
+// controls (web-ui-spec W3): source/type/repo/text/in-progress narrowing
+// and group-by, applied client-side over the merged set.
+func TestServer_UI_Items_Filters(t *testing.T) {
+	page := uiPage(t)
+
+	for _, id := range []string{
+		`id="items-filter-source"`,
+		`id="items-filter-type"`,
+		`id="items-filter-repo"`,
+		`id="items-filter-text"`,
+		`id="items-filter-progress"`,
+		`id="items-group"`,
+	} {
+		if !strings.Contains(page, id) {
+			t.Errorf("page missing filter control %q", id)
+		}
+	}
+	if !strings.Contains(page, "applyFilters") {
+		t.Errorf("page missing applyFilters JS")
+	}
+}
