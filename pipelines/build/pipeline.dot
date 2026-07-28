@@ -1,0 +1,51 @@
+// Generic milestone-build pipeline. Implements the next `todo`
+// milestone from the spec passed as --var spec=<path>, one per run.
+// Replaces the per-project self-dev / tui-build copies.
+//
+//   attractor run --backend acp --var spec=docs/items-spec.md \
+//     --logs ~/.attractor/runs/build pipelines/build/pipeline.dot
+//
+// The spec must be a milestone ledger (a table with a Status column);
+// each run picks the first eligible `todo`, builds it, and flips it to
+// `done` in the milestone's final commit. Standard CI-equivalent gate.
+
+digraph build {
+    goal = "Implement the next todo milestone from $spec"
+    acp_command = "claude-agent-acp"
+    cwd = "/home/agent/attractor"
+    vars = "spec"
+    max_node_visits = 5
+
+    start [shape=Mdiamond]
+
+    plan [type="codergen.acp", thread_id="build", fidelity="full",
+          timeout="20m", prompt="@prompts/plan.md"]
+
+    implement [type="codergen.acp", thread_id="build", fidelity="full",
+               timeout="120m", goal_gate=true, retry_target="plan",
+               prompt="@prompts/implement.md"]
+
+    // Gate: race tests + gofmt + no-conflicts. `nix build` is omitted to
+    // keep memory pressure down (oomd was killing runs); milestones that
+    // change deps must run `nix build .#attractor` separately.
+    verify [type="tool", timeout="20m",
+            tool_command="cd /home/agent/attractor && nix develop -c go test ./... -race -count=1 && test -z \"$(nix develop -c gofmt -l . 2>/dev/null)\" && test -z \"$(jj resolve --list 2>/dev/null)\""]
+
+    review [type="codergen.acp", thread_id="build", fidelity="full",
+            timeout="30m", prompt="@prompts/review.md"]
+
+    record [type="codergen.acp", thread_id="build", fidelity="full",
+            timeout="15m", prompt="@prompts/record.md"]
+
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> implement
+    implement -> verify [condition="outcome=success"]
+    implement -> plan   [condition="outcome=fail", label="Replan"]
+    verify -> review    [condition="outcome=success"]
+    verify -> implement [condition="outcome=fail", label="Fix"]
+    review -> record    [condition="outcome=success"]
+    review -> implement [condition="outcome=fail", label="Fix findings"]
+    record -> done
+}
