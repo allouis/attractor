@@ -221,7 +221,7 @@ milestone's final commit. Only that pipeline (or a human) edits it.
 | W2 | `GET /workflows` catalog + `GET /workflows/{name}/graph` (SVG via `render.SVG`), server-side, with tests | — | done |
 | W3 | Items view: per-source fetch + client merge, frontend filters (source/type/repo/text/in-progress), sort/group, linked-run + in-progress badges | W1, W2 | done |
 | W4 | Items run action: workflow-picker (from catalog) + repo resolution → `POST /items/run`, link to the resulting run | W3 | done |
-| W5 | Runs view: run-centric list, poll-live counts (running/queued/needs-human/failed), prominent needs-human flag, item↔run + workflow backlinks, cancel with confirm | W1 | todo |
+| W5 | Runs view: run-centric list, poll-live counts (running/queued/needs-human/failed), prominent needs-human flag, item↔run + workflow backlinks, cancel with confirm | W1 | done |
 | W6 | Workflows view: catalog list + static graph render; wire the item/workflow backlinks across all views | W2, W5 | todo |
 
 Run detail (dynamic graph, node pane, gate dock) is already built; W1
