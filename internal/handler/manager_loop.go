@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/allouis/attractor/internal/condition"
-	"github.com/allouis/attractor/internal/dot"
 	"github.com/allouis/attractor/internal/engine"
-	graphpkg "github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/setup"
 )
 
@@ -67,18 +65,8 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: read %s: %v", dotPath, err)}
 	}
-	file, err := dot.Parse(string(childSrc))
-	if err != nil {
-		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: parse child: %v", err)}
-	}
-	childGraph, err := graphpkg.Build(file)
-	if err != nil {
-		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: build child: %v", err)}
-	}
-	cVars := childVars(env, childGraph)
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  string(childSrc),
-		Vars:    cVars,
 		BaseDir: childWorkdir,
 	})
 	if err != nil {
@@ -89,11 +77,11 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if registry == nil {
 		registry = engine.NewRegistry()
 	}
-	// Seed the child's vars into its initial context so run-start `vars=`
-	// validation sees them (C3), matching every other run path. The
-	// prepare-time transform still expands the child's `$var` bodies until
-	// pipelines migrate to `$context.*` (C6).
-	childEng := engine.New(engine.Config{Registry: registry, LogsRoot: childLogs, InitialContext: cVars})
+	// Seed the child's initial context from the live parent context so it
+	// interpolates `$context.*` at runtime (router-spec R3, C6) and its
+	// run-start `vars=` validation sees the same values (C3) — no
+	// declared-vars conversion.
+	childEng := engine.New(engine.Config{Registry: registry, LogsRoot: childLogs, InitialContext: childInitialContext(env)})
 	childStatus := newChildTelemetry(env.Context)
 	doneCh := make(chan engine.Outcome, 1)
 
@@ -168,22 +156,27 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 // `stack.child.var.pr_number="42"` supplies pr_number to the child.
 const childVarPrefix = "stack.child.var."
 
-// childVars builds the child pipeline's prepare-time vars (router-spec
-// R3). Each name the child declares in its `vars=` attr is sourced from
-// the run context — the same values the router's conditional edges read —
-// doing programmatically what a human types as `-var` on the CLI. A
-// `stack.child.var.<name>` node attr overrides the context value.
-func childVars(env engine.HandlerEnv, childGraph *graphpkg.Graph) map[string]string {
-	vars := map[string]string{}
-	for _, name := range setup.DeclaredVars(childGraph) {
-		vars[name] = env.Context.Get(name)
+// childInitialContext seeds the child pipeline's initial context from the
+// live parent context (router-spec R3). The child interpolates
+// `$context.*` at runtime against these values — the same ones the
+// router's conditional edges read — doing programmatically what a human
+// types as `-var` on the CLI, without a declared-vars conversion. The
+// `graph.*` namespace is excluded so the child mirrors its own graph
+// rather than inheriting the parent's cwd/goal. A `stack.child.var.<name>`
+// node attr overrides a seeded value.
+func childInitialContext(env engine.HandlerEnv) map[string]string {
+	seed, _ := env.Context.Snapshot()
+	for k := range seed {
+		if strings.HasPrefix(k, "graph.") {
+			delete(seed, k)
+		}
 	}
 	for k, v := range env.Node.Attrs {
 		if strings.HasPrefix(k, childVarPrefix) {
-			vars[strings.TrimPrefix(k, childVarPrefix)] = v
+			seed[strings.TrimPrefix(k, childVarPrefix)] = v
 		}
 	}
-	return vars
+	return seed
 }
 
 // nodeOrGraphAttr reads an attribute from the node, falling back to the
