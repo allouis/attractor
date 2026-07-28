@@ -21,14 +21,15 @@ import (
 	"time"
 
 	"github.com/allouis/attractor/internal/automation"
-	"github.com/allouis/attractor/internal/config"
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/handler"
 	"github.com/allouis/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/items"
+	"github.com/allouis/attractor/internal/items/httpapi"
+	"github.com/allouis/attractor/internal/items/source"
 	"github.com/allouis/attractor/internal/render"
 	"github.com/allouis/attractor/internal/scheduler"
 	"github.com/allouis/attractor/internal/setup"
-	"github.com/allouis/attractor/internal/source"
 )
 
 // defaultMaxConcurrentRuns bounds runs executing at once when the config
@@ -46,7 +47,7 @@ type Server struct {
 	authToken    string
 	dispatcher   *dispatcher
 	sources      map[string]source.Source
-	repos        config.Repos
+	repos        items.Repos
 
 	automationsDir string
 	sched          *scheduler.Scheduler
@@ -82,7 +83,7 @@ type Config struct {
 	// Repos maps `owner/name` to a local checkout, resolving a dispatched
 	// item's repo to the run's cwd (items-spec I3/I4). Empty means no repo
 	// resolves, so POST /items/run rejects any non-PR / unmapped item.
-	Repos config.Repos
+	Repos items.Repos
 }
 
 // New constructs an unstarted server.
@@ -120,8 +121,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
-	mux.HandleFunc("GET /items", s.listItems)
-	mux.HandleFunc("POST /items/run", s.runItem)
+	httpapi.Register(mux, itemsDeps{s})
 	mux.HandleFunc("GET /automations", s.listAutomations)
 	mux.HandleFunc("POST /automations/{name}/run", s.runAutomation)
 	mux.HandleFunc("GET /ui", s.serveUI)
@@ -210,13 +210,13 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	source := string(body)
 	var vars map[string]string
 	var cwd string
-	var itemRef *engine.ItemRef
+	var itemRef *items.ItemRef
 	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "application/json") {
 		var payload struct {
 			Dot     string            `json:"dot"`
 			Vars    map[string]string `json:"vars"`
 			Cwd     string            `json:"cwd"`
-			ItemRef *engine.ItemRef   `json:"item_ref"`
+			ItemRef *items.ItemRef    `json:"item_ref"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -233,12 +233,47 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 			itemRef = payload.ItemRef
 		}
 	}
-	id, err := s.submit(source, vars, cwd, itemRef)
+	tag := ""
+	if itemRef != nil {
+		tag = itemRef.String()
+	}
+	id, err := s.submit(source, vars, cwd, tag)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+// itemsDeps adapts the server to httpapi.Deps: it exposes the daemon's
+// sources, repo map, admission path, and item-linked runs to the items
+// HTTP layer without leaking the run registry's types. The typed
+// items.ItemRef stays inside internal/items; the server sees only the tag.
+type itemsDeps struct{ s *Server }
+
+func (d itemsDeps) Source(name string) (source.Source, bool) {
+	src, ok := d.s.sources[name]
+	return src, ok
+}
+
+func (d itemsDeps) RepoPath(repo string) (string, bool) { return d.s.repos.Path(repo) }
+
+func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag string) (string, error) {
+	return d.s.submit(dot, vars, cwd, tag)
+}
+
+func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
+	runs := d.s.registry.RunsForItem(tag)
+	out := make([]httpapi.LinkedRun, 0, len(runs))
+	for _, run := range runs {
+		status := run.Status()
+		out = append(out, httpapi.LinkedRun{
+			ID:     run.ID,
+			Status: string(status),
+			Active: status == RunQueued || status == RunRunning,
+		})
+	}
+	return out
 }
 
 // submit runs the shared setup path (service-spec §2), registers the run,
@@ -248,10 +283,10 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 // every route enqueues runs identically. @file prompts resolve against
 // cwd, submitted vars seed the run context (so `$context.*` interpolates
 // at runtime), and cwd becomes the graph-level cwd default (node/graph
-// attrs still win). itemRef, when non-nil, stamps the run
-// with the external Item that spawned it (items-spec I1); automation and
-// cron callers pass nil.
-func (s *Server) submit(source string, vars map[string]string, cwd string, itemRef *engine.ItemRef) (string, error) {
+// attrs still win). itemRef, when non-empty, is the opaque item tag that
+// stamps the run with the external Item that spawned it (items-spec I1);
+// automation and cron callers pass "".
+func (s *Server) submit(source string, vars map[string]string, cwd string, itemRef string) (string, error) {
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  source,
 		BaseDir: cwd,
@@ -267,22 +302,22 @@ func (s *Server) submit(source string, vars map[string]string, cwd string, itemR
 
 // seedContext builds the run's initial context: the submitted vars under
 // plain names (so `$context.k` resolves at runtime, C3) plus, when an Item
-// spawned the run, the Ref-derived item.type/item.source/item.id the router
+// spawned the run, the tag-derived item.type/item.source/item.id the router
 // branches on (router-spec §"Seeded initial context"). Returns nil only
 // when there is nothing to seed — no vars and no Item — so a bare run
 // starts unseeded.
-func seedContext(vars map[string]string, itemRef *engine.ItemRef) map[string]string {
-	if len(vars) == 0 && itemRef == nil {
+func seedContext(vars map[string]string, itemRef string) map[string]string {
+	if len(vars) == 0 && itemRef == "" {
 		return nil
 	}
 	seed := make(map[string]string, len(vars)+3)
 	for k, v := range vars {
 		seed[k] = v
 	}
-	if itemRef != nil {
-		seed["item.type"] = itemRef.Type
-		seed["item.source"] = itemRef.Source
-		seed["item.id"] = itemRef.ExternalID
+	if ref, err := items.ParseItemRef(itemRef); err == nil {
+		seed["item.type"] = ref.Type
+		seed["item.source"] = ref.Source
+		seed["item.id"] = ref.ExternalID
 	}
 	return seed
 }

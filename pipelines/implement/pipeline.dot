@@ -9,7 +9,7 @@
 //     -var url=… -var title=…
 //
 // These are exactly the vars a Linear issue Item supplies
-// (internal/source/linear.go), plus `repo` from the run request.
+// (internal/items/source/linear.go), plus `repo` from the run request.
 //
 // After the agent implements, `review_loop` runs the shared multi-lens
 // review-core sub-pipeline inline via stack.manager_loop, seeding its one

@@ -7,9 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/allouis/attractor/internal/config"
-	"github.com/allouis/attractor/internal/engine"
-	"github.com/allouis/attractor/internal/source"
+	"github.com/allouis/attractor/internal/items"
+	"github.com/allouis/attractor/internal/items/source"
 )
 
 // writeFile writes content to a fresh temp file named name and returns
@@ -74,10 +73,10 @@ func TestRunItem_RouterRoutesPRToReviewChild(t *testing.T) {
 	routerPath := writeFile(t, work, "router.dot", routerSrc)
 
 	fs := &fakeSource{getItem: prItem()}
-	repos := config.Repos{"allouis/attractor": repoDir}
+	repos := items.Repos{"allouis/attractor": repoDir}
 	srv := itemsServerWithRepos(t, map[string]source.Source{"github": fs}, repos)
 
-	ref := engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
+	ref := items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
 	resp, id := postRunItem(t, srv.URL(), map[string]any{
 		"item_ref": ref,
 		"pipeline": routerPath,
@@ -103,7 +102,7 @@ func TestRunItem_RouterRoutesPRToReviewChild(t *testing.T) {
 	if summary["item_ref"] == nil {
 		t.Error("router run summary missing item_ref")
 	}
-	if runs := srv.registry.RunsForItem(ref); len(runs) != 1 {
+	if runs := srv.registry.RunsForItem(ref.String()); len(runs) != 1 {
 		t.Errorf("RunsForItem = %d runs, want 1 (single run carries item_ref)", len(runs))
 	}
 }

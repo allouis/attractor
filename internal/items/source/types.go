@@ -1,6 +1,6 @@
 // Package source pulls Items — live projections of external work — from
 // systems like GitHub and Linear (items-spec §8). A Source fetches on
-// demand; Attractor never stores Items. Identity is an engine.ItemRef
+// demand; Attractor never stores Items. Identity is an items.ItemRef
 // `(source, type, external-id)`; the Vars map carries the fields a
 // dispatched workflow consumes (repo, pr_number, url, …).
 package source
@@ -8,14 +8,14 @@ package source
 import (
 	"context"
 
-	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/items"
 )
 
 // Item is a live projection of a single piece of external work. It is
 // never persisted; the durable link back to it is Ref, stamped on any
 // Run it spawns.
 type Item struct {
-	Ref   engine.ItemRef    `json:"ref"`
+	Ref   items.ItemRef     `json:"ref"`
 	Title string            `json:"title"`
 	Body  string            `json:"body,omitempty"`
 	URL   string            `json:"url,omitempty"`
@@ -33,5 +33,5 @@ type Filter struct {
 // (items-spec I4: POST /items/run).
 type Source interface {
 	List(ctx context.Context, filter Filter) ([]Item, error)
-	Get(ctx context.Context, ref engine.ItemRef) (Item, error)
+	Get(ctx context.Context, ref items.ItemRef) (Item, error)
 }

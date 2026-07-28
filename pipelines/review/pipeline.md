@@ -30,5 +30,5 @@ The review lens prompts live in the shared `../review-core/pipeline.dot`.
 
 ## Vars
 
-Supplied by a GitHub PR Item (`internal/source/github.go`):
+Supplied by a GitHub PR Item (`internal/items/source/github.go`):
 `repo`, `pr_number`, `url`, `title`.

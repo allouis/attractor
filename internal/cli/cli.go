@@ -26,11 +26,12 @@ import (
 	"github.com/allouis/attractor/internal/handler"
 	"github.com/allouis/attractor/internal/ingest"
 	"github.com/allouis/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/items"
+	"github.com/allouis/attractor/internal/items/source"
 	"github.com/allouis/attractor/internal/lint"
 	"github.com/allouis/attractor/internal/render"
 	"github.com/allouis/attractor/internal/server"
 	"github.com/allouis/attractor/internal/setup"
-	"github.com/allouis/attractor/internal/source"
 )
 
 func cryptoRandRead(b []byte) (int, error) { return rand.Read(b) }
@@ -330,8 +331,8 @@ func serveSources() (map[string]source.Source, error) {
 // serveRepos loads the daemon's repo→path map from ~/.attractor and cwd
 // repos.toml (items-spec I3), backing POST /items/run's repo → cwd
 // resolution. A missing repos.toml is not an error: an empty map.
-func serveRepos(home, cwd string) (config.Repos, error) {
-	return config.LoadRepos(home, cwd)
+func serveRepos(home, cwd string) (items.Repos, error) {
+	return items.LoadRepos(home, cwd)
 }
 
 // bindIsLoopback returns true for 127.0.0.1, ::1, or localhost bind

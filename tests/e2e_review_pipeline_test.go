@@ -104,7 +104,7 @@ func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 
 // TestReviewPipeline_ExpandsItemVars confirms the checkout command wires
 // the item's `repo`/`pr_number` vars — the exact keys a GitHub PR Item
-// supplies (internal/source/github.go) — into a concrete gh invocation.
+// supplies (internal/items/source/github.go) — into a concrete gh invocation.
 // Post-C5 the pipeline uses `$context.` syntax resolved at runtime from
 // the live context (spec §4.5), so this drives the same `Context.Expand`
 // the tool handler calls, not the removed prepare-time transform.

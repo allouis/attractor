@@ -6,14 +6,14 @@ import (
 )
 
 func TestRunSummaryUnmarshalsItemRef(t *testing.T) {
-	blob := `{"id":"r1","status":"running","item_ref":{"source":"github","type":"pr","external_id":"42"}}`
+	blob := `{"id":"r1","status":"running","item_ref":"github:pr:42"}`
 	var got RunSummary
 	if err := json.Unmarshal([]byte(blob), &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	want := ItemRef{Source: "github", Type: "pr", ExternalID: "42"}
-	if got.ItemRef == nil || *got.ItemRef != want {
-		t.Errorf("ItemRef = %+v, want %+v", got.ItemRef, want)
+	want := "github:pr:42"
+	if got.ItemRef != want {
+		t.Errorf("ItemRef = %q, want %q", got.ItemRef, want)
 	}
 }
 

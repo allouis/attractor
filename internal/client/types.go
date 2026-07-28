@@ -20,7 +20,7 @@ type RunSummary struct {
 	Events        int       `json:"events,omitempty"`
 	LogsRoot      string    `json:"logs_root,omitempty"`
 	Tokens        *Usage    `json:"tokens,omitempty"`
-	ItemRef       *ItemRef  `json:"item_ref,omitempty"`
+	ItemRef       string    `json:"item_ref,omitempty"`
 }
 
 // Usage is per-run token accounting rolled up on the terminal event.
@@ -29,8 +29,10 @@ type Usage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-// ItemRef is the external Item a run was dispatched for (items-spec I1).
-// It mirrors engine.ItemRef so this package stays dependency-free.
+// ItemRef is the external Item a run is dispatched for (items-spec I1),
+// used in the submit-request body. It mirrors items.ItemRef so this
+// package stays dependency-free. On the response side a run's item link
+// is the opaque tag string (RunSummary.ItemRef).
 type ItemRef struct {
 	Source     string `json:"source"`
 	Type       string `json:"type"`

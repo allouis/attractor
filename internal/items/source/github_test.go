@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/items"
 )
 
 // fakeRunner records the args it was called with and replays a canned
@@ -32,15 +32,15 @@ func TestGitHubListParsesPRs(t *testing.T) {
 	fr := &fakeRunner{out: []byte(ghPRsJSON)}
 	src := &GitHub{run: fr.run}
 
-	items, err := src.List(context.Background(), Filter{Assigned: true})
+	got, err := src.List(context.Background(), Filter{Assigned: true})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("got %d items, want 2", len(items))
+	if len(got) != 2 {
+		t.Fatalf("got %d items, want 2", len(got))
 	}
 	want := Item{
-		Ref:   engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
+		Ref:   items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
 		Title: "Fix login",
 		URL:   "https://github.com/allouis/attractor/pull/42",
 		Vars: map[string]string{
@@ -50,8 +50,8 @@ func TestGitHubListParsesPRs(t *testing.T) {
 			"title":     "Fix login",
 		},
 	}
-	if !reflect.DeepEqual(items[0], want) {
-		t.Errorf("item[0] =\n %+v\nwant\n %+v", items[0], want)
+	if !reflect.DeepEqual(got[0], want) {
+		t.Errorf("item[0] =\n %+v\nwant\n %+v", got[0], want)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestGitHubGet(t *testing.T) {
 	fr := &fakeRunner{out: []byte(ghPRJSON)}
 	src := &GitHub{run: fr.run}
 
-	ref := engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
+	ref := items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
 	item, err := src.Get(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -94,7 +94,7 @@ func TestGitHubGet(t *testing.T) {
 
 func TestGitHubGetBadRef(t *testing.T) {
 	src := &GitHub{run: (&fakeRunner{out: []byte(ghPRJSON)}).run}
-	if _, err := src.Get(context.Background(), engine.ItemRef{Source: "github", Type: "pr", ExternalID: "no-hash"}); err == nil {
+	if _, err := src.Get(context.Background(), items.ItemRef{Source: "github", Type: "pr", ExternalID: "no-hash"}); err == nil {
 		t.Fatal("expected error for external id without owner/repo#number")
 	}
 }

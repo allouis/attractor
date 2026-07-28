@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/items"
 )
 
 // GitHub lists pull requests via the machine-authed `gh` CLI
@@ -72,7 +72,7 @@ func (g *GitHub) List(ctx context.Context, filter Filter) ([]Item, error) {
 // Get resolves a single PR to an Item. The external id is
 // `owner/repo#number` (unique across repos); `gh pr view` fetches the one
 // PR so a dispatch can read its vars.
-func (g *GitHub) Get(ctx context.Context, ref engine.ItemRef) (Item, error) {
+func (g *GitHub) Get(ctx context.Context, ref items.ItemRef) (Item, error) {
 	repo, num, ok := splitPRRef(ref.ExternalID)
 	if !ok {
 		return Item{}, fmt.Errorf("github: invalid pr ref %q: want owner/repo#number", ref.ExternalID)
@@ -107,7 +107,7 @@ func (pr ghPR) item() Item {
 	repo := pr.Repository.NameWithOwner
 	num := strconv.Itoa(pr.Number)
 	return Item{
-		Ref:   engine.ItemRef{Source: "github", Type: "pr", ExternalID: repo + "#" + num},
+		Ref:   items.ItemRef{Source: "github", Type: "pr", ExternalID: repo + "#" + num},
 		Title: pr.Title,
 		URL:   pr.URL,
 		Vars: map[string]string{

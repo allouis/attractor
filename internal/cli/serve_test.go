@@ -7,7 +7,7 @@ import (
 )
 
 // TestServeReposLoadsCwdConfig checks serve wires repos.toml through
-// config.LoadRepos: an owner/name → path entry under cwd/.attractor is
+// items.LoadRepos: an owner/name → path entry under cwd/.attractor is
 // picked up, backing POST /items/run's repo → cwd resolution (items-spec
 // I3/I4).
 func TestServeReposLoadsCwdConfig(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/items"
 )
 
 // fakeDoer replays a canned HTTP response and records the last request.
@@ -44,15 +44,15 @@ func TestLinearListParsesIssues(t *testing.T) {
 	fd := &fakeDoer{body: linearIssuesJSON}
 	src := &Linear{apiKey: "lin_xyz", doer: fd}
 
-	items, err := src.List(context.Background(), Filter{Assigned: true})
+	got, err := src.List(context.Background(), Filter{Assigned: true})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("got %d items, want 2", len(items))
+	if len(got) != 2 {
+		t.Fatalf("got %d items, want 2", len(got))
 	}
 	want := Item{
-		Ref:   engine.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
+		Ref:   items.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
 		Title: "Fix login",
 		URL:   "https://linear.app/acme/issue/ENG-42",
 		Vars: map[string]string{
@@ -61,8 +61,8 @@ func TestLinearListParsesIssues(t *testing.T) {
 			"identifier": "ENG-42",
 		},
 	}
-	if !reflect.DeepEqual(items[0], want) {
-		t.Errorf("item[0] =\n %+v\nwant\n %+v", items[0], want)
+	if !reflect.DeepEqual(got[0], want) {
+		t.Errorf("item[0] =\n %+v\nwant\n %+v", got[0], want)
 	}
 }
 
@@ -72,7 +72,7 @@ func TestLinearGet(t *testing.T) {
 	fd := &fakeDoer{body: linearIssueJSON}
 	src := &Linear{apiKey: "lin_xyz", doer: fd}
 
-	ref := engine.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"}
+	ref := items.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"}
 	item, err := src.Get(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("Get: %v", err)

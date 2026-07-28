@@ -30,18 +30,18 @@ const (
 // run is queued and updated again when it terminates so a server
 // restart can reconstruct the registry from disk alone.
 type Manifest struct {
-	ID            string          `json:"id"`
-	Status        RunStatus       `json:"status"`
-	StartedAt     time.Time       `json:"started_at"`
-	CompletedAt   time.Time       `json:"completed_at,omitempty"`
-	GraphName     string          `json:"graph_name,omitempty"`
-	GraphGoal     string          `json:"graph_goal,omitempty"`
-	Cwd           string          `json:"cwd,omitempty"`
-	Outcome       string          `json:"outcome,omitempty"`
-	FailureReason string          `json:"failure_reason,omitempty"`
-	LogsRoot      string          `json:"logs_root"`
-	Tokens        *engine.Usage   `json:"tokens,omitempty"`
-	ItemRef       *engine.ItemRef `json:"item_ref,omitempty"`
+	ID            string        `json:"id"`
+	Status        RunStatus     `json:"status"`
+	StartedAt     time.Time     `json:"started_at"`
+	CompletedAt   time.Time     `json:"completed_at,omitempty"`
+	GraphName     string        `json:"graph_name,omitempty"`
+	GraphGoal     string        `json:"graph_goal,omitempty"`
+	Cwd           string        `json:"cwd,omitempty"`
+	Outcome       string        `json:"outcome,omitempty"`
+	FailureReason string        `json:"failure_reason,omitempty"`
+	LogsRoot      string        `json:"logs_root"`
+	Tokens        *engine.Usage `json:"tokens,omitempty"`
+	ItemRef       string        `json:"item_ref,omitempty"`
 }
 
 // runRegistry holds active and completed runs by ID.
@@ -114,10 +114,10 @@ func (r *runRegistry) reload() {
 	}
 }
 
-// NewRun mints a run. itemRef, when non-nil, records the external Item
-// that spawned it (items-spec I1); it is stamped at creation, persisted
-// in the manifest, and surfaced in the run summary.
-func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef *engine.ItemRef, initialContext map[string]string) *Run {
+// NewRun mints a run. itemRef, when non-empty, is the opaque tag naming
+// the external Item that spawned it (items-spec I1); it is stamped at
+// creation, persisted in the manifest, and surfaced in the run summary.
+func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef string, initialContext map[string]string) *Run {
 	id := newRunID()
 	logsRoot := filepath.Join(baseDir, id)
 	run := &Run{
@@ -169,15 +169,16 @@ func (r *runRegistry) List() []*Run {
 	return out
 }
 
-// RunsForItem returns the runs stamped with itemRef, newest first. It
-// backs GET /items' linked-run annotation (items-spec §11): the registry
-// is the sole source of truth for which runs an Item has spawned.
-func (r *runRegistry) RunsForItem(ref engine.ItemRef) []*Run {
+// RunsForItem returns the runs stamped with the item tag, newest first.
+// Grouping is plain string equality. It backs GET /items' linked-run
+// annotation (items-spec §11): the registry is the sole source of truth
+// for which runs an Item has spawned.
+func (r *runRegistry) RunsForItem(ref string) []*Run {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var out []*Run
 	for _, run := range r.runs {
-		if run.itemRef != nil && *run.itemRef == ref {
+		if ref != "" && run.itemRef == ref {
 			out = append(out, run)
 		}
 	}
@@ -198,7 +199,7 @@ type Run struct {
 	factory   HandlerFactory
 	graphName string
 	cwd       string
-	itemRef   *engine.ItemRef
+	itemRef   string
 	// initialContext seeds the run's context at start (Item vars + item.*
 	// metadata); nil for runs with no seed (router-spec deviation B).
 	initialContext map[string]string
@@ -358,8 +359,8 @@ func (r *Run) Summary() map[string]any {
 	if r.usage.InputTokens != 0 || r.usage.OutputTokens != 0 {
 		resp["tokens"] = r.usage
 	}
-	if r.itemRef != nil {
-		resp["item_ref"] = *r.itemRef
+	if r.itemRef != "" {
+		resp["item_ref"] = r.itemRef
 	}
 	return resp
 }

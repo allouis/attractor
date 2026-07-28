@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/items"
 )
 
 // linearEndpoint is Linear's GraphQL API.
@@ -47,7 +47,7 @@ type linearIssue struct {
 
 func (n linearIssue) item() Item {
 	return Item{
-		Ref:   engine.ItemRef{Source: "linear", Type: "issue", ExternalID: n.ID},
+		Ref:   items.ItemRef{Source: "linear", Type: "issue", ExternalID: n.ID},
 		Title: n.Title,
 		URL:   n.URL,
 		Vars: map[string]string{
@@ -88,7 +88,7 @@ func (l *Linear) List(ctx context.Context, _ Filter) ([]Item, error) {
 const linearIssueQuery = `query($id:String!){ issue(id:$id){ id identifier title url } }`
 
 // Get resolves one issue by its ItemRef external id.
-func (l *Linear) Get(ctx context.Context, ref engine.ItemRef) (Item, error) {
+func (l *Linear) Get(ctx context.Context, ref items.ItemRef) (Item, error) {
 	parsed, err := l.query(ctx, linearIssueQuery, map[string]string{"id": ref.ExternalID})
 	if err != nil {
 		return Item{}, err

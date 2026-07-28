@@ -207,3 +207,25 @@ Now attractor picks the workflow *for* you. **Full design:
   (one registry run per dispatch), visible via `stack.child.*`
   telemetry; the UI surfaces the deepest executing graph as the run
   name. See `docs/router-spec.md`.
+
+## Code layout
+
+The items layer is quarantined in `internal/items/` so the DOT engine
+and this addon stay legibly separate (see `docs/code-split-spec.md`):
+
+```
+internal/items/
+  itemref.go            items.ItemRef — canonical source:type:id tag
+  repos.go              items.Repos — repo→path map
+  source/{types,github,linear}.go   Item sources
+  httpapi/items.go      Register(mux, deps) — GET /items + POST /items/run
+```
+
+Invariant: `internal/engine`, `internal/config`, and the run registry
+carry **zero `ItemRef` knowledge**. A run's item link is an **opaque tag
+string** (`"github:pr:42"`), grouped by string equality; the typed
+`items.ItemRef` lives only in `internal/items`, used by sources and the
+items HTTP layer. `internal/server` names the type in exactly one place
+— `server.go`'s `POST /pipelines` decode, which accepts an `item_ref`
+object and stringifies it to a tag before admission — so the engine and
+registry never see the type.
