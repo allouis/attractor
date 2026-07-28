@@ -180,7 +180,8 @@ Now attractor picks the workflow *for* you. **Full design:
   directly; the router makes the work-pipeline choice. A client that
   wants "just route it" defaults the pipeline field to `router`.
 - **`stack.manager_loop` enhancements** — child selection as a node
-  attr, child vars pulled from context at prepare. The chosen work
+  attr, child initial context seeded from the parent context (child reads
+  `$context.*` at runtime). The chosen work
   pipeline runs **inline** as a sub-pipeline (attractor-spec §9.4) — no
   dispatch node, no `Runner` seam, no first-class child run.
 - **Submit seeds context** — `/items/run` seeds the Item's vars +
