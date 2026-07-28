@@ -145,6 +145,9 @@ To avoid breaking the loop mid-migration:
   context (no prepare-time conversion).
 - **C7**: no reference to `VariableExpansion` remains; `$var` (bare) no
   longer expands.
+- **C8**: docs only — no stale prepare-time-var prose remains
+  (attractor-spec §4.5/§9.2, router-spec R3, items-spec decision 7 all
+  describe runtime `$context.*` interpolation and seeded child context).
 
 ## Not in scope
 
