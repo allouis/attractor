@@ -110,6 +110,16 @@ func (c *Context) Get(key string) string {
 	return c.values[key]
 }
 
+// Lookup returns the value for key and whether it is present. It lets
+// callers distinguish a missing key from a present-but-empty value —
+// used by runtime interpolation to fail fast on undefined keys.
+func (c *Context) Lookup(key string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	v, ok := c.values[key]
+	return v, ok
+}
+
 // Apply merges a batch of updates.
 func (c *Context) Apply(updates map[string]string) {
 	c.mu.Lock()
