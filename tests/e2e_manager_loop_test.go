@@ -79,6 +79,92 @@ func TestManagerLoop_MissingChildDotfile(t *testing.T) {
 	}
 }
 
+func TestManagerLoop_NodeChildDotfile(t *testing.T) {
+	// The child .dot is declared as a NODE attribute; the graph carries
+	// no stack.child_dotfile. The node attr must be read.
+	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			stack.child_dotfile="%s",
+			manager.actions="observe,wait",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	be.SetText("do", "child reply")
+	out, _, _ := runFixture(t, src, be, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+}
+
+func TestManagerLoop_TwoNodesDistinctChildren(t *testing.T) {
+	// Two manager_loop nodes in one graph, each with its own node-level
+	// stack.child_dotfile, run their own child (R1 testing convention).
+	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
+	must(t, err)
+	altPath, err := filepath.Abs("../testdata/pipelines/child_alt.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss1 [
+			shape=house,
+			stack.child_dotfile="%s",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		boss2 [
+			shape=house,
+			stack.child_dotfile="%s",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss1 -> boss2 -> done
+	}`, childPath, altPath)
+
+	be := fake.New()
+	be.SetText("do", "child reply")
+	be.SetText("alt", "alt reply")
+	out, _, _ := runFixture(t, src, be, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("two-child manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+}
+
+func TestManagerLoop_NodeChildWorkdir(t *testing.T) {
+	// A node-level stack.child_workdir resolves a relative node-level
+	// stack.child_dotfile; the graph carries neither.
+	workdir, err := filepath.Abs("../testdata/pipelines")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			stack.child_dotfile="child.dot",
+			stack.child_workdir="%s",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, workdir)
+
+	be := fake.New()
+	be.SetText("do", "child reply")
+	out, _, _ := runFixture(t, src, be, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("node-workdir manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+}
+
 func TestManagerLoop_PollerExitsCleanly(t *testing.T) {
 	// Smoke that a fast-completing child doesn't leave the poller spinning.
 	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
