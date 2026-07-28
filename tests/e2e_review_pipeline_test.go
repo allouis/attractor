@@ -38,10 +38,12 @@ func TestReviewPipeline_LintsClean(t *testing.T) {
 	}
 }
 
-// TestReviewPipeline_CheckoutThenReviewShape pins the I5 contract: the
+// TestReviewPipeline_CheckoutThenReviewLoop pins the RV3 contract: the
 // first stage is a deterministic tool node running `gh pr checkout`, it
-// gates a codergen review stage on success, and review flows to exit.
-func TestReviewPipeline_CheckoutThenReviewShape(t *testing.T) {
+// gates a `stack.manager_loop` on success, that loop runs the shared
+// review-core sub-pipeline seeding diff_cmd = `gh pr diff …`, and the loop
+// flows to exit. The single-agent review node is gone.
+func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 	g := buildReviewGraph(t)
 
 	out := g.OutgoingEdges("start")
@@ -57,30 +59,43 @@ func TestReviewPipeline_CheckoutThenReviewShape(t *testing.T) {
 		t.Fatalf("checkout tool_command=%q, want it to run `gh pr checkout`", checkout.Attrs["tool_command"])
 	}
 
-	// checkout -> review, gated on tool success.
+	// checkout -> review_loop, gated on tool success.
 	co := g.OutgoingEdges(checkoutID)
 	if len(co) != 1 {
 		t.Fatalf("checkout should have exactly one outgoing edge, got %d", len(co))
 	}
 	if cond := co[0].Attrs["condition"]; !strings.Contains(cond, "outcome=success") {
-		t.Fatalf("checkout->review condition=%q, want it gated on outcome=success", cond)
+		t.Fatalf("checkout->review_loop condition=%q, want it gated on outcome=success", cond)
 	}
-	reviewID := co[0].To
-	review := g.Nodes[reviewID]
-	if review.Type() != "codergen" {
-		t.Fatalf("review stage %q type=%q, want codergen", reviewID, review.Type())
+	loopID := co[0].To
+	loop := g.Nodes[loopID]
+	if loop.Type() != "stack.manager_loop" {
+		t.Fatalf("review stage %q type=%q, want stack.manager_loop", loopID, loop.Type())
 	}
-	if review.Prompt() == "" {
-		t.Fatalf("review stage %q has no prompt", reviewID)
+	if child := loop.Attrs["stack.child_dotfile"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
+		t.Fatalf("review_loop child_dotfile=%q, want suffix review-core/pipeline.dot", child)
+	}
+	diffCmd := loop.Attrs["stack.child.var.diff_cmd"]
+	for _, want := range []string{"gh pr diff", "$context.pr_number", "$context.repo"} {
+		if !strings.Contains(diffCmd, want) {
+			t.Fatalf("review_loop diff_cmd=%q, want it to contain %q", diffCmd, want)
+		}
 	}
 
-	// review -> exit.
-	ro := g.OutgoingEdges(reviewID)
+	// review_loop -> exit.
+	ro := g.OutgoingEdges(loopID)
 	if len(ro) != 1 {
-		t.Fatalf("review should have exactly one outgoing edge, got %d", len(ro))
+		t.Fatalf("review_loop should have exactly one outgoing edge, got %d", len(ro))
 	}
 	if dst := g.Nodes[ro[0].To]; dst.Type() != "exit" {
-		t.Fatalf("review flows to %q (type %q), want exit", ro[0].To, dst.Type())
+		t.Fatalf("review_loop flows to %q (type %q), want exit", ro[0].To, dst.Type())
+	}
+
+	// The single-agent review node is gone: no codergen stage remains.
+	for id, n := range g.Nodes {
+		if n.Type() == "codergen" {
+			t.Fatalf("node %q is a codergen stage; the single-agent review path should be gone", id)
+		}
 	}
 }
 
