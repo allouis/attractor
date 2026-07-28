@@ -123,19 +123,22 @@ deliberately omits.
 
 `stack.manager_loop` (attractor-spec §4.11) already runs a child
 sub-pipeline inline and supervises it (observe/steer/wait; returns the
-child's SUCCESS/FAIL so downstream edges branch). The router needs three
+child's SUCCESS/FAIL so downstream edges branch). The router needs two
 small changes:
 
-1. **Per-node child selection.** Read `stack.child_dotfile` /
+1. **Per-node child selection (R1).** Read `stack.child_dotfile` /
    `stack.child_workdir` as **node** attrs (fall back to graph attrs),
    so multiple `manager_loop` nodes can coexist in one router graph.
    Backward-compatible — single-child graphs are unchanged.
-2. **Vars from context.** Prepare the child via `setup.Prepare(childSrc,
-   vars)` with `vars` pulled from context per the child's declared
-   `vars=`, plus `stack.child.var.*` node overrides.
-3. **Cancel the child on early return.** Today the inline child
-   goroutine leaks when the loop returns on `stop_condition` /
-   `max_cycles`; cancel it. (Bug fix.)
+2. **Vars from context (R3).** Prepare the child via
+   `setup.Prepare(childSrc, vars)` with `vars` pulled from context per
+   the child's declared `vars=`, plus `stack.child.var.*` node
+   overrides.
+
+Cancelling the inline child on early return is **not** in scope here —
+the engine has no cancellation primitive and routing never early-returns
+while a child runs; it's tracked as the separate engine-cancellation
+milestone (see Dropped/moved in the ledger).
 
 No `Runner` interface, no `HandlerEnv.Runner`, no server import — the
 child runs entirely within `engine`, exactly as it does today.
