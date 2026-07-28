@@ -81,7 +81,11 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	// interpolates `$context.*` at runtime (router-spec R3, C6) and its
 	// run-start `vars=` validation sees the same values (C3) — no
 	// declared-vars conversion.
-	childEng := engine.New(engine.Config{Registry: registry, LogsRoot: childLogs, InitialContext: childInitialContext(env)})
+	initialContext, err := childInitialContext(env)
+	if err != nil {
+		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: %v", err)}
+	}
+	childEng := engine.New(engine.Config{Registry: registry, LogsRoot: childLogs, InitialContext: initialContext})
 	childStatus := newChildTelemetry(env.Context)
 	doneCh := make(chan engine.Outcome, 1)
 
@@ -163,8 +167,11 @@ const childVarPrefix = "stack.child.var."
 // types as `-var` on the CLI, without a declared-vars conversion. The
 // `graph.*` namespace is excluded so the child mirrors its own graph
 // rather than inheriting the parent's cwd/goal. A `stack.child.var.<name>`
-// node attr overrides a seeded value.
-func childInitialContext(env engine.HandlerEnv) map[string]string {
+// node attr overrides a seeded value; its `$context.*` placeholders are
+// expanded against the parent context here (the child's single-pass
+// interpolation of `$context.<name>` can't resolve a nested placeholder),
+// so a caller can seed e.g. diff_cmd="gh pr diff $context.pr_number …".
+func childInitialContext(env engine.HandlerEnv) (map[string]string, error) {
 	seed, _ := env.Context.Snapshot()
 	for k := range seed {
 		if strings.HasPrefix(k, "graph.") {
@@ -172,11 +179,16 @@ func childInitialContext(env engine.HandlerEnv) map[string]string {
 		}
 	}
 	for k, v := range env.Node.Attrs {
-		if strings.HasPrefix(k, childVarPrefix) {
-			seed[strings.TrimPrefix(k, childVarPrefix)] = v
+		if !strings.HasPrefix(k, childVarPrefix) {
+			continue
 		}
+		expanded, err := env.Context.Expand(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", k, err)
+		}
+		seed[strings.TrimPrefix(k, childVarPrefix)] = expanded
 	}
-	return seed
+	return seed, nil
 }
 
 // nodeOrGraphAttr reads an attribute from the node, falling back to the
