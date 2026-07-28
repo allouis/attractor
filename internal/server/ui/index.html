@@ -234,6 +234,7 @@
   <section id="workflow-view">
     <p><a href="#workflows">&larr; all workflows</a></p>
     <h2 id="workflow-title"></h2>
+    <p class="muted">Run this workflow by picking an <a href="#items">item</a>.</p>
     <div id="workflow-graph" class="graph-pane"></div>
   </section>
   <section id="run-view">
@@ -734,26 +735,45 @@ function countPill(state, n) {
 }
 
 // runRowHtml builds one fleet row: the run (id → #run/<id>) alongside its
-// provenance — the workflow it ran (graph_name) and the item it was
-// dispatched for (item_ref). Both are surfaced as text here; W6 turns them
-// into navigable backlinks once the workflow view exists (items are not
-// hash-addressable in v1). Every attacker-controlled field (graph_name,
-// item_ref, status come from the DOT source / external item) is escaped
-// before it reaches innerHTML; navigation is pure-hash so no inline JS
-// carries the id. A live blocked run carries the loud needs-human chip —
-// the fleet's highest-attention flag.
+// provenance backlinks (web-ui-spec W6) — the workflow it ran (→ #workflow/
+// <name>) and the item it was dispatched for (→ #items). Every
+// attacker-controlled field (workflow_name, item_ref, status come from the
+// DOT source / external item) is escaped before it reaches innerHTML;
+// navigation is pure-hash so no inline JS carries the id. A live blocked run
+// carries the loud needs-human chip — the fleet's highest-attention flag.
 function runRowHtml(p) {
   const chip = runNeedsHuman(p) ? '<span class="chip needs-human">needs human</span>' : '';
   const id = p.id || '';
   return `
     <tr>
       <td><a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a></td>
-      <td class="muted">${escapeHtml(p.graph_name || '')}</td>
-      <td class="muted">${escapeHtml(p.item_ref || '')}</td>
+      <td class="muted">${runWorkflowCell(p)}</td>
+      <td class="muted">${runItemCell(p)}</td>
       <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}</td>
       <td class="muted">${escapeHtml(p.started_at || '')}</td>
       <td>${runCancelButton(p)}</td>
     </tr>`;
+}
+
+// runWorkflowCell links a run back to its workflow definition. workflow_name
+// is the catalog dir the run was dispatched from — the exact handle
+// #workflow/<name> resolves. A raw dot run (POST /pipelines) has none, so it
+// falls back to the graph_name (the DOT digraph id) as plain text: there is
+// no catalog entry to link to.
+function runWorkflowCell(p) {
+  const name = p.workflow_name || '';
+  if (name) return `<a href="#workflow/${encodeURIComponent(name)}">${escapeHtml(name)}</a>`;
+  return escapeHtml(p.graph_name || '');
+}
+
+// runItemCell links a run back to its source item. There is no per-item hash
+// route in v1, so the link lands on the Items view (where the item's own row
+// links back to this run — web-ui-spec §Views interlinking); the full ref is
+// the title. A run with no item ref shows nothing.
+function runItemCell(p) {
+  const ref = p.item_ref || '';
+  if (!ref) return '';
+  return `<a href="#items" title="${escapeHtml(ref)}">${escapeHtml(ref)}</a>`;
 }
 
 // runCancelButton renders a cancel trigger for a live run only; a terminal
