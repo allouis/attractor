@@ -120,7 +120,7 @@ To avoid breaking the loop mid-migration:
 | C1 | `expandContext` helper + codergen node expands its `prompt` from live context at execute time (spec §4.5); `$goal`→`graph.goal`; fail-fast on undefined. **Additive** — prepare-time transform still runs. | — | done |
 | C2 | `tool` node expands `tool_command` from live context at execute time (the one deviation), shell-safe (`$context.*` only). | C1 | done |
 | C3 | Every run path (CLI `run`, server submit, automations, cron) seeds `-var`/Item vars into `InitialContext`; `vars=` validated at run-start as required context keys (fail-fast). | — | done |
-| C4 | Resolve graph `goal` once at run-start from seeded context. | C3 | todo |
+| C4 | Resolve graph `goal` once at run-start from seeded context. | C3 | done |
 | C5 | Migrate all pipelines (`review`, `implement`, `router`, `build`) `$x`→`$context.x`; keep `$goal`. *(runner rebuilt first — see sequencing)* | C1, C2, C3 | todo |
 | C6 | Simplify R3: `manager_loop` seeds its child's initial context; child interpolates `$context.*` at runtime; drop the context→declared-vars conversion. | C1, C3 | todo |
 | C7 | Remove the prepare-time `VariableExpansion` transform; `-var` only seeds context. | C5, C6 | todo |
