@@ -204,7 +204,7 @@ cancelable work runs; it is not needed for the review/implement roadmap.
 |---|---|---|---|
 | R1 | `manager_loop` reads `stack.child_dotfile`/`child_workdir` as node attrs (graph fallback) | — | done |
 | R2 | Run accepts a seeded initial context (`ctx.Apply` on start); the `/items/run` submit path seeds the Item's vars **+ `item.type`/`item.source`/`item.id`** from the Ref | — | done |
-| R3 | `manager_loop` prepares its child via `setup.Prepare` with vars from context (+ `stack.child.var.*` overrides) | R1, R2 | todo |
+| R3 | `manager_loop` prepares its child via `setup.Prepare` with vars from context (+ `stack.child.var.*` overrides) | R1, R2 | done |
 | R6 | A `router` pipeline (conditionals on `item.type` → `manager_loop` targets; agent fallback → `decision`), run via `POST /items/run` | R1, R3 | todo |
 | R7 | Docs: deviations (this spec), items-spec 4/6/7 reversal, attractor-spec back-pointers | — | todo |
 
