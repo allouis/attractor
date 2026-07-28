@@ -85,6 +85,20 @@ func TestServer_UI_Items_LinkSafety(t *testing.T) {
 	}
 }
 
+// TestServer_UI_Items_FetchGuard guards against refetch-on-every-nav and
+// out-of-order fetch races (review S2): entering the tab reuses a warm
+// cache, and a request-generation token means only the latest fetch
+// renders. Structural markers; the race behaviour is driven separately.
+func TestServer_UI_Items_FetchGuard(t *testing.T) {
+	page := uiPage(t)
+
+	for _, marker := range []string{"itemsGen", "itemsLoaded"} {
+		if !strings.Contains(page, marker) {
+			t.Errorf("page missing fetch-guard marker %q", marker)
+		}
+	}
+}
+
 // TestServer_UI_Items_Filters guards the frontend filter + sort/group
 // controls (web-ui-spec W3): source/type/repo/text/in-progress narrowing
 // and group-by, applied client-side over the merged set.

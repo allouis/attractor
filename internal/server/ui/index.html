@@ -252,7 +252,7 @@ function route() {
   const tab = location.hash.replace(/^#/, '') || 'items';
   if (tab === 'runs') { highlightNav('runs'); showView('runs-view'); renderList(); return; }
   if (tab === 'workflows') { highlightNav('workflows'); showView('workflows-view'); return; }
-  highlightNav('items'); showView('items-view'); fetchItems();
+  highlightNav('items'); showView('items-view'); showItems();
 }
 
 // highlightNav marks the active tab; run detail counts as the Runs tab.
@@ -271,8 +271,19 @@ function highlightNav(tab) {
 // view). itemsCache holds the merged set; renderItems draws from it so
 // filters re-render without refetching.
 let itemsCache = [];
+let itemsLoaded = false;   // cache warm — reused across navigations
+let itemsGen = 0;          // request generation; only the latest fetch renders
+
+// showItems renders the Items view, fetching the merged set only on the
+// first entry — re-entering the tab (e.g. back from a run) reuses the cache
+// so the user's filter selections survive and no redundant fetch races.
+function showItems() {
+  if (itemsLoaded) { renderItems(); return; }
+  fetchItems();
+}
 
 async function fetchItems() {
+  const gen = ++itemsGen;
   const listEl = $('items-list');
   listEl.innerHTML = '<p class="muted">loading…</p>';
   renderSourceWarning([]);
@@ -282,6 +293,7 @@ async function fetchItems() {
     if (!r.ok) throw new Error('status ' + r.status);
     sources = (await r.json()).sources || [];
   } catch (e) {
+    if (gen !== itemsGen) return;   // superseded by a newer fetch
     itemsCache = [];
     listEl.innerHTML = '<p class="banner error">could not reach the daemon to load item sources</p>';
     return;
@@ -298,7 +310,9 @@ async function fetchItems() {
       return (await r.json()).items || [];
     } catch (e) { failed.push(s); return []; }
   }));
+  if (gen !== itemsGen) return;     // a newer fetch superseded this one
   itemsCache = per.flat();
+  itemsLoaded = true;
   renderSourceWarning(failed);
   populateItemFilters();
   renderItems();
