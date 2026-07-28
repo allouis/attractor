@@ -85,7 +85,7 @@ its output downstream); the review lenses are the first user. Inside a
 
 | # | Milestone | Deps | Status |
 |---|---|---|---|
-| RV1 | `output_key` codergen attr — full response → `context_updates[output_key]` (works in `parallel` branches). | — | todo |
+| RV1 | `output_key` codergen attr — full response → `context_updates[output_key]` (works in `parallel` branches). | — | done |
 | RV2 | `review-core.dot` + inline lens prompts + `synth`; standalone-runnable (`-var diff_cmd=…`); lints clean; a fixture run with a fake backend proves parallel fan-out → `synth` reads `parallel.results` → verdict. | RV1 | todo |
 | RV3 | `review.dot` runs `review-core` via `stack.manager_loop` (`diff_cmd = gh pr diff …`); drop the single `review` node; e2e proves a PR routes through the lenses. | RV2 | todo |
 | RV4 | `implement.dot` self-review gate — `manager_loop(review-core, diff_cmd="jj diff")` → FAIL re-implements, PASS exits. | RV2 | todo |
