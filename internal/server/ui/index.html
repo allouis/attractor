@@ -636,11 +636,17 @@ function renderDock(questions) {
   });
 }
 
-async function answer(qid, body) {
-  await fetch(`/pipelines/${currentRun}/questions/${qid}/answer`, {
+// postJSON POSTs a JSON body and returns the raw Response, leaving status
+// handling to the caller.
+function postJSON(url, body) {
+  return fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+async function answer(qid, body) {
+  await postJSON(`/pipelines/${currentRun}/questions/${qid}/answer`, body);
   refreshDock();
 }
 
