@@ -1,1 +1,0 @@
-Plan how to create a hello world script for: Create a hello world Python script
