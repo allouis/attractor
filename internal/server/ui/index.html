@@ -142,7 +142,9 @@
   <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle theme">&#9790;</button>
 </header>
 <main>
-  <section id="items-view"><p class="muted">No items yet.</p></section>
+  <section id="items-view">
+    <div id="items-list"></div>
+  </section>
   <section id="runs-view">
     <section id="run-list"></section>
   </section>
@@ -215,7 +217,7 @@ function route() {
   const tab = location.hash.replace(/^#/, '') || 'items';
   if (tab === 'runs') { highlightNav('runs'); showView('runs-view'); renderList(); return; }
   if (tab === 'workflows') { highlightNav('workflows'); showView('workflows-view'); return; }
-  highlightNav('items'); showView('items-view');
+  highlightNav('items'); showView('items-view'); fetchItems();
 }
 
 // highlightNav marks the active tab; run detail counts as the Runs tab.
@@ -224,6 +226,50 @@ function highlightNav(tab) {
   for (const id of ['nav-items', 'nav-runs', 'nav-workflows']) {
     const el = $(id); if (el) el.classList.toggle('active', id === active);
   }
+}
+
+// ---- items view --------------------------------------------------------
+// The candidate set is what each source returns for "assigned to me". The
+// GET /items endpoint is single-source, so the view fetches per source and
+// merges client-side (web-ui-spec §Items view). itemsCache holds the merged
+// set; renderItems draws from it so filters can re-render without refetching.
+const ITEM_SOURCES = ['github', 'linear'];
+let itemsCache = [];
+
+async function fetchItems() {
+  $('items-list').innerHTML = '<p class="muted">loading…</p>';
+  const per = await Promise.all(ITEM_SOURCES.map(async (s) => {
+    try {
+      const r = await fetch(`/items?source=${s}&filter=assigned`);
+      if (!r.ok) return [];
+      return (await r.json()).items || [];
+    } catch (e) { return []; }
+  }));
+  itemsCache = per.flat();
+  renderItems();
+}
+
+function renderItems() {
+  const list = itemsCache;
+  if (!list.length) { $('items-list').innerHTML = '<p class="muted">no items</p>'; return; }
+  const rows = list.map(itemRowHtml).join('');
+  $('items-list').innerHTML = `<table>
+    <thead><tr><th>title</th><th>source</th><th>type</th><th>repo</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+// itemRowHtml builds one item row. Every field originates from an external
+// source (title, url, ref, vars.repo), so all are escaped before innerHTML.
+function itemRowHtml(it) {
+  const ref = it.ref || {};
+  const repo = (it.vars && it.vars.repo) || '';
+  return `
+    <tr>
+      <td><a href="${escapeHtml(it.url || '')}" target="_blank">${escapeHtml(it.title || '')}</a></td>
+      <td class="muted">${escapeHtml(ref.source || '')}</td>
+      <td class="muted">${escapeHtml(ref.type || '')}</td>
+      <td class="muted">${escapeHtml(repo)}</td>
+    </tr>`;
 }
 
 async function renderList() {
