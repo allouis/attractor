@@ -346,6 +346,10 @@ func (r *Run) Summary() map[string]any {
 		"events":     len(r.history),
 		"graph_name": r.graphName,
 		"cwd":        r.cwd,
+		// needs_human is orthogonal to status: a running run blocked on a
+		// wait.human question still reports "running". The fleet view counts
+		// and flags this as the highest-attention state (web-ui-spec W5).
+		"needs_human": len(r.questions) > 0,
 	}
 	if !r.completedAt.IsZero() {
 		resp["completed_at"] = r.completedAt.Format(time.RFC3339Nano)
