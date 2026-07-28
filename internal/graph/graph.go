@@ -232,6 +232,10 @@ func (n *Node) Label() string {
 // Prompt returns the node's prompt attribute (empty if unset).
 func (n *Node) Prompt() string { return n.Attrs["prompt"] }
 
+// OutputKey returns the node's output_key attribute (empty if unset). When
+// set, a codergen node writes its full response into context under this key.
+func (n *Node) OutputKey() string { return n.Attrs["output_key"] }
+
 // Bool returns a boolean attribute. The "true" / "false" literals match
 // the DOT subset's Boolean value type.
 func (n *Node) Bool(key string) bool { return n.Attrs[key] == "true" }
