@@ -24,7 +24,22 @@ func runFixture(t *testing.T, src string, be backend.CodergenBackend, iv intervi
 	return out, events, logsRoot
 }
 
+// runFixtureSeeded is runFixture with a seeded initial context (R2), so a
+// handler can read values the run started with — e.g. a manager_loop
+// sourcing its child's vars from context (R3).
+func runFixtureSeeded(t *testing.T, src string, be backend.CodergenBackend, iv interviewer.Interviewer, seed map[string]string) (engine.Outcome, []engine.Event, string) {
+	t.Helper()
+	logsRoot := t.TempDir()
+	out, events := runFixtureInSeeded(t, src, be, iv, logsRoot, seed)
+	return out, events, logsRoot
+}
+
 func runFixtureIn(t *testing.T, src string, be backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string) (engine.Outcome, []engine.Event) {
+	t.Helper()
+	return runFixtureInSeeded(t, src, be, iv, logsRoot, nil)
+}
+
+func runFixtureInSeeded(t *testing.T, src string, be backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, seed map[string]string) (engine.Outcome, []engine.Event) {
 	t.Helper()
 	file, err := dot.Parse(src)
 	must(t, err)
@@ -45,7 +60,7 @@ func runFixtureIn(t *testing.T, src string, be backend.CodergenBackend, iv inter
 	registry.Register("parallel.fan_in", handler.FanIn{})
 	registry.Register("stack.manager_loop", handler.ManagerLoop{})
 	registry.SetDefault(handler.Codergen{Backend: be})
-	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, RunID: "test"})
+	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, RunID: "test", InitialContext: seed})
 	events := make([]engine.Event, 0)
 	done := make(chan struct{})
 	go func() {

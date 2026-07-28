@@ -174,6 +174,75 @@ func TestManagerLoop_NodeChildWorkdir(t *testing.T) {
 	}
 }
 
+func TestManagerLoop_ChildVarsFromContext(t *testing.T) {
+	// The child declares vars="x" and expands $x into a prompt. The
+	// manager_loop must source x from the parent run's context (seeded at
+	// start) and prepare the child with it, so the child node sees the
+	// substituted value (R3).
+	childPath, err := filepath.Abs("../testdata/pipelines/child_vars.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			stack.child_dotfile="%s",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	out, _, _ := runFixtureSeeded(t, src, be, nil, map[string]string{"x": "from-ctx"})
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+	if got := childPrompt(t, be, "childwork"); !strings.Contains(got, "value=from-ctx") {
+		t.Fatalf("child prompt = %q, want it to contain %q (x sourced from context)", got, "value=from-ctx")
+	}
+}
+
+func TestManagerLoop_ChildVarOverridesContext(t *testing.T) {
+	// A stack.child.var.x node override beats the context value (R3).
+	childPath, err := filepath.Abs("../testdata/pipelines/child_vars.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			stack.child_dotfile="%s",
+			stack.child.var.x="override",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	out, _, _ := runFixtureSeeded(t, src, be, nil, map[string]string{"x": "from-ctx"})
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+	if got := childPrompt(t, be, "childwork"); !strings.Contains(got, "value=override") {
+		t.Fatalf("child prompt = %q, want it to contain %q (override beats context)", got, "value=override")
+	}
+}
+
+// childPrompt returns the prompt the fake backend saw for the child node,
+// failing if the node was never invoked.
+func childPrompt(t *testing.T, be *fake.Backend, nodeID string) string {
+	t.Helper()
+	for _, c := range be.Calls() {
+		if c.NodeID == nodeID {
+			return c.Prompt
+		}
+	}
+	t.Fatalf("child node %q never invoked", nodeID)
+	return ""
+}
+
 func TestManagerLoop_PollerExitsCleanly(t *testing.T) {
 	// Smoke that a fast-completing child doesn't leave the poller spinning.
 	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
