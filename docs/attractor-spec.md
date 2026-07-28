@@ -704,7 +704,9 @@ CodergenHandler:
         RETURN outcome
 ```
 
-**Variable expansion:** The only built-in template variable is `$goal`, which resolves to the graph-level `goal` attribute. Variable expansion is simple string replacement, not a templating engine.
+**Variable expansion:** `expand_variables` resolves `$context.<dotted.key>` placeholders against the **live context** at execute time (spec §5.1) — so both seeded inputs and values written by earlier nodes resolve. The key is looked up exactly in the flat context store (`$context.pr_number`, `$context.stack.child.status`). `$goal` is the one built-in, sugar for `$context.graph.goal` (the graph `goal` is mirrored into context at run start). An undefined key **fails the node**, naming it (`unresolved $context.foo`) — `$context.` is distinctive syntax, so a fail-fast beats passing a mangled value downstream. `$$` is a literal `$`; every other `$` (shell `$HOME`, `$(…)`, literal prose) passes through untouched. This is simple substitution, not a templating engine.
+
+The same `$context.*` expansion applies to a `tool` node's `tool_command` before `/bin/sh -c`, shell-safe (only `$context.*` is touched). This is the one documented deviation from the core model, which expands only the codergen prompt.
 
 **Status file:** The handler writes `status.json` in the stage directory with the Outcome fields serialized as JSON. This file serves as an audit trail and enables the status-file contract: external tools or agents can write `status.json` to communicate outcomes back to the engine.
 
@@ -1567,16 +1569,10 @@ FUNCTION prepare_pipeline(dot_source):
 
 ### 9.2 Built-In Transforms
 
-**Variable Expansion Transform:** Expands `$goal` in node `prompt` attributes to the graph-level `goal` attribute value.
-
-```
-VariableExpansionTransform:
-    FUNCTION apply(graph) -> Graph:
-        FOR EACH node IN graph.nodes:
-            IF node.prompt contains "$goal":
-                node.prompt = replace(node.prompt, "$goal", graph.goal)
-        RETURN graph
-```
+**Variable Expansion Transform:** *Superseded.* Prompt/attr variable
+expansion happens at **execute time** against the live context (§4.5,
+`$context.*` / `$goal`), not as a prepare-time transform. No prepare-time
+variable-expansion transform runs.
 
 **Stylesheet Application Transform:** Applies the `model_stylesheet` to resolve `llm_model`, `llm_provider`, and `reasoning_effort` for each node. See Section 8 for details.
 
