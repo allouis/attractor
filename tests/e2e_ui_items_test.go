@@ -38,6 +38,24 @@ func TestServer_UI_Items_List(t *testing.T) {
 	}
 }
 
+// TestServer_UI_Items_SourceDiscovery guards that the Items view discovers
+// its sources from the backend (GET /items/sources) instead of a hardcoded
+// list, and surfaces per-source load failures rather than silently dropping
+// them (web-ui-spec W3, review B1/B2). Structural markers; the runtime
+// partial-failure banner is driven separately.
+func TestServer_UI_Items_SourceDiscovery(t *testing.T) {
+	page := uiPage(t)
+
+	if strings.Contains(page, "ITEM_SOURCES") {
+		t.Errorf("page still hardcodes ITEM_SOURCES — sources must come from /items/sources")
+	}
+	for _, marker := range []string{"/items/sources", "renderSourceWarning", `id="items-warning"`} {
+		if !strings.Contains(page, marker) {
+			t.Errorf("page missing source-discovery marker %q", marker)
+		}
+	}
+}
+
 // TestServer_UI_Items_Badges guards the linked-run / in-progress badge on
 // an item row (web-ui-spec W3): the badge markup hook and its styling. The
 // badge links to #run/<id> so a click jumps to the linked run.

@@ -122,6 +122,10 @@
   .group-head { margin: var(--space-4) 0 var(--space-1); color: var(--text-muted); font-size: var(--font-sm);
              text-transform: uppercase; letter-spacing: .04em; }
   .group-head:first-child { margin-top: 0; }
+  /* Warning banner: a partial-source outage must be visible, not silent. */
+  .banner { padding: var(--space-2) var(--space-3); border-radius: 6px; margin-bottom: var(--space-3);
+            border: 1px solid var(--border); background: var(--surface-1); }
+  .banner.error { color: var(--state-failed); border-color: var(--state-failed); }
   /* Item badges: a linked-run pill (status-tinted, links to #run/<id>) and
      the deliberately loud in-progress chip. */
   .badge { display: inline-block; font-size: var(--font-sm); font-weight: 600;
@@ -173,6 +177,7 @@
         <option value="source">group by source</option>
       </select>
     </div>
+    <div id="items-warning" role="alert"></div>
     <div id="items-list"></div>
   </section>
   <section id="runs-view">
@@ -260,24 +265,54 @@ function highlightNav(tab) {
 
 // ---- items view --------------------------------------------------------
 // The candidate set is what each source returns for "assigned to me". The
-// GET /items endpoint is single-source, so the view fetches per source and
-// merges client-side (web-ui-spec §Items view). itemsCache holds the merged
-// set; renderItems draws from it so filters can re-render without refetching.
-const ITEM_SOURCES = ['github', 'linear'];
+// GET /items endpoint is single-source, so the view discovers the daemon's
+// sources (GET /items/sources — never a hardcoded list, which would drift
+// from config) and fetches each, merging client-side (web-ui-spec §Items
+// view). itemsCache holds the merged set; renderItems draws from it so
+// filters re-render without refetching.
 let itemsCache = [];
 
 async function fetchItems() {
-  $('items-list').innerHTML = '<p class="muted">loading…</p>';
-  const per = await Promise.all(ITEM_SOURCES.map(async (s) => {
+  const listEl = $('items-list');
+  listEl.innerHTML = '<p class="muted">loading…</p>';
+  renderSourceWarning([]);
+  let sources;
+  try {
+    const r = await fetch('/items/sources');
+    if (!r.ok) throw new Error('status ' + r.status);
+    sources = (await r.json()).sources || [];
+  } catch (e) {
+    itemsCache = [];
+    listEl.innerHTML = '<p class="banner error">could not reach the daemon to load item sources</p>';
+    return;
+  }
+  // Fetch each source independently and record which failed, so a partial
+  // outage (a source 500ing/rate-limited) is surfaced rather than silently
+  // dropping assigned work — the one failure a triage view must not have
+  // (review B1).
+  const failed = [];
+  const per = await Promise.all(sources.map(async (s) => {
     try {
-      const r = await fetch(`/items?source=${s}&filter=assigned`);
-      if (!r.ok) return [];
+      const r = await fetch(`/items?source=${encodeURIComponent(s)}&filter=assigned`);
+      if (!r.ok) { failed.push(s); return []; }
       return (await r.json()).items || [];
-    } catch (e) { return []; }
+    } catch (e) { failed.push(s); return []; }
   }));
   itemsCache = per.flat();
+  renderSourceWarning(failed);
   populateItemFilters();
   renderItems();
+}
+
+// renderSourceWarning surfaces sources that failed to load. An empty list
+// clears the banner; a non-empty one names the failed sources so the user
+// knows the list is incomplete rather than reading it as "nothing assigned".
+function renderSourceWarning(failed) {
+  const el = $('items-warning');
+  if (!el) return;
+  if (!failed.length) { el.textContent = ''; el.className = ''; return; }
+  el.className = 'banner error';
+  el.textContent = `could not load: ${failed.join(', ')} — showing the remaining sources only`;
 }
 
 // itemRepo / itemSource / itemType read the fields the filters key on.
