@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/config"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/source"
+	"github.com/allouis/attractor/internal/config"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/source"
 )
 
 // fakeSource is an injectable Source recording the filter it was called

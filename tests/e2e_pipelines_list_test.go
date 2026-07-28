@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/fabro/attractor/internal/backend"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/server"
+	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/server"
 )
 
 // TestServer_ListPipelines confirms GET /pipelines returns registry

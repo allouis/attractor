@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // Parallel fans out to each outgoing edge concurrently (spec §4.8).

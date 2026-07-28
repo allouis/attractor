@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/automation"
 )
 
 // TestTickReportsFireError verifies that when an automation's submit fails,

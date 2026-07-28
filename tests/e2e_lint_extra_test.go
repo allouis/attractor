@@ -3,7 +3,7 @@ package attractor_test
 import (
 	"testing"
 
-	"github.com/fabro/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/lint"
 )
 
 func TestLint_RetryTargetMustExist(t *testing.T) {

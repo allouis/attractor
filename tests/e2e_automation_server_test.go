@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/server"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/server"
 )
 
 const automationDOT = `digraph triage {

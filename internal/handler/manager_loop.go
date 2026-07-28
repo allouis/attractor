@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fabro/attractor/internal/condition"
-	"github.com/fabro/attractor/internal/dot"
-	"github.com/fabro/attractor/internal/engine"
-	graphpkg "github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/condition"
+	"github.com/allouis/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/engine"
+	graphpkg "github.com/allouis/attractor/internal/graph"
 )
 
 // ManagerLoop supervises a child pipeline (spec §4.11). The child .dot

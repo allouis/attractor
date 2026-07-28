@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fabro/attractor/internal/condition"
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/condition"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // SelectEdge implements the 5-step edge selection algorithm from spec

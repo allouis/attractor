@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/dot"
 )
 
 func TestParse_LinearPipeline(t *testing.T) {

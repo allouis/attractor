@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/automation"
 )
 
 func TestAutomation_Parse(t *testing.T) {

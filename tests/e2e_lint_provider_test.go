@@ -3,8 +3,8 @@ package attractor_test
 import (
 	"testing"
 
-	"github.com/fabro/attractor/internal/config"
-	"github.com/fabro/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/config"
+	"github.com/allouis/attractor/internal/lint"
 )
 
 func providerRules(cfg config.Config) []lint.Rule {

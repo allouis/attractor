@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // linearEndpoint is Linear's GraphQL API.

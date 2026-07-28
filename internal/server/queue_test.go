@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // TestCancelledQueuedRunClosesSubscribers verifies that cancelling a run

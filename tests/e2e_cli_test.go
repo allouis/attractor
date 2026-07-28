@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/cli"
 )
 
 func TestCLI_ValidateGoodPipeline(t *testing.T) {

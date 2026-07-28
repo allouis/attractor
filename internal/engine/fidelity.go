@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // FidelityMode controls how much prior conversation/context is carried

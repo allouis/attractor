@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/setup"
+	"github.com/allouis/attractor/internal/setup"
 )
 
 // TestSetup_PrepareInlinesFileAndExpandsVars exercises the shared setup

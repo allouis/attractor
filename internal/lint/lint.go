@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fabro/attractor/internal/condition"
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/condition"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // validFidelityModes mirrors engine.FidelityMode constants. Duplicated

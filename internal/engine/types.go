@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // Status is the outcome state of a handler execution (spec §5.2).

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fabro/attractor/internal/automation"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/setup"
+	"github.com/allouis/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/setup"
 )
 
 // Automations implements `attractor automations list|run <name>`

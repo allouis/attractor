@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/backend/fake"
-	"github.com/fabro/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/backend/fake"
+	"github.com/allouis/attractor/internal/cli"
 )
 
 // TestCwd_ToolRunsInGraphCwd verifies that a graph-level `cwd` attribute

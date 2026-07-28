@@ -4,7 +4,7 @@
 package backend
 
 import (
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // Result is what a CodergenBackend returns. Either ResponseText is set

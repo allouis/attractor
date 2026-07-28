@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fabro/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/dot"
 )
 
 // Graph is the canonical pipeline model. Attribute lookups go through the

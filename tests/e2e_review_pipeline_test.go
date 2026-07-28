@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/dot"
-	graphpkg "github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/lint"
-	"github.com/fabro/attractor/internal/transform"
+	"github.com/allouis/attractor/internal/dot"
+	graphpkg "github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/transform"
 )
 
 // reviewPipelineSrc reads the shipped review pipeline (items-spec I5).

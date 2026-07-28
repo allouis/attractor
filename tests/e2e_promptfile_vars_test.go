@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
-	"github.com/fabro/attractor/internal/dot"
-	graphpkg "github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/transform"
+	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/dot"
+	graphpkg "github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/transform"
 )
 
 func TestPromptFile_LoadsContentFromDisk(t *testing.T) {

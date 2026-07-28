@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fabro/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/cli"
 )
 
 const Version = "0.1.0"

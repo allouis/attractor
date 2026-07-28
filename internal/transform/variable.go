@@ -5,7 +5,7 @@ package transform
 import (
 	"strings"
 
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // VariableExpansion replaces `$ident` placeholders in each node's

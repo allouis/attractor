@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/ingest"
+	"github.com/allouis/attractor/internal/ingest"
 )
 
 func TestToolHooks_PostHookFires(t *testing.T) {

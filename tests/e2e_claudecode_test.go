@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/backend/claudecode"
-	"github.com/fabro/attractor/internal/dot"
-	"github.com/fabro/attractor/internal/engine"
-	graphpkg "github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/ingest"
+	"github.com/allouis/attractor/internal/backend/claudecode"
+	"github.com/allouis/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/engine"
+	graphpkg "github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/ingest"
 )
 
 func fakeClaude(t *testing.T, response string, isError bool) string {
@@ -171,7 +171,7 @@ func buildHookshim(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "hookshim")
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/fabro/attractor/hookshim")
+	cmd := exec.Command("go", "build", "-o", bin, "github.com/allouis/attractor/hookshim")
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {

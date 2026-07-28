@@ -3,8 +3,8 @@ package engine
 import (
 	"fmt"
 
-	"github.com/fabro/attractor/internal/artifact"
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/artifact"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // Handler executes a single node and returns its Outcome. Handlers are

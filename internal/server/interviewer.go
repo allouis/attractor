@@ -3,7 +3,7 @@ package server
 import (
 	"time"
 
-	"github.com/fabro/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/interviewer"
 )
 
 // remoteInterviewer fulfils an Interviewer.Ask by registering the

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/acp"
+	"github.com/allouis/attractor/internal/acp"
 )
 
 // TestACPClient_LifecycleAndUpdates drives the full happy path:

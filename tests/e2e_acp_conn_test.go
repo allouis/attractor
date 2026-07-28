@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/acp"
+	"github.com/allouis/attractor/internal/acp"
 )
 
 // connPeer is a scripted JSON-RPC peer on the far side of an in-process

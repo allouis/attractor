@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/config"
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/config"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 func TestConfig_ParseProviders(t *testing.T) {

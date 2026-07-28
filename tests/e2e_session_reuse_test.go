@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/backend/claudecode"
-	"github.com/fabro/attractor/internal/dot"
-	"github.com/fabro/attractor/internal/engine"
-	graphpkg "github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/backend/claudecode"
+	"github.com/allouis/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/engine"
+	graphpkg "github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/handler"
 )
 
 // TestSessionReuse_FullFidelityPassesResume verifies the §5.4 session

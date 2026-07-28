@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	acpbackend "github.com/fabro/attractor/internal/backend/acp"
-	"github.com/fabro/attractor/internal/config"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
+	acpbackend "github.com/allouis/attractor/internal/backend/acp"
+	"github.com/allouis/attractor/internal/config"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 func node(attrs map[string]string) *graph.Node {

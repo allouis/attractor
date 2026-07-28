@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	acpbackend "github.com/fabro/attractor/internal/backend/acp"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
+	acpbackend "github.com/allouis/attractor/internal/backend/acp"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // TestACPBackend_SessionReuseUnderFullFidelity: two stages sharing a

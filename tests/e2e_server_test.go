@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/server"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/server"
 )
 
 func newTestServer(t *testing.T, factory server.HandlerFactory) *server.Server {

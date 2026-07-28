@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/cli"
 )
 
 // withHome points HOME at a temp dir for the duration of a test so

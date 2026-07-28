@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // TestFinishedRunReplaysTerminalEventOver128 checks that a finished run with

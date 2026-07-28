@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
-	"github.com/fabro/attractor/internal/render"
+	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/render"
 )
 
 func TestRender_SVGOutputIsWellFormed(t *testing.T) {

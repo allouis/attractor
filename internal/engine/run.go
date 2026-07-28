@@ -14,10 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fabro/attractor/internal/artifact"
-	"github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/lint"
-	"github.com/fabro/attractor/internal/transform"
+	"github.com/allouis/attractor/internal/artifact"
+	"github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/transform"
 )
 
 // Engine runs Attractor pipelines. A single Engine instance executes one

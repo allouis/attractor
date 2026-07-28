@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/backend/fake"
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/backend/fake"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 func TestTool_RunsShellCommandAndCapturesOutput(t *testing.T) {
