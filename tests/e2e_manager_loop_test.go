@@ -230,6 +230,35 @@ func TestManagerLoop_ChildVarOverridesContext(t *testing.T) {
 	}
 }
 
+func TestManagerLoop_ChildReadsUndeclaredContextKey(t *testing.T) {
+	// The child references $context.pr_number but does NOT declare it in
+	// vars=. The manager_loop seeds the child's initial context from the
+	// full parent context (C6), so an undeclared key still resolves at the
+	// child's runtime interpolation.
+	childPath, err := filepath.Abs("../testdata/pipelines/child_ctx.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			stack.child_dotfile="%s",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	out, _, _ := runFixtureSeeded(t, src, be, nil, map[string]string{"pr_number": "42"})
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+	if got := childPrompt(t, be, "childwork"); !strings.Contains(got, "id=42") {
+		t.Fatalf("child prompt = %q, want it to contain %q (undeclared key from seeded context)", got, "id=42")
+	}
+}
+
 // childPrompt returns the prompt the fake backend saw for the child node,
 // failing if the node was never invoked.
 func childPrompt(t *testing.T, be *fake.Backend, nodeID string) string {
