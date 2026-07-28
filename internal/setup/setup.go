@@ -9,7 +9,6 @@ package setup
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/allouis/attractor/internal/dot"
 	"github.com/allouis/attractor/internal/engine"
@@ -58,24 +57,11 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 	)
 }
 
-// DeclaredVars returns the names listed in the graph's `vars` attribute,
-// trimmed and with empties dropped. A graph with no `vars` attr yields
-// nil. It is the single parse of the input contract shared by
-// RequireDeclaredVars (serve/CLI) and manager_loop's child prepare.
+// DeclaredVars returns the names listed in the graph's `vars` attribute.
+// Delegates to graph.Graph.DeclaredVars — kept here as the name callers
+// (RequireDeclaredVars, manager_loop's child prepare) already use.
 func DeclaredVars(g *graph.Graph) []string {
-	raw := strings.TrimSpace(g.Attr("vars"))
-	if raw == "" {
-		return nil
-	}
-	var names []string
-	for _, name := range strings.Split(raw, ",") {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		names = append(names, name)
-	}
-	return names
+	return g.DeclaredVars()
 }
 
 // RequireDeclaredVars checks that every name listed in the graph's

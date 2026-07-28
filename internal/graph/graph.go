@@ -166,6 +166,26 @@ func (g *Graph) Goal() string { return g.Attrs["goal"] }
 // Attr returns a graph-level attribute by key with empty-string default.
 func (g *Graph) Attr(key string) string { return g.Attrs[key] }
 
+// DeclaredVars returns the names listed in the graph's `vars` attribute,
+// trimmed and with empties dropped. A graph with no `vars` attr yields
+// nil. It is the single parse of the input contract shared by run-start
+// validation and manager_loop's child prepare.
+func (g *Graph) DeclaredVars() []string {
+	raw := strings.TrimSpace(g.Attrs["vars"])
+	if raw == "" {
+		return nil
+	}
+	var names []string
+	for _, name := range strings.Split(raw, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
 // IntAttr returns a graph-level integer attribute. Missing or malformed
 // values return the supplied default.
 func (g *Graph) IntAttr(key string, def int) int {
