@@ -87,6 +87,16 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: validate child: %v", err)}
 	}
+	// A reusable child pipeline that declares no acp_command inherits the
+	// parent's (node- then graph-level), so it runs under the same run-wide
+	// agent command without needing its own attr or a --acp-cmd flag. Only
+	// the agent command carries over — cwd/goal deliberately do not (the
+	// child mirrors its own graph; see childInitialContext).
+	if prepared.Graph.Attrs["acp_command"] == "" {
+		if pa := nodeOrGraphAttr(env, "acp_command"); pa != "" {
+			prepared.Graph.Attrs["acp_command"] = pa
+		}
+	}
 
 	registry := env.Registry
 	if registry == nil {
