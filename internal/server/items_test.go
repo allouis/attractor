@@ -181,6 +181,46 @@ func TestRunItemUnknownSource(t *testing.T) {
 	}
 }
 
+// TestRunItemSeedsContext proves POST /items/run seeds the run's initial
+// context with the Item's vars (plain names) plus the Ref-derived
+// item.type/item.source/item.id, so any pipeline (router or not) can
+// branch on Item metadata at runtime (router-spec §"Seeded initial
+// context" / R2).
+func TestRunItemSeedsContext(t *testing.T) {
+	repoDir := t.TempDir()
+	fs := &fakeSource{getItem: prItem()}
+	repos := config.Repos{"allouis/attractor": repoDir}
+	srv := itemsServerWithRepos(t, map[string]source.Source{"github": fs}, repos)
+
+	ref := engine.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
+	resp, id := postRunItem(t, srv.URL(), map[string]any{
+		"item_ref": ref,
+		"pipeline": writeGraph(t),
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	pollRunSummary(t, srv.URL(), id)
+
+	run, ok := srv.registry.Get(id)
+	if !ok {
+		t.Fatalf("run %s not found", id)
+	}
+	ctx := run.Context()
+	want := map[string]string{
+		"item.type":   "pr",
+		"item.source": "github",
+		"item.id":     "allouis/attractor#42",
+		"repo":        "allouis/attractor",
+		"pr_number":   "42",
+	}
+	for k, v := range want {
+		if got, _ := ctx[k].(string); got != v {
+			t.Errorf("context[%q] = %q, want %q", k, got, v)
+		}
+	}
+}
+
 func TestRunItemRepoUnmapped(t *testing.T) {
 	fs := &fakeSource{getItem: prItem()}
 	srv := itemsServerWithRepos(t, map[string]source.Source{"github": fs}, config.Repos{})
