@@ -123,7 +123,7 @@ To avoid breaking the loop mid-migration:
 | C4 | Resolve graph `goal` once at run-start from seeded context. | C3 | done |
 | C5 | Migrate all pipelines (`review`, `implement`, `router`, `build`) `$x`→`$context.x`; keep `$goal`. *(runner rebuilt first — see sequencing)* | C1, C2, C3 | done |
 | C6 | Simplify R3: `manager_loop` seeds its child's initial context; child interpolates `$context.*` at runtime; drop the context→declared-vars conversion. | C1, C3 | done |
-| C7 | Remove the prepare-time `VariableExpansion` transform; `-var` only seeds context. | C5, C6 | todo |
+| C7 | Remove the prepare-time `VariableExpansion` transform; `-var` only seeds context. | C5, C6 | done |
 | C8 | Docs: fix attractor-spec §4.5 (runtime context interpolation; drop the misleading `$goal`-only prose; note the `tool_command` deviation); update router-spec/items-spec (R3 reframe, `$context.` syntax); this spec's deviations. | C7 | todo |
 
 ## Testing conventions
