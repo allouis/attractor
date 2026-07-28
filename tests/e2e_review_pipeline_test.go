@@ -1,10 +1,13 @@
 package attractor_test
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/allouis/attractor/internal/backend/fake"
 	"github.com/allouis/attractor/internal/engine"
 	graphpkg "github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/lint"
@@ -117,5 +120,76 @@ func TestReviewPipeline_ExpandsItemVars(t *testing.T) {
 	must(t, err)
 	if got != "gh pr checkout 42 --repo owner/repo" {
 		t.Fatalf("expanded checkout command=%q", got)
+	}
+}
+
+// TestReviewPipeline_RoutesThroughLenses drives the review pipeline end to
+// end (RV3): checkout runs, then review_loop runs the shared review-core
+// sub-pipeline inline, fanning out to all five lenses before synth reports
+// the verdict. The child_dotfile is the real review-core pipeline via an
+// absolute path (the shipped relative path resolves against the pipeline's
+// own dir, not the test cwd). A stub `gh` lets the checkout tool succeed.
+func TestReviewPipeline_RoutesThroughLenses(t *testing.T) {
+	// Stub `gh` so the deterministic checkout stage succeeds without a
+	// network or a real repo.
+	binDir := t.TempDir()
+	stub := "#!/bin/sh\nexit 0\n"
+	must(t, os.WriteFile(filepath.Join(binDir, "gh"), []byte(stub), 0o755))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	childPath, err := filepath.Abs("../pipelines/review-core/pipeline.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph review {
+		start [shape=Mdiamond]
+		checkout [type="tool",
+		          tool_command="gh pr checkout $context.pr_number --repo $context.repo"]
+		review_loop [type="stack.manager_loop",
+		             stack.child_dotfile="%s",
+		             stack.child.var.diff_cmd="gh pr diff $context.pr_number --repo $context.repo",
+		             manager.poll_interval="10ms",
+		             manager.max_cycles=2000]
+		done [shape=Msquare]
+		start -> checkout
+		checkout -> review_loop [condition="outcome=success"]
+		review_loop -> done
+	}`, childPath)
+
+	be := fake.New()
+	for _, lens := range reviewCoreLenses {
+		be.SetText(lens, "finding from "+lens)
+	}
+	be.SetSequence("synth", fake.Step{Outcome: &engine.Outcome{
+		Status: engine.StatusSuccess,
+		Notes:  "merged review",
+		ContextUpdates: map[string]string{
+			"review.summary": "all lenses clear",
+			"review.verdict": "pass",
+		},
+	}})
+
+	out, _, _ := runFixtureSeeded(t, src, be, nil, map[string]string{
+		"repo":      "owner/repo",
+		"pr_number": "42",
+		"url":       "https://github.com/owner/repo/pull/42",
+		"title":     "Fix login",
+	})
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("status=%s reason=%q", out.Status, out.FailureReason)
+	}
+
+	// The PR routed through every lens exactly once, and synth ran.
+	for _, lens := range reviewCoreLenses {
+		if n := be.CallCount(lens); n != 1 {
+			t.Fatalf("lens %q called %d times, want 1", lens, n)
+		}
+	}
+	if n := be.CallCount("synth"); n != 1 {
+		t.Fatalf("synth called %d times, want 1", n)
+	}
+
+	// The seeded diff_cmd override resolved $context.pr_number/$context.repo
+	// against the parent run's context before the child saw it.
+	if got := childPrompt(t, be, "correctness"); !strings.Contains(got, "gh pr diff 42 --repo owner/repo") {
+		t.Fatalf("lens prompt = %q, want it to contain resolved diff command", got)
 	}
 }
