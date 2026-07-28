@@ -117,7 +117,7 @@ To avoid breaking the loop mid-migration:
 
 | # | Milestone | Deps | Status |
 |---|---|---|---|
-| C1 | `expandContext` helper + codergen node expands its `prompt` from live context at execute time (spec §4.5); `$goal`→`graph.goal`; fail-fast on undefined. **Additive** — prepare-time transform still runs. | — | todo |
+| C1 | `expandContext` helper + codergen node expands its `prompt` from live context at execute time (spec §4.5); `$goal`→`graph.goal`; fail-fast on undefined. **Additive** — prepare-time transform still runs. | — | done |
 | C2 | `tool` node expands `tool_command` from live context at execute time (the one deviation), shell-safe (`$context.*` only). | C1 | todo |
 | C3 | Every run path (CLI `run`, server submit, automations, cron) seeds `-var`/Item vars into `InitialContext`; `vars=` validated at run-start as required context keys (fail-fast). | — | todo |
 | C4 | Resolve graph `goal` once at run-start from seeded context. | C3 | todo |
