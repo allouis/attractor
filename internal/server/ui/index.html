@@ -525,7 +525,15 @@ async function openRunPicker(btn) {
     type: btn.dataset.runType,
     external_id: btn.dataset.runId,
   };
-  $('run-picker-repo').value = btn.dataset.runRepo || '';
+  // An item that carries its own repo (a PR, via vars.repo) has that repo
+  // used by the backend regardless of this field, so show it read-only
+  // rather than inviting a silently-ignored edit. Other items keep an
+  // editable field (the datalist suggests known repos).
+  const repoInput = $('run-picker-repo');
+  const itemRepo = btn.dataset.runRepo || '';
+  repoInput.value = itemRepo;
+  repoInput.readOnly = !!itemRepo;
+  repoInput.title = itemRepo ? 'repo comes from the item' : '';
   setRunError('');
   let wfs = [];
   try {
@@ -562,23 +570,32 @@ function setRunError(text) {
 // pipeline, repo}. The backend resolves the repo (a PR auto-fills it, else
 // the field) to the run's cwd and 422s an unset/unmapped one; on success it
 // returns the new run id, which we navigate to via the hash router.
+let runSubmitting = false;   // in-flight guard: one dispatch per confirm
 async function submitRun() {
-  if (!runPickerRef) return;
+  if (!runPickerRef || runSubmitting) return;
   const pipeline = $('run-picker-workflow').value;
   if (!pipeline) { setRunError('no workflow selected'); return; }
   setRunError('');
-  let r;
+  runSubmitting = true;
+  const btn = $('run-picker-run');
+  if (btn) btn.disabled = true;
   try {
-    r = await postJSON('/items/run', {
-      item_ref: runPickerRef,
-      pipeline,
-      repo: $('run-picker-repo').value.trim(),
-    });
-  } catch (e) { setRunError('could not reach the daemon'); return; }
-  if (!r.ok) { setRunError((await r.text()).trim() || `dispatch failed (${r.status})`); return; }
-  const { id } = await r.json();
-  $('run-picker').close();
-  location.hash = `#run/${id}`;
+    let r;
+    try {
+      r = await postJSON('/items/run', {
+        item_ref: runPickerRef,
+        pipeline,
+        repo: $('run-picker-repo').value.trim(),
+      });
+    } catch (e) { setRunError('could not reach the daemon'); return; }
+    if (!r.ok) { setRunError((await r.text()).trim() || `dispatch failed (${r.status})`); return; }
+    const { id } = await r.json();
+    $('run-picker').close();
+    location.hash = `#run/${id}`;
+  } finally {
+    runSubmitting = false;
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function renderList() {
