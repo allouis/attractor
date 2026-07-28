@@ -21,10 +21,17 @@ Status: **ready to build** (milestone ledger below).
 
 ## Shape
 
+The router is **just a pipeline**. There is **no dedicated dispatch
+endpoint** — you run the router with an item through the existing single
+admission point, `POST /items/run` (items-spec I4), exactly like any
+other pipeline. "Routing" is emergent: you pick `router` instead of
+picking `review` directly, and the router pipeline makes the
+work-pipeline choice for you.
+
 ```
-POST /items/dispatch {item_ref}
-  → daemon resolves Item → vars, seeds them into the router run's
-    initial context, stamps item_ref (reuses the I4 submit path)
+POST /items/run {item_ref, pipeline: "…/router/pipeline.dot", repo}
+  → daemon resolves Item → vars, SEEDS them (+ item.type/source from the
+    Ref) into the run's initial context, stamps item_ref, starts the run
   → router graph runs:
         classify ─[conditional edges on context]─▶ manager_loop(child="review.dot")
                                                  ─▶ manager_loop(child="implement.dot")
@@ -33,8 +40,10 @@ POST /items/dispatch {item_ref}
     branches on the child's outcome
 ```
 
-One registry run per dispatch (the router). It carries `item_ref`. The
-work is a sub-pipeline nested inside it.
+One registry run per item-run (the router). It carries `item_ref`. The
+work is a sub-pipeline nested inside it. A client (TUI/CLI) that wants
+"just route it" simply defaults the `pipeline` field to `router` — a
+client default, not a server concept.
 
 ## Design
 
@@ -133,12 +142,25 @@ child runs entirely within `engine`, exactly as it does today.
 
 ### Seeded initial context
 
-The daemon starts the router run with item vars already in context. The
-mechanism reuses the existing `ctx.Apply(map)` (attractor-spec §5.1 —
-already used to restore context on checkpoint resume): the engine gains
-an initial-values seed applied at run start, after `MirrorGraph`. Item
-vars land under their plain names (`repo`, `pr_number`, …) matching the
-child pipelines' `vars=` declarations.
+`POST /items/run`'s submit path (I4) already resolves the Item to vars
+and prepare-time-expands them into the graph. It must **also** seed those
+values into the run's *initial context* so the router's conditional
+edges can branch at runtime. The mechanism reuses the existing
+`ctx.Apply(map)` (attractor-spec §5.1 — already used to restore context
+on checkpoint resume): the engine gains an initial-values seed applied at
+run start, after `MirrorGraph`.
+
+Seeded keys:
+
+- the Item's `Vars` under their plain names (`repo`, `pr_number`, …),
+  matching the child pipelines' `vars=` declarations;
+- **Ref-derived** keys the router branches on — `item.type` (`pr` /
+  `issue`), `item.source` (`github` / `linear`), `item.id` — since these
+  live on the Item's `Ref`, not in `Vars`.
+
+This seeding is a property of the submit path, not of any router-
+specific endpoint — every `/items/run` gets it, so any pipeline (not
+only the router) can read Item metadata from context.
 
 ## Deviations from the core spec (attractor-spec.md)
 
@@ -160,10 +182,13 @@ described a **dispatch node** + **`Runner` seam** producing
 routing is inline sub-pipelines per §9.4. Consequences:
 
 - No `dispatch` node type; no `Runner` interface / `HandlerEnv.Runner`.
+- No `POST /items/dispatch` endpoint (items-spec §11 v2) — the router is
+  a pipeline run through `POST /items/run`; there is no separate routing
+  admission point.
 - `item_ref` stays **out of the engine** — only the router run carries
   it (daemon-stamped, I4).
 - The work run is nested, not a sibling: **one registry run per
-  dispatch**. The UI surfaces the deepest executing graph as the run
+  item-run**. The UI surfaces the deepest executing graph as the run
   name.
 
 The first-class-child model remains a *possible future* if a
@@ -175,12 +200,24 @@ cancelable work runs; it is not needed for the review/implement roadmap.
 | # | Milestone | Deps | Status |
 |---|---|---|---|
 | R1 | `manager_loop` reads `stack.child_dotfile`/`child_workdir` as node attrs (graph fallback) | — | todo |
-| R2 | Run accepts a seeded initial context (`ctx.Apply` on start); daemon seeds item vars at dispatch | — | todo |
+| R2 | Run accepts a seeded initial context (`ctx.Apply` on start); the `/items/run` submit path seeds the Item's vars **+ `item.type`/`item.source`/`item.id`** from the Ref | — | todo |
 | R3 | `manager_loop` prepares its child via `setup.Prepare` with vars from context (+ `stack.child.var.*` overrides) | R1, R2 | todo |
-| R4 | `manager_loop` cancels its inline child on `stop_condition`/`max_cycles` early return | — | todo |
-| R5 | `POST /items/dispatch {item_ref}` → start the router graph with seeded context + item_ref | R2 | todo |
-| R6 | A `router` pipeline (conditionals → `manager_loop` targets; agent fallback → `decision`) | R1, R3, R5 | todo |
+| R6 | A `router` pipeline (conditionals on `item.type` → `manager_loop` targets; agent fallback → `decision`), run via `POST /items/run` | R1, R3 | todo |
 | R7 | Docs: deviations (this spec), items-spec 4/6/7 reversal, attractor-spec back-pointers | — | todo |
+
+**Dropped / moved:**
+
+- ~~R4~~ (cancel inline child) — the engine has **no cancellation
+  primitive** (`engine.Run` is uninterruptible; top-level cancel is
+  already post-hoc), and routing never sets `stop_condition`/`steer`, so
+  it never early-returns while a child runs. Tracked separately as an
+  **engine-cancellation** milestone (thread `context.Context` through
+  `engine.Run`, cooperative at node boundaries, cascade to inline
+  children, fix post-hoc top-level cancel) — cross-cutting, not routing.
+- ~~R5~~ (`POST /items/dispatch`) — **removed.** The router is just a
+  pipeline; run it via the existing `POST /items/run` (see Shape). No
+  dedicated dispatch endpoint, no `router_pipeline` config, no
+  first-class router concept.
 
 ## Testing conventions
 
@@ -191,13 +228,15 @@ cancelable work runs; it is not needed for the review/implement roadmap.
 - **R3**: a `manager_loop` whose child declares `vars="x"` prepares the
   child with `x` sourced from context; `stack.child.var.x` overrides
   context.
-- **R4**: a child still running when `stop_condition` fires is cancelled
-  (no leaked goroutine).
-- **R5/R6**: `POST /items/dispatch` for a PR item runs the router, which
-  routes to the review child; the single run carries `item_ref`.
+- **R6**: `POST /items/run {item_ref, pipeline: router, repo}` for a PR
+  item runs the router, whose `item.type == pr` edge routes to the review
+  child; the single run carries `item_ref`.
 
 ## Not in scope
 
 - The jj-workspace isolation layer per run (items-spec decision 10,
   later).
+- Engine cancellation (its own milestone — see Dropped/moved above).
 - Re-introducing first-class child runs (only if fan-out demands it).
+- A dedicated dispatch endpoint / `router_pipeline` config — the router
+  is run through `POST /items/run` like any pipeline.
