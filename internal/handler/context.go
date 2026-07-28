@@ -32,9 +32,9 @@ func expandContext(s string, ctx *engine.Context) (string, error) {
 			i += 2
 			continue
 		}
-		if strings.HasPrefix(s[i:], "$goal") {
+		if end := i + len("$goal"); strings.HasPrefix(s[i:], "$goal") && (end >= len(s) || !isWordByte(s[end])) {
 			b.WriteString(ctx.Get("graph.goal"))
-			i += len("$goal")
+			i = end
 			continue
 		}
 		if strings.HasPrefix(s[i:], ctxPrefix) {
@@ -62,6 +62,12 @@ func expandContext(s string, ctx *engine.Context) (string, error) {
 }
 
 func isContextKeyByte(c byte) bool {
+	return isWordByte(c) || c == '.'
+}
+
+// isWordByte reports whether c continues a bare identifier ([A-Za-z0-9_]).
+// It marks the boundary for the `$goal` built-in so `$goals` stays literal.
+func isWordByte(c byte) bool {
 	switch {
 	case c >= 'a' && c <= 'z':
 		return true
@@ -69,7 +75,7 @@ func isContextKeyByte(c byte) bool {
 		return true
 	case c >= '0' && c <= '9':
 		return true
-	case c == '_', c == '.':
+	case c == '_':
 		return true
 	}
 	return false

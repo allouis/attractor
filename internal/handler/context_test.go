@@ -26,6 +26,7 @@ func TestExpandContext(t *testing.T) {
 		{"shell var untouched", "echo $HOME now", "echo $HOME now"},
 		{"command substitution untouched", "at $(date)", "at $(date)"},
 		{"lone dollar untouched", "cost $ five", "cost $ five"},
+		{"goal needs word boundary", "score $goals today", "score $goals today"},
 		{"trailing dot boundary", "$context.repo. done", "foo/bar. done"},
 	}
 	for _, tc := range cases {
