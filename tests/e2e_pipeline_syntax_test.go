@@ -18,7 +18,6 @@ import (
 // bare-var syntax. Shell forms (`$(…)`, `$$`) are left for the shell.
 var shippedPipelineFiles = []string{
 	"../pipelines/review/pipeline.dot",
-	"../pipelines/review/prompts/review.md",
 	"../pipelines/review-core/pipeline.dot",
 	"../pipelines/implement/pipeline.dot",
 	"../pipelines/implement/prompts/implement.md",

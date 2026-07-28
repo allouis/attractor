@@ -1,10 +1,18 @@
-// review — dispatch a GitHub PR Item to a code review (items-spec I5).
+// review — dispatch a GitHub PR Item to a code review (items-spec I5,
+// review-pipeline-spec RV3).
 //
 // The daemon dispatches this via POST /items/run: it resolves the PR
 // Item to vars (repo, pr_number, url, title), maps repo -> a local
 // jj-colocated checkout, and sets that as the run's cwd. The first node
 // is a deterministic tool node — attractor never trusts the agent to
-// check the branch out — then a codergen stage reviews the diff.
+// check the branch out — then `review_loop` runs the shared multi-lens
+// review-core sub-pipeline inline via stack.manager_loop.
+//
+// `review_loop` seeds review-core's one input, diff_cmd, with the PR's
+// diff command; the override's $context.pr_number/$context.repo are
+// expanded against this run's context when the child is seeded. review-core
+// fans out to five adversarial lenses and a `synth` verdict, whose outcome
+// becomes the loop's outcome (a FAIL verdict fails the run).
 //
 //   attractor run review -var repo=owner/name -var pr_number=42 \
 //     -var url=… -var title=…
@@ -18,11 +26,13 @@ digraph review {
     checkout [type="tool", timeout="5m",
               tool_command="gh pr checkout $context.pr_number --repo $context.repo"]
 
-    review [timeout="30m", prompt="@prompts/review.md"]
+    review_loop [type="stack.manager_loop",
+                 stack.child_dotfile="../review-core/pipeline.dot",
+                 stack.child.var.diff_cmd="gh pr diff $context.pr_number --repo $context.repo"]
 
     done [shape=Msquare]
 
     start -> checkout
-    checkout -> review [condition="outcome=success"]
-    review -> done
+    checkout -> review_loop [condition="outcome=success"]
+    review_loop -> done
 }

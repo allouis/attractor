@@ -1,7 +1,10 @@
 # review
 
-Dispatch a GitHub PR to a code review (items-spec I5). The first stage
-checks the PR branch out deterministically; the second reviews the diff.
+Dispatch a GitHub PR to a code review (items-spec I5,
+review-pipeline-spec RV3). The first stage checks the PR branch out
+deterministically; `review_loop` then runs the shared multi-lens
+`review-core` sub-pipeline inline (stack.manager_loop), seeding its
+`diff_cmd` with `gh pr diff …` for the PR.
 
 ## Run
 
@@ -19,11 +22,11 @@ attractor run review \
 
 ```
 review/
-  pipeline.dot          # start → checkout (gh pr checkout) → review → done
+  pipeline.dot          # start → checkout (gh pr checkout) → review_loop → done
   pipeline.md           # this file
-  prompts/
-    review.md           # the review prompt
 ```
+
+The review lens prompts live in the shared `../review-core/pipeline.dot`.
 
 ## Vars
 
