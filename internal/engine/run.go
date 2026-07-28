@@ -37,6 +37,7 @@ type Engine struct {
 	usageMu         sync.Mutex
 	usageTotal      Usage
 	seq             atomic.Int64
+	initialContext  map[string]string
 }
 
 // Config configures a new Engine.
@@ -46,6 +47,11 @@ type Config struct {
 	RunID     string
 	EventsBuf int
 	Now       func() time.Time
+	// InitialContext seeds the run's context at start (applied after
+	// MirrorGraph, before the first node). Lets the submit path feed Item
+	// vars + `item.*` metadata to the run's conditional edges
+	// (router-spec deviation B). Nil for runs with no seed.
+	InitialContext map[string]string
 }
 
 // New constructs an Engine with the supplied config.
@@ -70,6 +76,7 @@ func New(cfg Config) *Engine {
 		events:          make(chan Event, buf),
 		rng:             mrand.New(mrand.NewSource(time.Now().UnixNano())),
 		now:             cfg.Now,
+		initialContext:  cfg.InitialContext,
 	}
 }
 
@@ -278,10 +285,12 @@ func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
 }
 
 // freshContext builds the context for a run starting from scratch (not
-// resumed from a checkpoint): graph attrs mirrored into `graph.*`.
+// resumed from a checkpoint): graph attrs mirrored into `graph.*`, then
+// the seeded initial values applied on top (router-spec deviation B).
 func (e *Engine) freshContext(g *graph.Graph) *Context {
 	ctx := NewContext()
 	ctx.MirrorGraph(g)
+	ctx.Apply(e.initialContext)
 	return ctx
 }
 
