@@ -500,15 +500,19 @@ function itemBadges(it) {
 let workflowsCache = null;
 let runPickerRef = null;
 
-// fetchWorkflows loads and caches the workflow catalog. GET /workflows
-// returns [{name, path}]; path is the pipeline.dot POST /items/run wants.
+// fetchWorkflows loads the workflow catalog. GET /workflows returns
+// [{name, path}]; path is the pipeline.dot POST /items/run wants. Only a
+// non-empty successful catalog is cached — a transient failure or an empty
+// result must NOT poison the cache, or one blip would wedge the picker at
+// "no workflows" for the whole session. A fetch/HTTP failure throws so the
+// caller can surface it and retry on the next open.
 async function fetchWorkflows() {
   if (workflowsCache) return workflowsCache;
-  try {
-    const r = await fetch('/workflows');
-    workflowsCache = r.ok ? await r.json() : [];
-  } catch (e) { workflowsCache = []; }
-  return workflowsCache;
+  const r = await fetch('/workflows');
+  if (!r.ok) throw new Error('status ' + r.status);
+  const list = await r.json();
+  if (list.length) workflowsCache = list;
+  return list;
 }
 
 // openRunPicker fills the modal from a run button's data-* attributes and
@@ -523,7 +527,12 @@ async function openRunPicker(btn) {
   };
   $('run-picker-repo').value = btn.dataset.runRepo || '';
   setRunError('');
-  const wfs = await fetchWorkflows();
+  let wfs = [];
+  try {
+    wfs = await fetchWorkflows();
+  } catch (e) {
+    setRunError('could not load workflows — reopen to retry');
+  }
   $('run-picker-workflow').innerHTML = wfs.length
     ? wfs.map(w => `<option value="${escapeHtml(w.path)}">${escapeHtml(w.name)}</option>`).join('')
     : '<option value="">no workflows</option>';
