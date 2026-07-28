@@ -1,6 +1,6 @@
 # hello
 
-The smallest useful Attractor pipeline. One LLM stage greets `$name`.
+The smallest useful Attractor pipeline. One LLM stage greets `$context.name`.
 
 ## Run
 

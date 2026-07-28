@@ -739,15 +739,6 @@ func isTerminalNode(id string, n *graph.Node) bool {
 	return id == "exit" || id == "end"
 }
 
-func findEdge(g *graph.Graph, from, to string) *graph.Edge {
-	for _, e := range g.OutgoingEdges(from) {
-		if e.To == to {
-			return e
-		}
-	}
-	return nil
-}
-
 func nodeRetryPolicy(node *graph.Node, g *graph.Graph) RetryPolicy {
 	def := g.IntAttr("default_max_retries", g.IntAttr("default_max_retry", 0))
 	// We can't introspect "explicit vs inherited" cleanly from raw attrs;

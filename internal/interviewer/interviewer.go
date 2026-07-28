@@ -109,11 +109,3 @@ func (q *Queue) Ask(_ Question) (Answer, error) {
 	q.answers = q.answers[1:]
 	return a, nil
 }
-
-// Callback dispatches to a user-supplied function. Useful for plumbing
-// answers through external systems (Slack, web UI) without writing a
-// full Interviewer.
-type Callback func(q Question) (Answer, error)
-
-// Ask invokes the underlying callback.
-func (c Callback) Ask(q Question) (Answer, error) { return c(q) }

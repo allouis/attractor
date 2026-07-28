@@ -6,7 +6,7 @@ specific surface.
 
 | Example | Demonstrates |
 |---|---|
-| [`hello/`](./hello/) | Pipeline-by-name resolution, `@path` prompt loading, `$var` substitution. Minimum useful pipeline. |
+| [`hello/`](./hello/) | Pipeline-by-name resolution, `@path` prompt loading, `$context.<key>` interpolation. Minimum useful pipeline. |
 
 Run any example from the project root:
 

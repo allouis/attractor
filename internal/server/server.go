@@ -161,9 +161,6 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Addr returns the listening address.
-func (s *Server) Addr() string { return s.addr }
-
 // URL returns the http:// URL clients should use.
 func (s *Server) URL() string { return "http://" + s.addr }
 

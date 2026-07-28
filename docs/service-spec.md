@@ -79,7 +79,7 @@ Attractor's spec already sketches stylesheet-based model selection
 One shared setup path (extract from `cli.Run` into an internal
 package) used by both entry points:
 
-- parse → transforms (`PromptFile`, `VariableExpansion`) → lint →
+- parse → transforms (`PromptFile`, `Stylesheet`) → lint →
   registry built from the provider config above.
 - `serve` gains what `run` has: vars, `@file` prompts, real backends.
 - Submit payload grows:

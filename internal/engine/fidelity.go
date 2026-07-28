@@ -21,16 +21,6 @@ const (
 	FidelitySummaryHigh   FidelityMode = "summary:high"
 )
 
-// IsValid reports whether v names a recognised fidelity mode.
-func IsValidFidelity(v string) bool {
-	switch FidelityMode(v) {
-	case FidelityFull, FidelityTruncate, FidelityCompact,
-		FidelitySummaryLow, FidelitySummaryMedium, FidelitySummaryHigh:
-		return true
-	}
-	return false
-}
-
 // ResolveFidelity returns the resolved fidelity for a target node.
 // Precedence (§5.4): edge → target node → graph default → built-in
 // fallback "compact". The incoming edge may be nil for the start node.

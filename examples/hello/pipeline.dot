@@ -2,7 +2,7 @@
 // Run: `attractor run hello --var name=world`
 digraph hello {
     graph [
-        goal="say hi to $name",
+        goal="say hi to $context.name",
         vars="name"
     ]
 
