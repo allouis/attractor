@@ -64,14 +64,20 @@ const nodeLog = {};            // node id -> accumulated log html chunks
 const nodeState = {};          // node id -> status class
 let dockTimer = null;
 
+// showView switches the single visible top-level section by id.
+function showView(name) {
+  for (const sec of document.querySelectorAll('main > section')) {
+    sec.style.display = sec.id === name ? 'block' : 'none';
+  }
+}
+
 // ---- run list ----------------------------------------------------------
 async function showList() {
   if (es) { es.close(); es = null; }
   if (dockTimer) { clearInterval(dockTimer); dockTimer = null; }
   currentRun = null;
   location.hash = '';
-  $('run-view').style.display = 'none';
-  $('run-list').style.display = 'block';
+  showView('run-list');
   await renderList();
 }
 
@@ -109,8 +115,7 @@ async function openRun(id) {
   for (const k in nodeLog) delete nodeLog[k];
   for (const k in nodeState) delete nodeState[k];
   location.hash = 'run/' + id;
-  $('run-list').style.display = 'none';
-  $('run-view').style.display = 'block';
+  showView('run-view');
   $('run-title').textContent = id;
   $('node-pane').innerHTML = '<p class="muted">Click a node to inspect it.</p>';
   await loadGraph(id);
