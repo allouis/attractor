@@ -70,6 +70,21 @@ func TestServer_UI_Items_Badges(t *testing.T) {
 	}
 }
 
+// TestServer_UI_Items_LinkSafety guards the item-title link against a
+// javascript:/data: URL from an external source (review S1): the href is
+// scheme-checked (safeUrl) and external links carry rel=noopener noreferrer
+// against reverse tabnabbing. Structural markers; escaping behaviour is
+// driven separately.
+func TestServer_UI_Items_LinkSafety(t *testing.T) {
+	page := uiPage(t)
+
+	for _, marker := range []string{"safeUrl", `rel="noopener noreferrer"`} {
+		if !strings.Contains(page, marker) {
+			t.Errorf("page missing link-safety marker %q", marker)
+		}
+	}
+}
+
 // TestServer_UI_Items_Filters guards the frontend filter + sort/group
 // controls (web-ui-spec W3): source/type/repo/text/in-progress narrowing
 // and group-by, applied client-side over the merged set.

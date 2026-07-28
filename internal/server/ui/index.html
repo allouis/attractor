@@ -388,18 +388,28 @@ function itemsTable(list) {
 }
 
 // itemRowHtml builds one item row. Every field originates from an external
-// source (title, url, ref, vars.repo), so all are escaped before innerHTML.
+// source, so all are escaped for the HTML context; the title URL is also
+// scheme-checked for the URL context (escapeHtml alone does not neutralise a
+// javascript: href) and opened with rel=noopener noreferrer.
 function itemRowHtml(it) {
-  const ref = it.ref || {};
-  const repo = (it.vars && it.vars.repo) || '';
   return `
     <tr>
-      <td><a href="${escapeHtml(it.url || '')}" target="_blank">${escapeHtml(it.title || '')}</a></td>
-      <td class="muted">${escapeHtml(ref.source || '')}</td>
-      <td class="muted">${escapeHtml(ref.type || '')}</td>
-      <td class="muted">${escapeHtml(repo)}</td>
+      <td><a href="${escapeHtml(safeUrl(it.url || ''))}" target="_blank" rel="noopener noreferrer">${escapeHtml(it.title || '')}</a></td>
+      <td class="muted">${escapeHtml(itemSource(it))}</td>
+      <td class="muted">${escapeHtml(itemType(it))}</td>
+      <td class="muted">${escapeHtml(itemRepo(it))}</td>
       <td>${itemBadges(it)}</td>
     </tr>`;
+}
+
+// safeUrl returns url only when it resolves to an http(s) scheme; a
+// javascript:/data: URL (or anything unparseable) becomes '#', so an
+// external item's URL cannot smuggle a script into the app origin (S1).
+function safeUrl(url) {
+  try {
+    const proto = new URL(url, location.origin).protocol;
+    return (proto === 'http:' || proto === 'https:') ? url : '#';
+  } catch (e) { return '#'; }
 }
 
 // itemBadges renders the item's run annotation (web-ui-spec §Items view):
