@@ -63,7 +63,7 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 	// Interpolate $context.* / $goal from the live context (spec §4.5)
 	// before grounding the prompt with the preamble.
-	expanded, err := expandContext(prompt, env.Context)
+	expanded, err := env.Context.Expand(prompt)
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: err.Error()}
 	}
