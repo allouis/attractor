@@ -1,6 +1,6 @@
-Implement the change issue $identifier — "$title" — asks for, in $repo.
+Implement the change issue $context.identifier — "$context.title" — asks for, in $context.repo.
 
-The issue is at $url. The repo is checked out in your working directory.
+The issue is at $context.url. The repo is checked out in your working directory.
 
 1. Read the issue to understand the intended change and its acceptance
    criteria. Read the relevant existing code before touching anything —

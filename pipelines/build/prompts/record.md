@@ -1,6 +1,6 @@
 Close out the milestone.
 
-1. In the spec `$spec`, flip the completed milestone's Status from
+1. In the spec `$context.spec`, flip the completed milestone's Status from
    `todo` to `done` in the milestone table. Touch nothing else.
 2. Commit exactly that change with jj, message:
    `docs: mark <milestone id> done` with a one-line body naming what

@@ -1,7 +1,7 @@
 Classify this item so the router can pick the right work pipeline.
 
-The item's metadata is in the run context: `item.type` ($item.type),
-`item.source` ($item.source), `item.id` ($item.id). The router already
+The item's metadata is in the run context: `item.type` ($context.item.type),
+`item.source` ($context.item.source), `item.id` ($context.item.id). The router already
 tried the deterministic type routes (`pr` -> review, `issue` ->
 implement) and fell through to you because the type is ambiguous.
 
