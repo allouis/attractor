@@ -230,6 +230,67 @@ func TestManagerLoop_ChildVarOverridesContext(t *testing.T) {
 	}
 }
 
+func TestManagerLoop_ChildVarValueInterpolatesParentContext(t *testing.T) {
+	// A stack.child.var.x value carrying a $context.<key> placeholder is
+	// expanded against the PARENT live context at seed time, so the child
+	// sees the resolved value — not the literal placeholder. This is what
+	// lets review.dot seed diff_cmd="gh pr diff $context.pr_number ..."
+	// (review-pipeline-spec RV3); the child's single-pass interpolation of
+	// $context.diff_cmd can't resolve a nested placeholder on its own.
+	childPath, err := filepath.Abs("../testdata/pipelines/child_vars.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			stack.child_dotfile="%s",
+			stack.child.var.x="pr=$context.pr_number",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	out, _, _ := runFixtureSeeded(t, src, be, nil, map[string]string{"pr_number": "42"})
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("manager_loop status=%s reason=%q", out.Status, out.FailureReason)
+	}
+	if got := childPrompt(t, be, "childwork"); !strings.Contains(got, "value=pr=42") {
+		t.Fatalf("child prompt = %q, want it to contain %q (override interpolated against parent context)", got, "value=pr=42")
+	}
+}
+
+func TestManagerLoop_ChildVarUnresolvedFails(t *testing.T) {
+	// A stack.child.var override referencing a key absent from the parent
+	// context fails loudly, naming the key — a mangled child command must
+	// not run silently.
+	childPath, err := filepath.Abs("../testdata/pipelines/child_vars.dot")
+	must(t, err)
+	src := fmt.Sprintf(`digraph supervised {
+		start [shape=Mdiamond]
+		boss [
+			shape=house,
+			stack.child_dotfile="%s",
+			stack.child.var.x="pr=$context.pr_number",
+			manager.poll_interval="10ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	be := fake.New()
+	out, _, _ := runFixture(t, src, be, nil)
+	if out.Status != engine.StatusFail {
+		t.Fatalf("expected FAIL when override references an unresolved key, got %s", out.Status)
+	}
+	if !strings.Contains(out.FailureReason, "pr_number") {
+		t.Fatalf("failure reason should name the unresolved key: %q", out.FailureReason)
+	}
+}
+
 func TestManagerLoop_ChildReadsUndeclaredContextKey(t *testing.T) {
 	// The child references $context.pr_number but does NOT declare it in
 	// vars=. The manager_loop seeds the child's initial context from the
