@@ -58,21 +58,34 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 	)
 }
 
-// RequireDeclaredVars checks that every name listed in the graph's
-// `vars` attribute has a corresponding entry in supplied. Missing vars
-// are a hard error so a pipeline doesn't silently run with empty
-// substitutions.
-func RequireDeclaredVars(g *graph.Graph, supplied map[string]string) error {
+// DeclaredVars returns the names listed in the graph's `vars` attribute,
+// trimmed and with empties dropped. A graph with no `vars` attr yields
+// nil. It is the single parse of the input contract shared by
+// RequireDeclaredVars (serve/CLI) and manager_loop's child prepare.
+func DeclaredVars(g *graph.Graph) []string {
 	raw := strings.TrimSpace(g.Attr("vars"))
 	if raw == "" {
 		return nil
 	}
-	var missing []string
+	var names []string
 	for _, name := range strings.Split(raw, ",") {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}
+		names = append(names, name)
+	}
+	return names
+}
+
+// RequireDeclaredVars checks that every name listed in the graph's
+// `vars` attribute has a corresponding entry in supplied. Missing vars
+// are a hard error so a pipeline doesn't silently run with empty
+// substitutions.
+func RequireDeclaredVars(g *graph.Graph, supplied map[string]string) error {
+	declared := DeclaredVars(g)
+	var missing []string
+	for _, name := range declared {
 		if _, ok := supplied[name]; !ok {
 			missing = append(missing, name)
 		}
@@ -80,5 +93,5 @@ func RequireDeclaredVars(g *graph.Graph, supplied map[string]string) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("pipeline declares vars %v but missing values for %v", strings.Split(raw, ","), missing)
+	return fmt.Errorf("pipeline declares vars %v but missing values for %v", declared, missing)
 }
