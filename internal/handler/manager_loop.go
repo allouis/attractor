@@ -12,6 +12,7 @@ import (
 	"github.com/allouis/attractor/internal/dot"
 	"github.com/allouis/attractor/internal/engine"
 	graphpkg "github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/setup"
 )
 
 // ManagerLoop supervises a child pipeline (spec §4.11). The child .dot
@@ -74,7 +75,11 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: build child: %v", err)}
 	}
-	prepared, err := engine.Prepare(childGraph)
+	prepared, err := setup.Prepare(setup.Options{
+		Source:  string(childSrc),
+		Vars:    childVars(env, childGraph),
+		BaseDir: childWorkdir,
+	})
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: validate child: %v", err)}
 	}
@@ -152,6 +157,28 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 		Status:        engine.StatusFail,
 		FailureReason: "manager_loop: max cycles exceeded",
 	}
+}
+
+// childVarPrefix scopes node attrs that override a child var by name:
+// `stack.child.var.pr_number="42"` supplies pr_number to the child.
+const childVarPrefix = "stack.child.var."
+
+// childVars builds the child pipeline's prepare-time vars (router-spec
+// R3). Each name the child declares in its `vars=` attr is sourced from
+// the run context — the same values the router's conditional edges read —
+// doing programmatically what a human types as `-var` on the CLI. A
+// `stack.child.var.<name>` node attr overrides the context value.
+func childVars(env engine.HandlerEnv, childGraph *graphpkg.Graph) map[string]string {
+	vars := map[string]string{}
+	for _, name := range setup.DeclaredVars(childGraph) {
+		vars[name] = env.Context.Get(name)
+	}
+	for k, v := range env.Node.Attrs {
+		if strings.HasPrefix(k, childVarPrefix) {
+			vars[strings.TrimPrefix(k, childVarPrefix)] = v
+		}
+	}
+	return vars
 }
 
 // nodeOrGraphAttr reads an attribute from the node, falling back to the
