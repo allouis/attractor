@@ -61,6 +61,13 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	if prompt == "" {
 		prompt = env.Node.Label()
 	}
+	// Interpolate $context.* / $goal from the live context (spec §4.5)
+	// before grounding the prompt with the preamble.
+	expanded, err := expandContext(prompt, env.Context)
+	if err != nil {
+		return engine.Outcome{Status: engine.StatusFail, FailureReason: err.Error()}
+	}
+	prompt = expanded
 	if env.Preamble != "" {
 		prompt = env.Preamble + "\n\n---\n\n" + prompt
 	}
