@@ -549,6 +549,29 @@ function setRunError(text) {
   el.hidden = !text;
 }
 
+// submitRun dispatches the picked item → POST /items/run {item_ref,
+// pipeline, repo}. The backend resolves the repo (a PR auto-fills it, else
+// the field) to the run's cwd and 422s an unset/unmapped one; on success it
+// returns the new run id, which we navigate to via the hash router.
+async function submitRun() {
+  if (!runPickerRef) return;
+  const pipeline = $('run-picker-workflow').value;
+  if (!pipeline) { setRunError('no workflow selected'); return; }
+  setRunError('');
+  let r;
+  try {
+    r = await postJSON('/items/run', {
+      item_ref: runPickerRef,
+      pipeline,
+      repo: $('run-picker-repo').value.trim(),
+    });
+  } catch (e) { setRunError('could not reach the daemon'); return; }
+  if (!r.ok) { setRunError((await r.text()).trim() || `dispatch failed (${r.status})`); return; }
+  const { id } = await r.json();
+  $('run-picker').close();
+  location.hash = `#run/${id}`;
+}
+
 async function renderList() {
   let pipelines = [];
   try {
@@ -764,6 +787,7 @@ window.addEventListener('load', () => {
     if (btn) openRunPicker(btn);
   });
   $('run-picker-cancel')?.addEventListener('click', () => $('run-picker').close());
+  $('run-picker-run')?.addEventListener('click', submitRun);
   window.addEventListener('hashchange', route);
   route();
 });
