@@ -252,8 +252,7 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 			shouldSkipCompleted: true,
 		}, nil
 	}
-	ctx := NewContext()
-	ctx.MirrorGraph(g)
+	ctx := e.freshContext(g)
 	if err := e.writeManifest(g); err != nil {
 		return nil, err
 	}
@@ -268,8 +267,7 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 
 func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
 	e.archiveCurrentLogs()
-	ctx := NewContext()
-	ctx.MirrorGraph(g)
+	ctx := e.freshContext(g)
 	return &runState{
 		cursor:       startAt,
 		nodeOutcomes: map[string]Outcome{},
@@ -277,6 +275,14 @@ func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
 		retries:      map[string]int{},
 		visits:       map[string]int{},
 	}
+}
+
+// freshContext builds the context for a run starting from scratch (not
+// resumed from a checkpoint): graph attrs mirrored into `graph.*`.
+func (e *Engine) freshContext(g *graph.Graph) *Context {
+	ctx := NewContext()
+	ctx.MirrorGraph(g)
+	return ctx
 }
 
 // archiveCurrentLogs moves the current run's logs subtree aside before
