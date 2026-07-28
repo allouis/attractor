@@ -27,7 +27,7 @@ type ManagerLoop struct{}
 
 // Execute runs the supervisor cycle.
 func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
-	childDot := env.Graph.Attrs["stack.child_dotfile"]
+	childDot := nodeOrGraphAttr(env, "stack.child_dotfile")
 	if childDot == "" {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: "manager_loop: graph missing stack.child_dotfile"}
 	}
@@ -49,7 +49,7 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 		cooldown = d
 	}
 
-	childWorkdir := env.Graph.Attrs["stack.child_workdir"]
+	childWorkdir := nodeOrGraphAttr(env, "stack.child_workdir")
 	if childWorkdir == "" {
 		childWorkdir = filepath.Dir(childDot)
 	}
@@ -152,6 +152,18 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 		Status:        engine.StatusFail,
 		FailureReason: "manager_loop: max cycles exceeded",
 	}
+}
+
+// nodeOrGraphAttr reads an attribute from the node, falling back to the
+// graph-level attribute (spec deviation A): child selection is a node
+// attr so multiple manager_loop nodes coexist in one graph, with the
+// graph attr as the single-child fallback. Mirrors the cwd/acp_command
+// node-then-graph resolution elsewhere in the engine.
+func nodeOrGraphAttr(env engine.HandlerEnv, key string) string {
+	if v := env.Node.Attrs[key]; v != "" {
+		return v
+	}
+	return env.Graph.Attrs[key]
 }
 
 // parseActions converts the comma-separated `manager.actions` attribute
