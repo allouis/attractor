@@ -263,9 +263,28 @@ func (s *Server) submit(source string, vars map[string]string, cwd string, itemR
 	if err != nil {
 		return "", err
 	}
-	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef)
+	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, seedContext(vars, itemRef))
 	s.dispatcher.enqueue(run)
 	return run.ID, nil
+}
+
+// seedContext builds the run's initial context from an Item: its vars
+// under plain names plus the Ref-derived item.type/item.source/item.id the
+// router branches on at runtime (router-spec §"Seeded initial context").
+// Returns nil when there is no Item (automation/cron callers pass nil
+// itemRef), so those runs start unseeded.
+func seedContext(vars map[string]string, itemRef *engine.ItemRef) map[string]string {
+	if itemRef == nil {
+		return nil
+	}
+	seed := make(map[string]string, len(vars)+3)
+	for k, v := range vars {
+		seed[k] = v
+	}
+	seed["item.type"] = itemRef.Type
+	seed["item.source"] = itemRef.Source
+	seed["item.id"] = itemRef.ExternalID
+	return seed
 }
 
 // listPipelines returns registry summaries newest-first (service-spec
