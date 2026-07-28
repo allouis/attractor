@@ -46,6 +46,10 @@
     --state-needs-human: #d97706;
     --state-retrying: #ea580c;
     --state-cancelled: #94a3b8;
+    /* Ink for text sitting on a filled needs-human (amber) fill. Amber is
+       light in both themes, so this stays dark and is NOT overridden below —
+       it clears WCAG AA on the amber fill in light and dark alike. */
+    --attention-ink: #1f2328;
   }
   /* Dark tokens. Duplicated across an explicit override and the media
      query so a manual choice always wins over the OS preference:
@@ -110,6 +114,24 @@
   .status.running { color: var(--state-running); }
   .status.retrying { color: var(--state-retrying); }
   .status.queued { color: var(--state-queued); }
+  /* Runs fleet counts (web-ui-spec W5): outlined state-tinted pills that
+     answer "how many running / queued / needs-human / failed" at a glance.
+     needs-human is the load-bearing state, so when non-zero it fills rather
+     than outlines — the highest-attention treatment. */
+  .counts { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .counts:empty { display: none; }
+  .count { font-size: var(--font-sm); font-weight: 600; padding: var(--space-1) var(--space-3);
+           border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); }
+  .count-running { color: var(--state-running); border-color: var(--state-running); }
+  .count-queued { color: var(--state-queued); border-color: var(--state-queued); }
+  .count-failed { color: var(--state-failed); border-color: var(--state-failed); }
+  .count-needs-human { color: var(--state-needs-human); border-color: var(--state-needs-human); }
+  .count.loud { background: var(--state-needs-human); color: var(--attention-ink);
+                border-color: var(--state-needs-human); }
+  /* Per-row needs-human flag: same loud amber fill, carried on the run row. */
+  .chip.needs-human { display: inline-block; font-size: var(--font-sm); font-weight: 600;
+           padding: 0 var(--space-2); border-radius: 999px; margin-left: var(--space-2);
+           background: var(--state-needs-human); color: var(--attention-ink); }
   /* Items filter/group toolbar. Controls consume tokens; they wrap on
      narrow viewports rather than overflow. */
   .toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
@@ -203,6 +225,7 @@
     </dialog>
   </section>
   <section id="runs-view">
+    <div id="run-counts" class="counts"></div>
     <section id="run-list"></section>
   </section>
   <section id="workflows-view"><p class="muted">No workflows yet.</p></section>
@@ -226,6 +249,7 @@ let selectedNode = null;       // node id in the pane
 const nodeLog = {};            // node id -> accumulated log html chunks
 const nodeState = {};          // node id -> status class
 let dockTimer = null;
+let runsTimer = null;          // fleet-list poll while the Runs view is open
 
 // ---- theme -------------------------------------------------------------
 // currentTheme resolves the effective palette: an explicit manual choice
@@ -268,11 +292,12 @@ function teardownRun() {
 // (nav tabs, run rows, back links), so one hashchange listener drives
 // every view switch. Default landing is Items.
 function route() {
+  stopRunsPoll();
   const m = location.hash.match(/^#run\/(.+)$/);
   if (m) { openRun(m[1]); return; }
   teardownRun();
   const tab = location.hash.replace(/^#/, '') || 'items';
-  if (tab === 'runs') { highlightNav('runs'); showView('runs-view'); renderList(); return; }
+  if (tab === 'runs') { highlightNav('runs'); showView('runs-view'); showRuns(); return; }
   if (tab === 'workflows') { highlightNav('workflows'); showView('workflows-view'); return; }
   highlightNav('items'); showView('items-view'); showItems();
 }
@@ -598,28 +623,80 @@ async function submitRun() {
   }
 }
 
-async function renderList() {
-  let pipelines = [];
+// ---- runs fleet view ---------------------------------------------------
+// The Runs view is a run-centric fleet list, poll-refreshed ~2.5s (the
+// dock's pattern) so counts + needs-human stay live without a backend push
+// (web-ui-spec W5 / §Liveness). runsRendered suppresses wiping the list on
+// a transient poll blip: a first-load failure surfaces the error, a
+// mid-poll failure keeps the last-good fleet visible.
+let runsRendered = false;
+
+// showRuns renders immediately then polls until the view is left.
+function showRuns() {
+  renderRuns();
+  runsTimer = setInterval(renderRuns, 2500);
+}
+
+// stopRunsPoll halts the fleet poll; route() calls it on every navigation
+// so the timer never outlives the Runs view.
+function stopRunsPoll() {
+  if (runsTimer) { clearInterval(runsTimer); runsTimer = null; }
+}
+
+async function renderRuns() {
+  let runs = [];
   try {
     const r = await fetch('/pipelines');
-    pipelines = (await r.json()).pipelines || [];
-  } catch (e) { $('run-list').innerHTML = '<p class="muted">server unreachable</p>'; return; }
-  if (!pipelines.length) { $('run-list').innerHTML = '<p class="muted">no runs yet</p>'; return; }
-  const rows = pipelines.map(runRowHtml).join('');
+    if (!r.ok) throw new Error('status ' + r.status);
+    runs = (await r.json()).pipelines || [];
+  } catch (e) {
+    // A poll blip keeps the last-rendered fleet; only a first load with
+    // nothing to keep surfaces the error.
+    if (!runsRendered) $('run-list').innerHTML = '<p class="muted">server unreachable</p>';
+    return;
+  }
+  runsRendered = true;
+  renderRunCounts(runs);
+  if (!runs.length) { $('run-list').innerHTML = '<p class="muted">no runs yet</p>'; return; }
+  const rows = runs.map(runRowHtml).join('');
   $('run-list').innerHTML = `<table>
-    <thead><tr><th>pipeline</th><th>status</th><th>cwd</th><th>started</th></tr></thead>
+    <thead><tr><th>run</th><th>status</th><th>cwd</th><th>started</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
-// runRowHtml builds one run-list row. Every attacker-controlled field
+// renderRunCounts fills the counts bar with the four fleet states
+// (running/queued/needs-human/failed). needs-human comes from the summary's
+// needs_human flag, not a status — a blocked run is still "running". An
+// empty fleet clears the bar (.counts:empty then hides it).
+function renderRunCounts(runs) {
+  const el = $('run-counts');
+  if (!runs.length) { el.innerHTML = ''; return; }
+  const byStatus = (s) => runs.filter(p => p.status === s).length;
+  el.innerHTML =
+    countPill('running', byStatus('running')) +
+    countPill('queued', byStatus('queued')) +
+    countPill('needs-human', runs.filter(p => p.needs_human).length) +
+    countPill('failed', byStatus('failed'));
+}
+
+// countPill renders one state count; a non-zero needs-human pill fills
+// (loud) rather than outlines — the highest-attention treatment.
+function countPill(state, n) {
+  const loud = state === 'needs-human' && n ? ' loud' : '';
+  return `<span class="count count-${state}${loud}">${n} ${escapeHtml(state)}</span>`;
+}
+
+// runRowHtml builds one fleet row. Every attacker-controlled field
 // (graph_name, cwd, status come from the DOT source) is escaped before it
 // reaches innerHTML. Navigation is pure-hash: the row links to #run/<id>
-// and the router opens it, so no inline JS carries the id.
+// and the router opens it, so no inline JS carries the id. A blocked run
+// carries the loud needs-human chip — the fleet's highest-attention flag.
 function runRowHtml(p) {
+  const chip = p.needs_human ? '<span class="chip needs-human">needs human</span>' : '';
   return `
     <tr>
       <td><a href="#run/${escapeHtml(p.id)}">${escapeHtml(p.graph_name || p.id)}</a></td>
-      <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span></td>
+      <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}</td>
       <td class="muted">${escapeHtml(p.cwd || '')}</td>
       <td class="muted">${escapeHtml(p.started_at || '')}</td>
     </tr>`;
