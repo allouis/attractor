@@ -118,12 +118,23 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 	e.openEventsFile()
 	defer e.closeEventsFile()
 
-	state, err := e.loadOrInitState(g)
+	state, fresh, err := e.loadOrInitState(g)
 	if err != nil {
 		return failOutcome(err.Error()), err
 	}
 
 	e.emit(Event{Kind: EventPipelineStarted, Timestamp: e.now(), RunID: e.RunID, NodeID: state.cursor})
+
+	// Validate the `vars=` input contract against the seeded context
+	// (spec §"Locked decisions" 6): every declared required key must be
+	// present before any node runs. Missing inputs fail the run fast;
+	// genuinely mid-run keys are caught later at the referencing node.
+	// Fresh runs only — a resumed run was already admitted at its start.
+	if fresh {
+		if missing := missingDeclaredVar(g, state.context); missing != "" {
+			return e.fail(fmt.Sprintf("missing required input %q declared in vars=", missing))
+		}
+	}
 
 	for {
 		nodeID := state.cursor
@@ -224,6 +235,19 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 	}
 }
 
+// missingDeclaredVar returns the first `vars=` key absent from ctx, or ""
+// when every declared input is present. The engine is the one run-start
+// validation site shared by all entry points (CLI, serve, automation,
+// cron); each seeds its vars into the initial context before Run.
+func missingDeclaredVar(g *graph.Graph, ctx *Context) string {
+	for _, name := range g.DeclaredVars() {
+		if _, ok := ctx.Lookup(name); !ok {
+			return name
+		}
+	}
+	return ""
+}
+
 // runState bundles the live execution state held across one Run.
 type runState struct {
 	cursor              string
@@ -240,7 +264,12 @@ type runState struct {
 	previousNode string
 }
 
-func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
+// loadOrInitState resumes from a checkpoint when one exists, else builds a
+// fresh run. fresh reports which: it gates run-start input validation,
+// which is a first-start gate — a resumed run was already admitted at its
+// original start and must not be re-validated against its (possibly older)
+// checkpoint context.
+func (e *Engine) loadOrInitState(g *graph.Graph) (state *runState, fresh bool, err error) {
 	ckpt, err := e.loadCheckpoint()
 	if err == nil && ckpt != nil {
 		ctx := NewContext()
@@ -257,11 +286,11 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 			retries:             ckpt.NodeRetries,
 			visits:              map[string]int{},
 			shouldSkipCompleted: true,
-		}, nil
+		}, false, nil
 	}
 	ctx := e.freshContext(g)
 	if err := e.writeManifest(g); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	return &runState{
 		cursor:       findStartNode(g),
@@ -269,7 +298,7 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (*runState, error) {
 		context:      ctx,
 		retries:      map[string]int{},
 		visits:       map[string]int{},
-	}, nil
+	}, true, nil
 }
 
 func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {

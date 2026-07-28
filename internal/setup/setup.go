@@ -32,10 +32,11 @@ type Options struct {
 	Cwd string
 }
 
-// Prepare parses, validates, transforms, and lints the pipeline source
-// into a PreparedGraph. Errors cover parse/build failures, missing
-// declared vars, transform failures (e.g. a missing @file), and lint
-// errors.
+// Prepare parses, transforms, and lints the pipeline source into a
+// PreparedGraph. Errors cover parse/build failures, transform failures
+// (e.g. a missing @file), and lint errors. The `vars=` input contract is
+// validated at run-start against the seeded context by the engine, not
+// here (spec §"Locked decisions" 6), so every run path validates once.
 func Prepare(o Options) (*engine.PreparedGraph, error) {
 	file, err := dot.Parse(o.Source)
 	if err != nil {
@@ -44,9 +45,6 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 	g, err := graph.Build(file)
 	if err != nil {
 		return nil, fmt.Errorf("build: %w", err)
-	}
-	if err := RequireDeclaredVars(g, o.Vars); err != nil {
-		return nil, err
 	}
 	if o.Cwd != "" && g.Attrs["cwd"] == "" {
 		g.Attrs["cwd"] = o.Cwd
@@ -59,25 +57,7 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 
 // DeclaredVars returns the names listed in the graph's `vars` attribute.
 // Delegates to graph.Graph.DeclaredVars — kept here as the name callers
-// (RequireDeclaredVars, manager_loop's child prepare) already use.
+// (manager_loop's child prepare) already use.
 func DeclaredVars(g *graph.Graph) []string {
 	return g.DeclaredVars()
-}
-
-// RequireDeclaredVars checks that every name listed in the graph's
-// `vars` attribute has a corresponding entry in supplied. Missing vars
-// are a hard error so a pipeline doesn't silently run with empty
-// substitutions.
-func RequireDeclaredVars(g *graph.Graph, supplied map[string]string) error {
-	declared := DeclaredVars(g)
-	var missing []string
-	for _, name := range declared {
-		if _, ok := supplied[name]; !ok {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return fmt.Errorf("pipeline declares vars %v but missing values for %v", declared, missing)
 }

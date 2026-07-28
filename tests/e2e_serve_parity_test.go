@@ -117,8 +117,10 @@ func TestServe_SubmitCwdSetsGraphDefault(t *testing.T) {
 	}
 }
 
-// TestServe_SubmitMissingDeclaredVar rejects a submission whose declared
-// vars are not all supplied, matching the CLI's hard error.
+// TestServe_SubmitMissingDeclaredVar accepts a submission whose declared
+// vars are unsupplied, then fails the run at start naming the missing key
+// — the `vars=` contract is validated at run-start against the seeded
+// context, not at submit time (spec locked-decision 6, C3).
 func TestServe_SubmitMissingDeclaredVar(t *testing.T) {
 	srv, _ := newTestServerWithLogs(t, server.DefaultHandlers(handler.Codergen{}))
 	dot := `digraph p {
@@ -128,11 +130,17 @@ func TestServe_SubmitMissingDeclaredVar(t *testing.T) {
 		done [shape=Msquare]
 		start -> work -> done
 	}`
-	body, _ := json.Marshal(map[string]any{"dot": dot})
-	resp, err := http.Post(srv.URL()+"/pipelines", "application/json", bytes.NewReader(body))
+	id := submitJSON(t, srv, map[string]any{"dot": dot})
+	waitForRunStatus(t, srv, id, "failed")
+
+	resp, err := http.Get(srv.URL() + "/pipelines/" + id)
 	must(t, err)
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("missing declared var: status=%d, want 422", resp.StatusCode)
+	var summary struct {
+		FailureReason string `json:"failure_reason"`
+	}
+	must(t, json.NewDecoder(resp.Body).Decode(&summary))
+	if !strings.Contains(summary.FailureReason, "epic_id") {
+		t.Fatalf("failure reason %q does not name the missing var epic_id", summary.FailureReason)
 	}
 }
