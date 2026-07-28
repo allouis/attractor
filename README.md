@@ -54,7 +54,7 @@ values written by earlier nodes resolve. An undefined key **fails the
 node** (`unresolved $context.foo`). `$goal` is the one built-in (sugar
 for `$context.graph.goal`); `$$` is a literal `$`; every other `$`
 (shell `$HOME`, `$(…)`, prose) passes through untouched. Full model:
-[context-interpolation-spec](./docs/context-interpolation-spec.md).
+[context-interpolation-spec](./docs/spec/amendments/context-interpolation.md).
 
 **Backends.** Without `--backend`, each codergen node picks a backend
 from the provider config (`~/.attractor/config.toml`, overlaid by
@@ -92,13 +92,13 @@ run-data layout: [service-spec](./docs/service-spec.md).
 
 | Doc | Covers |
 |---|---|
-| [attractor-spec](./docs/attractor-spec.md) | canonical pipeline / engine spec |
-| [context-interpolation-spec](./docs/context-interpolation-spec.md) | `$context.*` runtime interpolation model |
+| [attractor-spec](./docs/spec/attractor.md) | canonical pipeline / engine spec |
+| [context-interpolation-spec](./docs/spec/amendments/context-interpolation.md) | `$context.*` runtime interpolation model |
 | [codergen-backends-spec](./docs/codergen-backends-spec.md) | Claude Code / agent CLI integration |
 | [acp-backend](./docs/acp-backend.md) | ACP backend, token usage, stall watchdog |
 | [provider-config](./docs/provider-config.md) | per-node backend / model routing |
 | [service-spec](./docs/service-spec.md) | HTTP server + automations |
-| [router-spec](./docs/router-spec.md) | work routing via inline sub-pipelines |
+| [router-spec](./docs/spec/amendments/routing.md) | work routing via inline sub-pipelines |
 | [items-spec](./docs/items-spec.md) | work items (GitHub / Linear intake) |
 | [tui-spec](./docs/tui-spec.md) | terminal UI |
 

@@ -1,0 +1,22 @@
+# Spec amendments
+
+[`../attractor.md`](../attractor.md) is the **pristine upstream Attractor
+spec**, kept verbatim. This implementation deviates from it in a few
+deliberate, documented places. Each amendment below says what the core
+spec states, what we do instead, and why — and which spec §§ it touches.
+
+Everything not listed here follows `../attractor.md` unchanged.
+
+| Amendment | Amends (attractor.md) | Summary |
+|---|---|---|
+| [context-interpolation.md](./context-interpolation.md) | §4.5 (variable expansion), §9.2 (transforms) | Prompt/`tool_command` interpolation is **runtime `$context.<key>`** from the live context (§4.5's `expand_variables(prompt, graph, context)`), not a prepare-time `$var` transform. `$goal` kept as the one built-in; undefined keys fail the node. One deviation: `tool_command` context expansion (spec expands only the prompt). |
+| [routing.md](./routing.md) | §4.11 (manager loop), §5.1 (context), §9.4 (sub-pipeline nodes), node/graph attr table | Work **routing** is inline sub-pipelines: `stack.manager_loop` with per-node `stack.child_dotfile`/`child_workdir`, seeding the child's initial context (§5.1 seeded context), routed by conditional edges over static manager-loop nodes. Adds the `stack.child.var.*` attr. No `dispatch` node / `Runner` seam. |
+| *`output_key`* (attr) — see [../../review-pipeline-spec.md](../../review-pipeline-spec.md) | node/graph attr table | New codergen node attr: capture the full response into `context_updates[output_key]` (used by the multi-lens review to aggregate lens findings via `parallel.results`). |
+
+## Feature designs (not amendments)
+
+Docs that describe additions *layered on top of* the engine — not
+deviations from the spec — live in `docs/` (not here): `items-spec.md`
+(GitHub/Linear work intake), `review-pipeline-spec.md`, `service-spec.md`
+(HTTP daemon + automations), `provider-config.md`, `tui-spec.md`,
+`code-split-spec.md`.

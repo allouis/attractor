@@ -23,7 +23,7 @@ You browse Items pulled live from a Source (PRs assigned to you,
 Linear issues), pick one, and it's dispatched to a workflow — a PR to
 `review`, an issue to `implement`/`bug-fix`. A router run may run the
 chosen work pipeline **inline** as a sub-pipeline (see
-`docs/router-spec.md`); it is not a separate run.
+`docs/spec/amendments/routing.md`); it is not a separate run.
 
 ## Ubiquitous language
 
@@ -40,7 +40,7 @@ chosen work pipeline **inline** as a sub-pipeline (see
 - **Dispatch** — starting a Run for a given (pipeline, vars,
   item_ref). The single admission point; a human pick, a static rule,
   and a router workflow all funnel through it.
-- **Runner** — *(superseded — see `docs/router-spec.md`)* originally a
+- **Runner** — *(superseded — see `docs/spec/amendments/routing.md`)* originally a
   seam a dispatch node called to start a first-class child Run. The
   Phase-2 redesign runs work pipelines **inline** as sub-pipelines, so
   no such seam exists.
@@ -55,7 +55,7 @@ chosen work pipeline **inline** as a sub-pipeline (see
 ### LOCKED
 
 > **Phase-2 redesign note.** Decisions **4, 6, 7** below are
-> **superseded** by `docs/router-spec.md`: routing runs the chosen work
+> **superseded** by `docs/spec/amendments/routing.md`: routing runs the chosen work
 > pipeline **inline** as a sub-pipeline (attractor-spec §9.4 /
 > `stack.manager_loop`), not via a `dispatch` node + `Runner` seam. The
 > intake spine (1, 2, 3, 5, 8–11) stands. Each superseded decision is
@@ -72,7 +72,7 @@ chosen work pipeline **inline** as a sub-pipeline (see
    Linear states) drive *filtering*; triage is a *dispatch-time
    decision*, not stored state.
 4. **Routing = a workflow (router graph).** ⚠ *Superseded in shape by
-   `docs/router-spec.md`.* The router is itself a workflow: static
+   `docs/spec/amendments/routing.md`.* The router is itself a workflow: static
    conditional nodes (is it a PR? → review) with an agent-node fallback
    for the ambiguous cases. **Original terminal action:** a dispatch
    node. **Now:** conditional edges select among static
@@ -84,13 +84,13 @@ chosen work pipeline **inline** as a sub-pipeline (see
    is a **thin client that requires a running daemon** (submits +
    streams via `internal/client`); no daemon → clean error. No
    ephemeral in-process core, no run/serve unification needed.
-6. ⚠ **Superseded — no `Runner` seam** (`docs/router-spec.md`). The
+6. ⚠ **Superseded — no `Runner` seam** (`docs/spec/amendments/routing.md`). The
    original design added an `engine`-defined `Runner` interface,
    implemented by the registry, injected into `HandlerEnv`, so a
    dispatch node could start a first-class child run. The inline model
    needs none of this: `stack.manager_loop` runs the child within
    `engine`, no server import, no seam.
-7. ⚠ **Superseded — no dispatch node** (`docs/router-spec.md`). The
+7. ⚠ **Superseded — no dispatch node** (`docs/spec/amendments/routing.md`). The
    original node was **fire-and-forget** and produced a first-class
    child run via `Runner.Submit`. **Now:** the router uses
    `stack.manager_loop`, which runs its child **inline** and supervises
@@ -133,7 +133,7 @@ chosen work pipeline **inline** as a sub-pipeline (see
       routing.**
     - **v2 routing** reuses the *same* `POST /items/run` — the caller
       supplies `router` as the pipeline and the router workflow picks the
-      real workflow automatically (see `docs/router-spec.md`). *No
+      real workflow automatically (see `docs/spec/amendments/routing.md`). *No
       separate `/items/dispatch` endpoint* — routing is a pipeline
       choice, not a new admission point.
     - The TUI adds an **Items view** (toggle from Runs): source picker,
@@ -169,7 +169,7 @@ fate (rebase vs redo) is undecided; skip it until then.
 ## Phase 2 — Workflow dispatch (routing)
 
 Now attractor picks the workflow *for* you. **Full design:
-`docs/router-spec.md`.** In short:
+`docs/spec/amendments/routing.md`.** In short:
 
 - **The router is just a pipeline.** Static conditionals (is it a PR? →
   review) + agent fallback → a routing decision; "needs design" as an
@@ -206,7 +206,7 @@ Now attractor picks the workflow *for* you. **Full design:
   running a child **inline**. The work is nested inside the router run
   (one registry run per dispatch), visible via `stack.child.*`
   telemetry; the UI surfaces the deepest executing graph as the run
-  name. See `docs/router-spec.md`.
+  name. See `docs/spec/amendments/routing.md`.
 
 ## Code layout
 

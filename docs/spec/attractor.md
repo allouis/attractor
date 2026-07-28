@@ -162,7 +162,6 @@ Graph attributes are declared in a `graph [ ... ]` block or as top-level `key = 
 | `reasoning_effort`  | String   | `"high"`        | LLM reasoning effort: `low`, `medium`, `high`. |
 | `auto_status`       | Boolean  | `false`         | If `true` and the handler writes no status, the engine auto-generates a SUCCESS outcome. |
 | `allow_partial`     | Boolean  | `false`         | Accept PARTIAL_SUCCESS when retries are exhausted instead of failing. |
-| `output_key`        | String   | `""`            | If set, the node's full untruncated response is written to `context_updates[<output_key>]` (alongside the truncated `last_response`), without clobbering keys the node's own status.json already set. Inside a `parallel` branch it lands in that branch's `parallel.results` entry. |
 
 The external DOT attribute name is `type`. Implementations may use an internal field name such as `node_type` to avoid reserved-word conflicts, but the externally visible behavior must remain identical.
 
@@ -705,9 +704,7 @@ CodergenHandler:
         RETURN outcome
 ```
 
-**Variable expansion:** `expand_variables` resolves `$context.<dotted.key>` placeholders against the **live context** at execute time (spec §5.1) — so both seeded inputs and values written by earlier nodes resolve. The key is looked up exactly in the flat context store (`$context.pr_number`, `$context.stack.child.status`). `$goal` is the one built-in, sugar for `$context.graph.goal` (the graph `goal` is mirrored into context at run start). An undefined key **fails the node**, naming it (`unresolved $context.foo`) — `$context.` is distinctive syntax, so a fail-fast beats passing a mangled value downstream. `$$` is a literal `$`; every other `$` (shell `$HOME`, `$(…)`, literal prose) passes through untouched. This is simple substitution, not a templating engine.
-
-The same `$context.*` expansion applies to a `tool` node's `tool_command` before `/bin/sh -c`, shell-safe (only `$context.*` is touched). This is the one documented deviation from the core model, which expands only the codergen prompt.
+**Variable expansion:** The only built-in template variable is `$goal`, which resolves to the graph-level `goal` attribute. Variable expansion is simple string replacement, not a templating engine.
 
 **Status file:** The handler writes `status.json` in the stage directory with the Outcome fields serialized as JSON. This file serves as an audit trail and enables the status-file contract: external tools or agents can write `status.json` to communicate outcomes back to the engine.
 
@@ -921,16 +918,6 @@ ToolHandler:
 
 Orchestrates sprint-based iteration by supervising a child pipeline. The manager observes the child's telemetry, evaluates progress via a guard function, and optionally steers the child through intervention.
 
-> **Extension (see `docs/router-spec.md`).** `stack.child_dotfile` /
-> `stack.child_workdir` may also be set as **node** attrs (node value
-> wins, graph attr is the fallback), so multiple manager-loop nodes can
-> coexist in one graph — the basis for *routing*: conditional edges
-> (§10) select among static manager-loop nodes, one per target pipeline.
-> A manager loop may source its child's prepare-time `$vars` from the run
-> context (see §5.1's seeded initial context): for each name in the
-> child's `vars=` declaration it reads the value from context, and a
-> per-node `stack.child.var.<name>` attr overrides that context value.
-
 ```
 ManagerLoopHandler:
     FUNCTION execute(node, context, graph, logs_root) -> Outcome:
@@ -1057,16 +1044,6 @@ Context:
             values[key] = value
         RELEASE write lock
 ```
-
-> **Extension (see `docs/router-spec.md`).** A run may be started with a
-> **seeded initial context** — the daemon applies a caller-supplied map
-> to the context before the start node runs, via the same `apply_updates`
-> used for checkpoint restore. For an Item run (`POST /items/run`) the map
-> is the Item's `Vars` under their plain names (`repo`, `pr_number`, …)
-> plus the Ref-derived keys `item.type`, `item.source`, `item.id`. These
-> are **daemon-seeded, not engine-set**; they let external inputs drive
-> conditional edges at runtime (the router branches on `item.type`) and be
-> handed to an inline child pipeline as its prepare-time `$vars`.
 
 **Built-in context keys set by the engine:**
 
@@ -1570,10 +1547,16 @@ FUNCTION prepare_pipeline(dot_source):
 
 ### 9.2 Built-In Transforms
 
-**Variable Expansion Transform:** *Superseded.* Prompt/attr variable
-expansion happens at **execute time** against the live context (§4.5,
-`$context.*` / `$goal`), not as a prepare-time transform. No prepare-time
-variable-expansion transform runs.
+**Variable Expansion Transform:** Expands `$goal` in node `prompt` attributes to the graph-level `goal` attribute value.
+
+```
+VariableExpansionTransform:
+    FUNCTION apply(graph) -> Graph:
+        FOR EACH node IN graph.nodes:
+            IF node.prompt contains "$goal":
+                node.prompt = replace(node.prompt, "$goal", graph.goal)
+        RETURN graph
+```
 
 **Stylesheet Application Transform:** Applies the `model_stylesheet` to resolve `llm_model`, `llm_provider`, and `reasoning_effort` for each node. See Section 8 for details.
 
@@ -1599,7 +1582,7 @@ Custom transforms run after built-in transforms. Order of custom transforms foll
 
 Attractor supports combining multiple DOT graphs through:
 
-**Sub-pipeline nodes:** A node whose handler runs an entire sub-graph as its execution. The manager loop handler (Section 4.11) is an example of this pattern. Work routing is built on this primitive — a router graph selects among static manager-loop nodes with conditional edges; see `docs/router-spec.md`.
+**Sub-pipeline nodes:** A node whose handler runs an entire sub-graph as its execution. The manager loop handler (Section 4.11) is an example of this pattern.
 
 **Graph merging (via transform):** A custom transform can merge nodes and edges from one graph into another, enabling modular pipeline definitions.
 
@@ -2011,9 +1994,8 @@ ASSERT "review" IN checkpoint.completed_nodes
 | `default_fidelity`      | String   | `""`    | Default context fidelity mode when explicitly set. Empty string means unset; runtime fallback is `compact`. |
 | `retry_target`          | String   | `""`    | Node to jump to on unsatisfied exit |
 | `fallback_retry_target` | String   | `""`    | Secondary jump target |
-| `stack.child_dotfile`   | String   | `""`    | Path to child DOT file for supervision. Also settable per-node (node wins); see §4.11 / `docs/router-spec.md`. |
-| `stack.child_workdir`   | String   | cwd     | Working directory for child run. Also settable per-node. |
-| `stack.child.var.*`     | String   | context | Per-node override for a child prepare-time `$var`; wins over the context value of the same name. See §4.11 / `docs/router-spec.md`. |
+| `stack.child_dotfile`   | String   | `""`    | Path to child DOT file for supervision |
+| `stack.child_workdir`   | String   | cwd     | Working directory for child run |
 | `tool_hooks.pre`        | String   | `""`    | Shell command before each tool call |
 | `tool_hooks.post`       | String   | `""`    | Shell command after each tool call |
 

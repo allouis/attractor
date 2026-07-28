@@ -10,7 +10,7 @@ Status: **ready to build** (milestone ledger below).
 
 ## What is "items" (not core)
 
-Core = the DOT engine per `docs/attractor-spec.md`: `dot`, `graph`,
+Core = the DOT engine per `docs/spec/attractor.md`: `dot`, `graph`,
 `engine`, `handler`, `backend`, `acp`, `transform`, `condition`, `render`,
 `lint`, `interviewer`, `artifact`, `setup`, `automation`, `cron`,
 `scheduler`, the `server` daemon, and the CLI.
