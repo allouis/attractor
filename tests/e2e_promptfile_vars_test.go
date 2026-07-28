@@ -203,7 +203,7 @@ func TestCLI_VarFlagAndDeclaredVarsValidation(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(tmp, "pipeline.dot"), []byte(`digraph demo {
 		vars = "epic_id"
 		start [shape=Mdiamond]
-		work [prompt="Implement $epic_id"]
+		work [prompt="Implement $context.epic_id"]
 		done [shape=Msquare]
 		start -> work -> done
 	}`), 0o644))
@@ -237,7 +237,7 @@ func TestCLI_PromptFileEndToEnd(t *testing.T) {
 	tmp := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(tmp, "prompts"), 0o755))
 	must(t, os.WriteFile(filepath.Join(tmp, "prompts", "plan.md"),
-		[]byte("Plan: $task"), 0o644))
+		[]byte("Plan: $context.task"), 0o644))
 	must(t, os.WriteFile(filepath.Join(tmp, "pipeline.dot"), []byte(`digraph demo {
 		vars = "task"
 		start [shape=Mdiamond]

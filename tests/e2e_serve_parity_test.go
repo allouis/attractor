@@ -46,15 +46,15 @@ func submitJSON(t *testing.T, srv *server.Server, payload map[string]any) string
 	return out.ID
 }
 
-// TestServe_SubmitJSONExpandsVars confirms the serve path runs the same
-// VariableExpansion transform as the CLI: $vars from the payload land in
-// the rendered prompt.
+// TestServe_SubmitJSONExpandsVars confirms the serve path seeds submitted
+// vars into the run context like the CLI: $context.<var> from the payload
+// lands in the rendered prompt at runtime.
 func TestServe_SubmitJSONExpandsVars(t *testing.T) {
 	srv, logsRoot := newTestServerWithLogs(t, server.DefaultHandlers(handler.Codergen{}))
 	dot := `digraph p {
 		vars = "epic_id"
 		start [shape=Mdiamond]
-		work [prompt="Implement $epic_id"]
+		work [prompt="Implement $context.epic_id"]
 		done [shape=Msquare]
 		start -> work -> done
 	}`
@@ -126,7 +126,7 @@ func TestServe_SubmitMissingDeclaredVar(t *testing.T) {
 	dot := `digraph p {
 		vars = "epic_id"
 		start [shape=Mdiamond]
-		work [prompt="Implement $epic_id"]
+		work [prompt="Implement $context.epic_id"]
 		done [shape=Msquare]
 		start -> work -> done
 	}`
