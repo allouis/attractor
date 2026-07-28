@@ -130,14 +130,17 @@ chosen work pipeline **inline** as a sub-pipeline (see
       *human* supplies the workflow and repo; the daemon resolves the
       item → vars, repo → `cwd`, stamps `item_ref`, starts a run. **No
       routing.**
-    - **v2** `POST /items/dispatch {item_ref}` → *routes* (static map,
-      then router workflow) to pick the workflow automatically.
+    - **v2 routing** reuses the *same* `POST /items/run` — the caller
+      supplies `router` as the pipeline and the router workflow picks the
+      real workflow automatically (see `docs/router-spec.md`). *No
+      separate `/items/dispatch` endpoint* — routing is a pipeline
+      choice, not a new admission point.
     - The TUI adds an **Items view** (toggle from Runs): source picker,
-      "assigned to me" filter, in-progress badge, **pick → dispatch**.
-      Dispatched runs appear in the Runs view; item↔runs linkable. CLI
-      clients (`attractor items list|dispatch`) fall out via
-      `internal/client`. Visual design of the view is build-time, not
-      spec'd here.
+      "assigned to me" filter, in-progress badge, **pick → run** (choose
+      a pipeline, or `router` to auto-route). Runs appear in the Runs
+      view; item↔runs linkable. CLI clients (`attractor items
+      list|run`) fall out via `internal/client`. Visual design of the
+      view is build-time, not spec'd here.
 
 ## Phase 1 — MVP: run an item with a chosen workflow
 
@@ -167,18 +170,21 @@ fate (rebase vs redo) is undecided; skip it until then.
 Now attractor picks the workflow *for* you. **Full design:
 `docs/router-spec.md`.** In short:
 
-- **Router graph** — static conditionals (is it a PR? → review) + agent
-  fallback → a routing decision; "needs design" as an outcome surfaced
-  to the human. Conditional edges select among static
+- **The router is just a pipeline.** Static conditionals (is it a PR? →
+  review) + agent fallback → a routing decision; "needs design" as an
+  outcome surfaced to the human. Conditional edges select among static
   `stack.manager_loop` nodes (one per target pipeline).
+- **Run it through the existing `POST /items/run`** — no new endpoint.
+  You pick `router` as the pipeline instead of picking `review`
+  directly; the router makes the work-pipeline choice. A client that
+  wants "just route it" defaults the pipeline field to `router`.
 - **`stack.manager_loop` enhancements** — child selection as a node
-  attr, child vars pulled from context at prepare, cancel-on-early-
-  return. The chosen work pipeline runs **inline** as a sub-pipeline
-  (attractor-spec §9.4) — no dispatch node, no `Runner` seam, no
-  first-class child run.
-- **`POST /items/dispatch {item_ref}`** — the routed counterpart of
-  `/items/run`: seeds the item vars into the router run's initial
-  context, stamps `item_ref`, starts the router graph.
+  attr, child vars pulled from context at prepare. The chosen work
+  pipeline runs **inline** as a sub-pipeline (attractor-spec §9.4) — no
+  dispatch node, no `Runner` seam, no first-class child run.
+- **Submit seeds context** — `/items/run` seeds the Item's vars +
+  `item.type`/`item.source` into the run's initial context so the
+  router's conditional edges can branch at runtime.
 
 ## Later (designed, not scheduled)
 
