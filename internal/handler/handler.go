@@ -10,6 +10,7 @@ import (
 
 	"github.com/allouis/attractor/internal/backend"
 	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/interviewer"
 )
 
@@ -87,14 +88,10 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	if h.Backend == nil {
 		response := "[simulated] " + env.Node.ID
 		_ = os.WriteFile(filepath.Join(stageDir, "response.md"), []byte(response), 0o644)
-		updates := map[string]string{
-			"last_stage":    env.Node.ID,
-			"last_response": truncate(response, 200),
-		}
 		return engine.Outcome{
 			Status:         engine.StatusSuccess,
 			Notes:          "Stage completed (simulated): " + env.Node.ID,
-			ContextUpdates: updates,
+			ContextUpdates: applyDefaults(nil, env.Node, response),
 		}
 	}
 
@@ -113,26 +110,31 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 		// Status-file contract: agent self-reported its outcome.
 		// Merge in the routing baggage so the engine still sees last_stage
 		// and last_response in context.
-		if oc.ContextUpdates == nil {
-			oc.ContextUpdates = map[string]string{}
-		}
-		if _, set := oc.ContextUpdates["last_stage"]; !set {
-			oc.ContextUpdates["last_stage"] = env.Node.ID
-		}
-		if _, set := oc.ContextUpdates["last_response"]; !set {
-			oc.ContextUpdates["last_response"] = truncate(response, 200)
-		}
+		oc.ContextUpdates = applyDefaults(oc.ContextUpdates, env.Node, response)
 		return oc
 	}
 
-	updates := map[string]string{
-		"last_stage":    env.Node.ID,
-		"last_response": truncate(response, 200),
-	}
 	return engine.Outcome{
 		Status:         engine.StatusSuccess,
 		Notes:          "Stage completed: " + env.Node.ID,
-		ContextUpdates: updates,
+		ContextUpdates: applyDefaults(nil, env.Node, response),
+	}
+}
+
+// applyDefaults fills the routing baggage (last_stage, last_response) into
+// updates without clobbering keys the agent already set via its status.json.
+func applyDefaults(updates map[string]string, node *graph.Node, response string) map[string]string {
+	if updates == nil {
+		updates = map[string]string{}
+	}
+	setIfAbsent(updates, "last_stage", node.ID)
+	setIfAbsent(updates, "last_response", truncate(response, 200))
+	return updates
+}
+
+func setIfAbsent(m map[string]string, key, value string) {
+	if _, ok := m[key]; !ok {
+		m[key] = value
 	}
 }
 
