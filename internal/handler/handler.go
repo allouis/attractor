@@ -121,14 +121,18 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 }
 
-// applyDefaults fills the routing baggage (last_stage, last_response) into
-// updates without clobbering keys the agent already set via its status.json.
+// applyDefaults fills the routing baggage (last_stage, last_response) and,
+// when the node sets output_key, the node's full untruncated response — all
+// without clobbering keys the agent already set via its status.json.
 func applyDefaults(updates map[string]string, node *graph.Node, response string) map[string]string {
 	if updates == nil {
 		updates = map[string]string{}
 	}
 	setIfAbsent(updates, "last_stage", node.ID)
 	setIfAbsent(updates, "last_response", truncate(response, 200))
+	if key := node.OutputKey(); key != "" {
+		setIfAbsent(updates, key, response)
+	}
 	return updates
 }
 
