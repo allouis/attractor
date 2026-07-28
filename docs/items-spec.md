@@ -14,15 +14,16 @@ yourself ("run *this* with *that*").
 ## Shape
 
 ```
-Source ──fetch──▶ Item ──dispatch──▶ Run ──(dispatch node)──▶ Run …
-(GitHub,          (live            (first-class,
- Linear)          projection)       registry-tracked)
+Source ──fetch──▶ Item ──dispatch──▶ Run  (router graph may run
+(GitHub,          (live            (one     a work pipeline inline
+ Linear)          projection)       run)    as a sub-pipeline)
 ```
 
 You browse Items pulled live from a Source (PRs assigned to you,
 Linear issues), pick one, and it's dispatched to a workflow — a PR to
-`review`, an issue to `implement`/`bug-fix`. A run may itself dispatch
-further runs (a router run → a work run).
+`review`, an issue to `implement`/`bug-fix`. A router run may run the
+chosen work pipeline **inline** as a sub-pipeline (see
+`docs/router-spec.md`); it is not a separate run.
 
 ## Ubiquitous language
 
@@ -39,9 +40,10 @@ further runs (a router run → a work run).
 - **Dispatch** — starting a Run for a given (pipeline, vars,
   item_ref). The single admission point; a human pick, a static rule,
   and a router workflow all funnel through it.
-- **Runner** — the seam a dispatch node calls to start a Run:
-  `Submit(pipeline, vars, item_ref) → run handle`. Implemented by the
-  daemon's registry.
+- **Runner** — *(superseded — see `docs/router-spec.md`)* originally a
+  seam a dispatch node called to start a first-class child Run. The
+  Phase-2 redesign runs work pipelines **inline** as sub-pipelines, so
+  no such seam exists.
 - **Router** (later) — a workflow that reads an Item and *emits a
   routing decision* (which workflow, or "needs design"). Not a stored
   status — a dispatch-time decision.
@@ -51,6 +53,13 @@ further runs (a router run → a work run).
 ## Decisions
 
 ### LOCKED
+
+> **Phase-2 redesign note.** Decisions **4, 6, 7** below are
+> **superseded** by `docs/router-spec.md`: routing runs the chosen work
+> pipeline **inline** as a sub-pipeline (attractor-spec §9.4 /
+> `stack.manager_loop`), not via a `dispatch` node + `Runner` seam. The
+> intake spine (1, 2, 3, 5, 8–11) stands. Each superseded decision is
+> annotated inline.
 
 1. **Items are live projections, never stored.** No item store, no
    sync/dedup problem. Identity `(source, type, external-id)`.
@@ -62,34 +71,35 @@ further runs (a router run → a work run).
    are never fields attractor stores. Source-side signals (labels,
    Linear states) drive *filtering*; triage is a *dispatch-time
    decision*, not stored state.
-4. **Routing = a dispatch node inside the workflow model.** The router
-   is itself a workflow: static conditional nodes (is it a PR? →
-   review) with an agent-node fallback for the ambiguous cases; its
-   terminal action is a **dispatch node**. "Needs design" is a routing
-   outcome (surface to human), never a stored status.
+4. **Routing = a workflow (router graph).** ⚠ *Superseded in shape by
+   `docs/router-spec.md`.* The router is itself a workflow: static
+   conditional nodes (is it a PR? → review) with an agent-node fallback
+   for the ambiguous cases. **Original terminal action:** a dispatch
+   node. **Now:** conditional edges select among static
+   `stack.manager_loop` nodes (one per target pipeline), each running
+   its child **inline**. "Needs design" is a routing outcome (surface to
+   human), never a stored status.
 5. **Execution is daemon-only.** `attractor serve` (the registry +
    queue + scheduler) is the one execution substrate. `attractor run`
    is a **thin client that requires a running daemon** (submits +
    streams via `internal/client`); no daemon → clean error. No
    ephemeral in-process core, no run/serve unification needed.
-6. **The dispatch node works via a `Runner` seam** — an interface
-   defined in `engine` (no import cycle), implemented by the registry,
-   injected into `HandlerEnv` by the daemon. Because every run
-   executes inside the daemon, a dispatch node always has the registry
-   in-process — no standalone/served asymmetry.
-7. **Dispatch node contract**: it behaves like any node —
-   **fire-and-forget** (calls `Runner.Submit`, does not wait), returns
-   SUCCESS with `ContextUpdates = {dispatched.run_id,
-   dispatched.pipeline, …}` so downstream **edge conditions** can
-   branch on it (prompts can't read runtime context — only prepare-time
-   `-var`s — so the handoff is via conditions/context, not prompt
-   interpolation). Reads its target pipeline from a node attr
-   (`dispatch.pipeline`) or a context var (so a router agent can set
-   it); auto-inherits `item_ref` from the parent run; passes vars from
-   attrs/context. Waiting/supervising a child stays `stack.manager_loop`'s
-   job. (A `tool` node shelling `attractor run --detach` is a valid
-   *prototype* but not the shipped path — shell-quoting item data +
-   subprocess-self-HTTP is friction the in-process node avoids.)
+6. ⚠ **Superseded — no `Runner` seam** (`docs/router-spec.md`). The
+   original design added an `engine`-defined `Runner` interface,
+   implemented by the registry, injected into `HandlerEnv`, so a
+   dispatch node could start a first-class child run. The inline model
+   needs none of this: `stack.manager_loop` runs the child within
+   `engine`, no server import, no seam.
+7. ⚠ **Superseded — no dispatch node** (`docs/router-spec.md`). The
+   original node was **fire-and-forget** and produced a first-class
+   child run via `Runner.Submit`. **Now:** the router uses
+   `stack.manager_loop`, which runs its child **inline** and supervises
+   it (so a router *can* branch on the child's failure). The prepare-
+   time-var constraint still holds — prompts/attrs can't read runtime
+   context — and is honoured by `manager_loop` feeding the child its
+   `-var`s from context at child-prepare (see router-spec §"Child
+   pipeline gets its vars from context"). `item_ref` stays on the router
+   run only; the engine never touches it.
 
 8. **Sources are pull/on-demand in v1** (fetch when the list opens or
    refreshes; webhooks are the later automated-trigger layer). A
@@ -131,7 +141,7 @@ further runs (a router run → a work run).
 
 ## Phase 1 — MVP: run an item with a chosen workflow
 
-**No routing, no dispatch node, no `Runner` seam.** You pick the item,
+**No routing, no sub-pipeline dispatch.** You pick the item,
 the workflow, and the repo; the daemon just starts the run. This
 validates the whole spine (item ↔ run link, item data → workflow, repo
 selection) with the least machinery.
@@ -154,14 +164,21 @@ fate (rebase vs redo) is undecided; skip it until then.
 
 ## Phase 2 — Workflow dispatch (routing)
 
-Now attractor picks the workflow *for* you:
+Now attractor picks the workflow *for* you. **Full design:
+`docs/router-spec.md`.** In short:
 
-- **Dispatch node + `Runner` seam** — workflow-driven run creation.
-- **Router workflow** — static conditionals (is it a PR? → review) +
-  agent fallback → a routing decision; "needs design" as an outcome
-  surfaced to the human.
+- **Router graph** — static conditionals (is it a PR? → review) + agent
+  fallback → a routing decision; "needs design" as an outcome surfaced
+  to the human. Conditional edges select among static
+  `stack.manager_loop` nodes (one per target pipeline).
+- **`stack.manager_loop` enhancements** — child selection as a node
+  attr, child vars pulled from context at prepare, cancel-on-early-
+  return. The chosen work pipeline runs **inline** as a sub-pipeline
+  (attractor-spec §9.4) — no dispatch node, no `Runner` seam, no
+  first-class child run.
 - **`POST /items/dispatch {item_ref}`** — the routed counterpart of
-  `/items/run`.
+  `/items/run`: seeds the item vars into the router run's initial
+  context, stamps `item_ref`, starts the router graph.
 
 ## Later (designed, not scheduled)
 
@@ -176,6 +193,9 @@ Now attractor picks the workflow *for* you:
   work) — it's the same submit+stream a TUI/API client does.
 - Backend selection is the daemon's (provider-config router), not a
   per-invocation flag, since runs go through the daemon.
-- The dispatch node is the composition primitive attractor lacked
-  (no graph import; `stack.manager_loop`'s child is inline/invisible).
-  It produces first-class, registry-tracked child runs.
+- Routing reuses attractor's existing composition primitive — the
+  **sub-pipeline node** (attractor-spec §9.4), i.e. `stack.manager_loop`
+  running a child **inline**. The work is nested inside the router run
+  (one registry run per dispatch), visible via `stack.child.*`
+  telemetry; the UI surfaces the deepest executing graph as the run
+  name. See `docs/router-spec.md`.
