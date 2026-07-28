@@ -1,4 +1,5 @@
-// implement — build the change an Issue asks for (router-spec R6).
+// implement — build the change an Issue asks for (router-spec R6),
+// gated by a self-review (review-pipeline-spec RV4).
 //
 // The router's `issue` target: stack.manager_loop runs this child inline
 // and sources its declared vars from context (router-spec R3). It also
@@ -9,6 +10,17 @@
 //
 // These are exactly the vars a Linear issue Item supplies
 // (internal/source/linear.go), plus `repo` from the run request.
+//
+// After the agent implements, `review_loop` runs the shared multi-lens
+// review-core sub-pipeline inline via stack.manager_loop, seeding its one
+// input — diff_cmd = `jj diff` — so the five lenses review the agent's own
+// uncommitted work. review-core's synth verdict becomes the loop's outcome:
+// a FAIL routes back to `implement` (re-review, bounded by max_node_visits),
+// a PASS exits. The agent must pass its own review before the run finishes.
+//
+// Note: on a re-review the manager_loop child resumes its checkpoint, so the
+// SUCCESS-class lenses are cached and only synth re-runs — a fresh fan-out
+// per attempt needs a manager_loop that restarts its child (future work).
 digraph implement {
     goal = "Implement issue $context.identifier — \"$context.title\" — in $context.repo"
     vars = "repo,identifier,url,title"
@@ -18,8 +30,14 @@ digraph implement {
 
     implement [timeout="120m", prompt="@prompts/implement.md"]
 
+    review_loop [type="stack.manager_loop",
+                 stack.child_dotfile="../review-core/pipeline.dot",
+                 stack.child.var.diff_cmd="jj diff"]
+
     done [shape=Msquare]
 
     start -> implement
-    implement -> done
+    implement -> review_loop
+    review_loop -> implement [condition="outcome=fail", label="Address findings"]
+    review_loop -> done      [condition="outcome=success"]
 }
