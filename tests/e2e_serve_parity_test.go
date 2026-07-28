@@ -74,7 +74,7 @@ func TestServe_SubmitJSONExpandsVars(t *testing.T) {
 // inlined relative to the submission cwd (base_dir defaults to cwd).
 func TestServe_SubmitResolvesFilePromptFromCwd(t *testing.T) {
 	repo := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(repo, "plan.md"), []byte("Plan: $task"), 0o644))
+	must(t, os.WriteFile(filepath.Join(repo, "plan.md"), []byte("Plan: $context.task"), 0o644))
 	srv, logsRoot := newTestServerWithLogs(t, server.DefaultHandlers(handler.Codergen{}))
 	dot := `digraph p {
 		vars = "task"

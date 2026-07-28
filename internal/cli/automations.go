@@ -86,7 +86,6 @@ func automationsRun(name string) error {
 	}
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  string(src),
-		Vars:    found.Vars,
 		BaseDir: filepath.Dir(dotPath),
 		Cwd:     found.Cwd,
 	})

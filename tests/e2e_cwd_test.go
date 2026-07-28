@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/allouis/attractor/internal/backend/fake"
-	"github.com/allouis/attractor/internal/cli"
 )
 
 // TestCwd_ToolRunsInGraphCwd verifies that a graph-level `cwd` attribute
@@ -55,38 +54,5 @@ func TestCwd_NodeOverridesGraph(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(string(stdout), "b") {
 		t.Fatalf("node-level cwd did not override graph cwd; stdout=%q", stdout)
-	}
-}
-
-// TestCwd_VariableExpansionAppliesToCwd verifies that --var values flow
-// into the cwd attribute. This is what the bug-fix pipeline relies on
-// to point at $repo_dir.
-func TestCwd_VariableExpansionAppliesToCwd(t *testing.T) {
-	workspace := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(workspace, "from_var.txt"), []byte("ok"), 0o644))
-
-	dotPath := filepath.Join(t.TempDir(), "pipeline.dot")
-	must(t, os.WriteFile(dotPath, []byte(`digraph t {
-		vars = "repo_dir"
-		cwd = "$repo_dir"
-		start [shape=Mdiamond]
-		probe [shape=parallelogram, tool_command="cat from_var.txt"]
-		done [shape=Msquare]
-		start -> probe -> done
-	}`), 0o644))
-
-	logsRoot := t.TempDir()
-	err := cli.Run([]string{
-		"--backend", "simulation",
-		"--logs", logsRoot,
-		"--var", "repo_dir=" + workspace,
-		dotPath,
-	})
-	must(t, err)
-
-	stdout, err := os.ReadFile(filepath.Join(logsRoot, "probe", "stdout.txt"))
-	must(t, err)
-	if !strings.Contains(string(stdout), "ok") {
-		t.Fatalf("$repo_dir didn't expand into cwd; stdout=%q", stdout)
 	}
 }

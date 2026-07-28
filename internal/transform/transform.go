@@ -9,13 +9,13 @@ type Transform interface {
 }
 
 // BuiltIn returns the parse-time transforms applied to every pipeline.
-// Order matches spec §9.2: stylesheet first so explicit overrides
-// remain authoritative, then variable expansion so $goal references can
-// land in synthesised attributes.
+// Order matches spec §9.2: stylesheet first so explicit overrides remain
+// authoritative. Variable substitution is no longer a transform — nodes
+// interpolate `$context.*`/`$goal` from the live context at runtime
+// (spec §4.5), so there is nothing to expand at parse time.
 func BuiltIn() []Transform {
 	return []Transform{
 		Stylesheet{},
-		VariableExpansion{},
 	}
 }
 

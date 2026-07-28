@@ -93,8 +93,8 @@ type PreparedGraph struct {
 
 // Prepare parses, transforms, and validates a graph for execution.
 // Extra transforms run before the built-in pipeline so caller-supplied
-// preprocessing (e.g. PromptFile, parametric VariableExpansion) is
-// authoritative — the built-in pass then handles the remainder.
+// preprocessing (e.g. PromptFile) is authoritative — the built-in pass
+// then handles the remainder.
 func Prepare(g *graph.Graph, extra ...transform.Transform) (*PreparedGraph, error) {
 	g, err := transform.Apply(g, append(append([]transform.Transform{}, extra...), transform.BuiltIn()...))
 	if err != nil {

@@ -249,14 +249,14 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 // point shared by HTTP submission (POST /pipelines), manual automation
 // triggers (POST /automations/{name}/run), and the cron scheduler, so
 // every route enqueues runs identically. @file prompts resolve against
-// cwd, $vars expand, and cwd becomes the graph-level cwd default
-// (node/graph attrs still win). itemRef, when non-nil, stamps the run
+// cwd, submitted vars seed the run context (so `$context.*` interpolates
+// at runtime), and cwd becomes the graph-level cwd default (node/graph
+// attrs still win). itemRef, when non-nil, stamps the run
 // with the external Item that spawned it (items-spec I1); automation and
 // cron callers pass nil.
 func (s *Server) submit(source string, vars map[string]string, cwd string, itemRef *engine.ItemRef) (string, error) {
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  source,
-		Vars:    vars,
 		BaseDir: cwd,
 		Cwd:     cwd,
 	})
