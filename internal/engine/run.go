@@ -120,7 +120,7 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 
 	state, fresh, err := e.loadOrInitState(g)
 	if err != nil {
-		return failOutcome(err.Error()), err
+		return e.fail(err.Error())
 	}
 
 	e.emit(Event{Kind: EventPipelineStarted, Timestamp: e.now(), RunID: e.RunID, NodeID: state.cursor})
@@ -223,7 +223,11 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 				Kind:    EventStageProgress,
 				Message: fmt.Sprintf("loop_restart: restarting at %s", next),
 			})
-			state = e.resetState(g, next)
+			var err error
+			state, err = e.resetState(g, next)
+			if err != nil {
+				return e.fail(err.Error())
+			}
 			// resetState archived the prior incarnation's logs (including
 			// events.jsonl); reopen a fresh file for the new incarnation.
 			e.openEventsFile()
@@ -288,8 +292,11 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (state *runState, fresh bool, e
 			shouldSkipCompleted: true,
 		}, false, nil
 	}
-	ctx := e.freshContext(g)
-	if err := e.writeManifest(g); err != nil {
+	ctx, err := e.freshContext(g)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := e.writeManifest(g, ctx.Get("graph.goal")); err != nil {
 		return nil, false, err
 	}
 	return &runState{
@@ -301,26 +308,38 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (state *runState, fresh bool, e
 	}, true, nil
 }
 
-func (e *Engine) resetState(g *graph.Graph, startAt string) *runState {
+func (e *Engine) resetState(g *graph.Graph, startAt string) (*runState, error) {
 	e.archiveCurrentLogs()
-	ctx := e.freshContext(g)
+	ctx, err := e.freshContext(g)
+	if err != nil {
+		return nil, err
+	}
 	return &runState{
 		cursor:       startAt,
 		nodeOutcomes: map[string]Outcome{},
 		context:      ctx,
 		retries:      map[string]int{},
 		visits:       map[string]int{},
-	}
+	}, nil
 }
 
 // freshContext builds the context for a run starting from scratch (not
 // resumed from a checkpoint): graph attrs mirrored into `graph.*`, then
 // the seeded initial values applied on top (router-spec deviation B).
-func (e *Engine) freshContext(g *graph.Graph) *Context {
+// Finally the graph goal is resolved once against the seeded context and
+// frozen into `graph.goal` (spec decision 7), so the run summary and every
+// node's `$goal` read the resolved text. An undefined key fails fast
+// (decision 4) rather than carrying a raw placeholder forward.
+func (e *Engine) freshContext(g *graph.Graph) (*Context, error) {
 	ctx := NewContext()
 	ctx.MirrorGraph(g)
 	ctx.Apply(e.initialContext)
-	return ctx
+	resolved, err := ctx.Expand(g.Goal())
+	if err != nil {
+		return nil, err
+	}
+	ctx.Set("graph.goal", resolved)
+	return ctx, nil
 }
 
 // archiveCurrentLogs moves the current run's logs subtree aside before
@@ -391,7 +410,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 	ctxValues, _ := state.context.Snapshot()
 	preamble := BuildPreamble(PreambleInput{
 		Mode:           fidelity,
-		Goal:           g.Goal(),
+		Goal:           state.context.Get("graph.goal"),
 		RunID:          e.RunID,
 		CompletedNodes: state.completedNodes,
 		NodeOutcomes:   state.nodeOutcomes,
@@ -541,11 +560,11 @@ func firstResolvedTarget(g *graph.Graph, node *graph.Node, keys ...string) strin
 	return ""
 }
 
-func (e *Engine) writeManifest(g *graph.Graph) error {
+func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
 	m := Manifest{
 		RunID:     e.RunID,
 		GraphName: g.Name,
-		Goal:      g.Goal(),
+		Goal:      goal,
 		StartedAt: e.now(),
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
