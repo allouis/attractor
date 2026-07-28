@@ -924,7 +924,9 @@ Orchestrates sprint-based iteration by supervising a child pipeline. The manager
 > coexist in one graph — the basis for *routing*: conditional edges
 > (§10) select among static manager-loop nodes, one per target pipeline.
 > A manager loop may source its child's prepare-time `$vars` from the run
-> context (see §5.1's seeded initial context).
+> context (see §5.1's seeded initial context): for each name in the
+> child's `vars=` declaration it reads the value from context, and a
+> per-node `stack.child.var.<name>` attr overrides that context value.
 
 ```
 ManagerLoopHandler:
@@ -2011,6 +2013,7 @@ ASSERT "review" IN checkpoint.completed_nodes
 | `fallback_retry_target` | String   | `""`    | Secondary jump target |
 | `stack.child_dotfile`   | String   | `""`    | Path to child DOT file for supervision. Also settable per-node (node wins); see §4.11 / `docs/router-spec.md`. |
 | `stack.child_workdir`   | String   | cwd     | Working directory for child run. Also settable per-node. |
+| `stack.child.var.*`     | String   | context | Per-node override for a child prepare-time `$var`; wins over the context value of the same name. See §4.11 / `docs/router-spec.md`. |
 | `tool_hooks.pre`        | String   | `""`    | Shell command before each tool call |
 | `tool_hooks.post`       | String   | `""`    | Shell command after each tool call |
 
