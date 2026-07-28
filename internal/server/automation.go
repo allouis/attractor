@@ -71,7 +71,7 @@ func (s *Server) fireAutomation(a automation.Automation) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("automation %q: read pipeline: %w", a.Name, err)
 	}
-	return s.submit(string(src), a.Vars, a.Cwd, "")
+	return s.submit(string(src), a.Vars, a.Cwd, "", "")
 }
 
 // expandTilde replaces a leading ~ with the user's home directory.

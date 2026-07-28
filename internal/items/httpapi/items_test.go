@@ -46,12 +46,13 @@ type fakeDeps struct {
 	repos   items.Repos
 	linked  map[string][]LinkedRun
 
-	subDot  string
-	subVars map[string]string
-	subCwd  string
-	subTag  string
-	subID   string
-	subErr  error
+	subDot      string
+	subVars     map[string]string
+	subCwd      string
+	subTag      string
+	subWorkflow string
+	subID       string
+	subErr      error
 }
 
 func (d *fakeDeps) Source(name string) (source.Source, bool) {
@@ -69,8 +70,8 @@ func (d *fakeDeps) SourceNames() []string {
 
 func (d *fakeDeps) RepoPath(repo string) (string, bool) { return d.repos.Path(repo) }
 
-func (d *fakeDeps) Submit(dot string, vars map[string]string, cwd, tag string) (string, error) {
-	d.subDot, d.subVars, d.subCwd, d.subTag = dot, vars, cwd, tag
+func (d *fakeDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName string) (string, error) {
+	d.subDot, d.subVars, d.subCwd, d.subTag, d.subWorkflow = dot, vars, cwd, tag, workflowName
 	return d.subID, d.subErr
 }
 
@@ -155,6 +156,40 @@ func TestRunItemPRAutofillsRepo(t *testing.T) {
 	}
 	if deps.subTag != ref.String() {
 		t.Errorf("Submit tag = %q, want %q", deps.subTag, ref.String())
+	}
+}
+
+// TestRunItemStampsWorkflowNameFromCatalogDir proves runItem derives the
+// workflow name from the catalog layout <root>/<name>/pipeline.dot — the
+// parent directory, which is the handle the run→workflow backlink resolves
+// against (web-ui-spec W6). It is the dir name, not the DOT digraph name.
+func TestRunItemStampsWorkflowNameFromCatalogDir(t *testing.T) {
+	repoDir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "bug-fix")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pipe := filepath.Join(dir, "pipeline.dot")
+	if err := os.WriteFile(pipe, []byte(doneGraph), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs := &fakeSource{getItem: prItem()}
+	deps := &fakeDeps{
+		sources: map[string]source.Source{"github": fs},
+		repos:   items.Repos{"allouis/attractor": repoDir},
+		subID:   "run-1",
+	}
+	url := itemsServer(t, deps)
+
+	resp, _ := postRunItem(t, url, map[string]any{
+		"item_ref": items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
+		"pipeline": pipe,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	if deps.subWorkflow != "bug-fix" {
+		t.Errorf("Submit workflowName = %q, want \"bug-fix\" (catalog dir)", deps.subWorkflow)
 	}
 }
 

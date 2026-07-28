@@ -16,7 +16,7 @@ func TestNewRunStampsItemRef(t *testing.T) {
 	reg := newRunRegistry(t.TempDir())
 	tag := "github:pr:42"
 
-	run := reg.NewRun("", nil, nil, reg.baseDir, nil, tag, nil)
+	run := reg.NewRun("", nil, nil, reg.baseDir, nil, tag, "", nil)
 	got, ok := run.Summary()["item_ref"]
 	if !ok {
 		t.Fatal("summary missing item_ref")
@@ -25,7 +25,7 @@ func TestNewRunStampsItemRef(t *testing.T) {
 		t.Errorf("summary item_ref = %v, want %v", got, tag)
 	}
 
-	bare := reg.NewRun("", nil, nil, reg.baseDir, nil, "", nil)
+	bare := reg.NewRun("", nil, nil, reg.baseDir, nil, "", "", nil)
 	if _, ok := bare.Summary()["item_ref"]; ok {
 		t.Error("summary should omit item_ref when unset")
 	}
@@ -37,7 +37,7 @@ func TestItemRefSurvivesReload(t *testing.T) {
 	base := t.TempDir()
 	reg := newRunRegistry(base)
 	tag := "github:pr:7"
-	run := reg.NewRun("", nil, nil, base, nil, tag, nil)
+	run := reg.NewRun("", nil, nil, base, nil, tag, "", nil)
 	id := run.ID
 
 	reloaded := newRunRegistry(base)

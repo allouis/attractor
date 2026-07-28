@@ -42,8 +42,9 @@ type Deps interface {
 	// RepoPath maps `owner/name` to a local checkout, ok=false if unmapped.
 	RepoPath(repo string) (string, bool)
 	// Submit runs the shared admission path, stamping the run with the
-	// opaque item tag, and returns the new run id.
-	Submit(dot string, vars map[string]string, cwd, tag string) (string, error)
+	// opaque item tag and the workflow's catalog name (the run→workflow
+	// backlink handle, web-ui-spec W6), and returns the new run id.
+	Submit(dot string, vars map[string]string, cwd, tag, workflowName string) (string, error)
 	// LinkedRuns returns the runs stamped with the item tag, newest first.
 	LinkedRuns(tag string) []LinkedRun
 }
@@ -153,7 +154,13 @@ func (h *handlers) runItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "read pipeline: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	id, err := h.deps.Submit(string(dot), item.Vars, cwd, req.ItemRef.String())
+	// The catalog layout is <root>/<name>/pipeline.dot, so the parent
+	// directory names the workflow — the handle the run→workflow backlink
+	// resolves against GET /workflows/{name} (web-ui-spec W6). This is the
+	// dir name, not the DOT digraph name; the two can differ (graphviz ids
+	// forbid hyphens).
+	workflowName := filepath.Base(filepath.Dir(req.Pipeline))
+	id, err := h.deps.Submit(string(dot), item.Vars, cwd, req.ItemRef.String(), workflowName)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return

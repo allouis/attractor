@@ -106,10 +106,10 @@ func TestRunsForItem(t *testing.T) {
 	other := "github:pr:o/r#2"
 	// Two runs for the same item must group together; a different tag and
 	// a bare (untagged) run are excluded.
-	a := reg.NewRun("", nil, nil, reg.baseDir, nil, tag, nil)
-	b := reg.NewRun("", nil, nil, reg.baseDir, nil, tag, nil)
-	reg.NewRun("", nil, nil, reg.baseDir, nil, other, nil)
-	reg.NewRun("", nil, nil, reg.baseDir, nil, "", nil)
+	a := reg.NewRun("", nil, nil, reg.baseDir, nil, tag, "", nil)
+	b := reg.NewRun("", nil, nil, reg.baseDir, nil, tag, "", nil)
+	reg.NewRun("", nil, nil, reg.baseDir, nil, other, "", nil)
+	reg.NewRun("", nil, nil, reg.baseDir, nil, "", "", nil)
 
 	got := reg.RunsForItem(tag)
 	if len(got) != 2 {

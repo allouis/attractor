@@ -35,6 +35,7 @@ type Manifest struct {
 	StartedAt     time.Time     `json:"started_at"`
 	CompletedAt   time.Time     `json:"completed_at,omitempty"`
 	GraphName     string        `json:"graph_name,omitempty"`
+	WorkflowName  string        `json:"workflow_name,omitempty"`
 	GraphGoal     string        `json:"graph_goal,omitempty"`
 	Cwd           string        `json:"cwd,omitempty"`
 	Outcome       string        `json:"outcome,omitempty"`
@@ -88,17 +89,18 @@ func (r *runRegistry) reload() {
 			status = RunCancelled
 		}
 		run := &Run{
-			ID:          m.ID,
-			logsRoot:    m.LogsRoot,
-			status:      status,
-			startedAt:   m.StartedAt,
-			completedAt: m.CompletedAt,
-			graphName:   m.GraphName,
-			cwd:         m.Cwd,
-			itemRef:     m.ItemRef,
-			subscribers: map[chan engine.Event]struct{}{},
-			questions:   map[string]*pendingQuestion{},
-			persisted:   true,
+			ID:           m.ID,
+			logsRoot:     m.LogsRoot,
+			status:       status,
+			startedAt:    m.StartedAt,
+			completedAt:  m.CompletedAt,
+			graphName:    m.GraphName,
+			workflowName: m.WorkflowName,
+			cwd:          m.Cwd,
+			itemRef:      m.ItemRef,
+			subscribers:  map[chan engine.Event]struct{}{},
+			questions:    map[string]*pendingQuestion{},
+			persisted:    true,
 		}
 		if m.Outcome != "" {
 			run.outcome = &engine.Outcome{
@@ -115,9 +117,13 @@ func (r *runRegistry) reload() {
 }
 
 // NewRun mints a run. itemRef, when non-empty, is the opaque tag naming
-// the external Item that spawned it (items-spec I1); it is stamped at
-// creation, persisted in the manifest, and surfaced in the run summary.
-func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef string, initialContext map[string]string) *Run {
+// the external Item that spawned it (items-spec I1). workflowName, when
+// non-empty, is the catalog directory the run was dispatched from — the
+// handle the run→workflow backlink resolves against GET /workflows/{name}
+// (web-ui-spec W6); a raw dot submission (POST /pipelines) has none. Both
+// are stamped at creation, persisted in the manifest, and surfaced in the
+// run summary.
+func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef, workflowName string, initialContext map[string]string) *Run {
 	id := newRunID()
 	logsRoot := filepath.Join(baseDir, id)
 	run := &Run{
@@ -130,6 +136,7 @@ func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.Pre
 		startedAt:      time.Now(),
 		factory:        makeHandlers,
 		itemRef:        itemRef,
+		workflowName:   workflowName,
 		initialContext: initialContext,
 		subscribers:    map[chan engine.Event]struct{}{},
 		questions:      map[string]*pendingQuestion{},
@@ -192,14 +199,15 @@ func (r *runRegistry) RunsForItem(ref string) []*Run {
 type Run struct {
 	ID string
 
-	source    string
-	graph     *graph.Graph
-	prepared  *engine.PreparedGraph
-	logsRoot  string
-	factory   HandlerFactory
-	graphName string
-	cwd       string
-	itemRef   string
+	source       string
+	graph        *graph.Graph
+	prepared     *engine.PreparedGraph
+	logsRoot     string
+	factory      HandlerFactory
+	graphName    string
+	workflowName string
+	cwd          string
+	itemRef      string
 	// initialContext seeds the run's context at start (Item vars + item.*
 	// metadata); nil for runs with no seed (router-spec deviation B).
 	initialContext map[string]string
@@ -366,6 +374,9 @@ func (r *Run) Summary() map[string]any {
 	if r.itemRef != "" {
 		resp["item_ref"] = r.itemRef
 	}
+	if r.workflowName != "" {
+		resp["workflow_name"] = r.workflowName
+	}
 	return resp
 }
 
@@ -512,6 +523,7 @@ func (r *Run) writeManifest() {
 		LogsRoot:    r.logsRoot,
 	}
 	m.GraphName = r.graphName
+	m.WorkflowName = r.workflowName
 	m.Cwd = r.cwd
 	m.ItemRef = r.itemRef
 	if r.graph != nil {

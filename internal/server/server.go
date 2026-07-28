@@ -248,7 +248,8 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	if itemRef != nil {
 		tag = itemRef.String()
 	}
-	id, err := s.submit(source, vars, cwd, tag)
+	// A raw dot submission carries no catalog path, so no workflow_name.
+	id, err := s.submit(source, vars, cwd, tag, "")
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -277,8 +278,8 @@ func (d itemsDeps) SourceNames() []string {
 
 func (d itemsDeps) RepoPath(repo string) (string, bool) { return d.s.repos.Path(repo) }
 
-func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag string) (string, error) {
-	return d.s.submit(dot, vars, cwd, tag)
+func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName string) (string, error) {
+	return d.s.submit(dot, vars, cwd, tag, workflowName)
 }
 
 func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
@@ -304,8 +305,10 @@ func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
 // at runtime), and cwd becomes the graph-level cwd default (node/graph
 // attrs still win). itemRef, when non-empty, is the opaque item tag that
 // stamps the run with the external Item that spawned it (items-spec I1);
-// automation and cron callers pass "".
-func (s *Server) submit(source string, vars map[string]string, cwd string, itemRef string) (string, error) {
+// automation and cron callers pass "". workflowName, when non-empty, is the
+// catalog directory the run was dispatched from — the run→workflow backlink
+// handle (web-ui-spec W6); raw dot and automation callers pass "".
+func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, workflowName string) (string, error) {
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  source,
 		BaseDir: cwd,
@@ -314,7 +317,7 @@ func (s *Server) submit(source string, vars map[string]string, cwd string, itemR
 	if err != nil {
 		return "", err
 	}
-	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, seedContext(vars, itemRef))
+	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seedContext(vars, itemRef))
 	s.dispatcher.enqueue(run)
 	return run.ID, nil
 }
