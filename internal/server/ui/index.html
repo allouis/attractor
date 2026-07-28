@@ -151,6 +151,17 @@
   button { font: inherit; padding: var(--space-1) var(--space-3); cursor: pointer;
            background: var(--surface-1); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
   button:hover { background: var(--surface-2); }
+  /* Run-action picker: a token-styled modal over the Items view. */
+  #run-picker { color: var(--text); background: var(--surface-0);
+                border: 1px solid var(--border); border-radius: 8px;
+                padding: var(--space-4); min-width: 320px; }
+  #run-picker::backdrop { background: rgba(0, 0, 0, .4); }
+  #run-picker h3 { margin: 0 0 var(--space-3); }
+  #run-picker label { display: block; margin-bottom: var(--space-3); color: var(--text-muted); }
+  #run-picker select, #run-picker input { font: inherit; width: 100%; margin-top: var(--space-1);
+                color: var(--text); background: var(--surface-1);
+                border: 1px solid var(--border); border-radius: 6px; padding: var(--space-1) var(--space-2); }
+  .picker-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 </style>
 </head>
 <body>
@@ -179,6 +190,17 @@
     </div>
     <div id="items-warning" role="alert"></div>
     <div id="items-list"></div>
+    <dialog id="run-picker">
+      <h3>run item</h3>
+      <label>workflow <select id="run-picker-workflow"></select></label>
+      <label>repo <input id="run-picker-repo" list="run-picker-repos" placeholder="owner/name"></label>
+      <datalist id="run-picker-repos"></datalist>
+      <p id="run-picker-error" class="banner error" hidden></p>
+      <div class="picker-actions">
+        <button type="button" id="run-picker-cancel">cancel</button>
+        <button type="button" id="run-picker-run">run</button>
+      </div>
+    </dialog>
   </section>
   <section id="runs-view">
     <section id="run-list"></section>
@@ -413,7 +435,7 @@ function renderItems() {
 function itemsTable(list) {
   const rows = list.map(itemRowHtml).join('');
   return `<table>
-    <thead><tr><th>title</th><th>source</th><th>type</th><th>repo</th><th>runs</th></tr></thead>
+    <thead><tr><th>title</th><th>source</th><th>type</th><th>repo</th><th>runs</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -429,7 +451,21 @@ function itemRowHtml(it) {
       <td class="muted">${escapeHtml(itemType(it))}</td>
       <td class="muted">${escapeHtml(itemRepo(it))}</td>
       <td>${itemBadges(it)}</td>
+      <td>${itemRunButton(it)}</td>
     </tr>`;
+}
+
+// itemRunButton renders the per-row run trigger. The item ref + repo ride
+// on data-* attributes (escaped) rather than an inline onclick, matching
+// the page's no-inline-JS convention; a delegated click on #items-list
+// opens the picker (web-ui-spec §Items view run action).
+function itemRunButton(it) {
+  const ref = it.ref || {};
+  return `<button data-run` +
+    ` data-run-source="${escapeHtml(ref.source || '')}"` +
+    ` data-run-type="${escapeHtml(ref.type || '')}"` +
+    ` data-run-id="${escapeHtml(ref.external_id || '')}"` +
+    ` data-run-repo="${escapeHtml(itemRepo(it))}">run</button>`;
 }
 
 // safeUrl returns url only when it resolves to an http(s) scheme; a
@@ -454,6 +490,63 @@ function itemBadges(it) {
            ` title="${status}">${escapeHtml(id.slice(0, 8))}</a>`;
   }).join('');
   return chip + runs;
+}
+
+// ---- run-action picker -------------------------------------------------
+// The picker turns an item into a run: pick a workflow from the catalog
+// (GET /workflows), confirm the repo, POST /items/run (web-ui-spec §Items
+// view). workflowsCache holds the catalog; runPickerRef holds the item
+// being dispatched while the modal is open.
+let workflowsCache = null;
+let runPickerRef = null;
+
+// fetchWorkflows loads and caches the workflow catalog. GET /workflows
+// returns [{name, path}]; path is the pipeline.dot POST /items/run wants.
+async function fetchWorkflows() {
+  if (workflowsCache) return workflowsCache;
+  try {
+    const r = await fetch('/workflows');
+    workflowsCache = r.ok ? await r.json() : [];
+  } catch (e) { workflowsCache = []; }
+  return workflowsCache;
+}
+
+// openRunPicker fills the modal from a run button's data-* attributes and
+// the workflow catalog, then shows it. A PR item auto-fills its repo from
+// vars.repo; other items start blank (the datalist suggests repos already
+// seen). The backend maps the repo via repos.toml and 422s an unmapped one.
+async function openRunPicker(btn) {
+  runPickerRef = {
+    source: btn.dataset.runSource,
+    type: btn.dataset.runType,
+    external_id: btn.dataset.runId,
+  };
+  $('run-picker-repo').value = btn.dataset.runRepo || '';
+  setRunError('');
+  const wfs = await fetchWorkflows();
+  $('run-picker-workflow').innerHTML = wfs.length
+    ? wfs.map(w => `<option value="${escapeHtml(w.path)}">${escapeHtml(w.name)}</option>`).join('')
+    : '<option value="">no workflows</option>';
+  fillRepoDatalist();
+  $('run-picker').showModal();
+}
+
+// fillRepoDatalist suggests the repos present across the loaded items, so a
+// non-PR item can be pointed at a known checkout without a repo-map endpoint.
+function fillRepoDatalist() {
+  const dl = $('run-picker-repos');
+  if (!dl) return;
+  dl.innerHTML = distinct(itemsCache.map(itemRepo))
+    .map(r => `<option value="${escapeHtml(r)}"></option>`).join('');
+}
+
+// setRunError shows a picker error (a 422 from an unset/unmapped repo, a
+// failed dispatch), or hides the line when empty.
+function setRunError(text) {
+  const el = $('run-picker-error');
+  if (!el) return;
+  el.textContent = text || '';
+  el.hidden = !text;
 }
 
 async function renderList() {
@@ -664,6 +757,13 @@ window.addEventListener('load', () => {
     $(id)?.addEventListener('change', renderItems);
   }
   $('items-filter-text')?.addEventListener('input', renderItems);
+  // Delegated run trigger: item rows are innerHTML, so a single listener on
+  // the list opens the picker for whichever row's run button was clicked.
+  $('items-list')?.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-run]');
+    if (btn) openRunPicker(btn);
+  });
+  $('run-picker-cancel')?.addEventListener('click', () => $('run-picker').close());
   window.addEventListener('hashchange', route);
   route();
 });
