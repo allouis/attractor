@@ -89,7 +89,7 @@ its output downstream); the review lenses are the first user. Inside a
 | RV2 | `review-core.dot` + inline lens prompts + `synth`; standalone-runnable (`-var diff_cmd=…`); lints clean; a fixture run with a fake backend proves parallel fan-out → `synth` reads `parallel.results` → verdict. | RV1 | done |
 | RV3 | `review.dot` runs `review-core` via `stack.manager_loop` (`diff_cmd = gh pr diff …`); drop the single `review` node; e2e proves a PR routes through the lenses. | RV2 | done |
 | RV4 | `implement.dot` self-review gate — `manager_loop(review-core, diff_cmd="jj diff")` → FAIL re-implements, PASS exits. | RV2 | done |
-| RV5 | Docs — this spec's status; note `output_key` in attractor-spec node-attr table; update `review`/`implement` header comments. | RV3, RV4 | todo |
+| RV5 | Docs — this spec's status; note `output_key` in attractor-spec node-attr table; update `review`/`implement` header comments. | RV3, RV4 | done |
 
 ## Testing conventions
 
