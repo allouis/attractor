@@ -1,333 +1,119 @@
 # attractor
 
 A Go implementation of [Attractor](https://github.com/strongdm/attractor) —
-a DOT-based pipeline runner for multi-stage AI workflows. Each node in
-the graph is a stage (LLM call, human gate, tool invocation, parallel
-fan-out, supervisor loop); edges define routing with conditions, labels,
-and weights. Pipelines are declared in a constrained Graphviz DOT
-subset, version-controlled as plain text, and rendered to SVG with the
-standard tooling.
+a DOT-based pipeline runner for multi-stage AI workflows. Each node is a
+stage (LLM call, human gate, tool call, parallel fan-out, supervisor
+loop); edges route between them with conditions, labels, and weights.
+Pipelines are a constrained Graphviz DOT subset — plain text, version
+controlled, rendered to SVG with standard tooling.
 
-The implementation also covers the Claude Code integration from the
-companion [codergen-backends spec](./docs/codergen-backends-spec.md):
-the engine wraps the `claude` CLI in its structured stream-JSON mode,
-parses events as they arrive, and forwards lifecycle hooks for tool
-observability and graph-level `tool_hooks.*` dispatch.
+## Install
 
-## Status
+```bash
+nix build .#attractor     # → ./result/bin/attractor (+ hookshim)
+```
 
-| Surface | Status |
-|---|---|
-| DOT parser, transforms, lint | feature-complete |
-| Engine (run loop, edge select, retry, goal gates, checkpoint/resume, loop_restart) | feature-complete |
-| Handlers (`start`, `exit`, `codergen`, `conditional`, `wait.human`, `tool`, `parallel`, `parallel.fan_in`, `stack.manager_loop`) | feature-complete |
-| Context fidelity modes + preamble | full / truncate / compact / summary:{low,medium,high} — deterministic synthesis (LLM-based summary is a future refinement) |
-| Artifact store | feature-complete (memory + file-backed >100KB) |
-| Claude Code backend | tier 2 (subprocess + stream-json + hooks + ingest) |
-| ACP backend | done (any ACP agent, e.g. `claude-agent-acp`; streamed tool visibility, auto-granted permissions, session reuse via `session/load`) |
-| Pi / Codex / Gemini backends | deferred (Codex/Gemini reachable through their ACP adapters) |
-| Claude Code tier 3 (tmux) + native steering | superseded by the ACP backend — the protocol provides interactivity, cancellation, and (future) steering natively |
-| HTTP server (§9.5) | all 9 endpoints + SSE + RemoteInterviewer + bearer-token auth + file-backed run registry |
-| Automations (§5) | TOML files + five-field cron scheduler + manual trigger (CLI `automations list|run` + `/automations` endpoints) |
-| SVG render | feature-complete (via graphviz `dot`) |
-| Web UI | none yet |
+Needs [nix](https://nixos.org) with flakes. The runtime closure bundles
+`graphviz`, so SVG rendering works wherever the binary lands.
 
 ## Quickstart
 
-```bash
-# Build via the nix flake.
-nix build .#attractor              # produces ./result/bin/attractor + ./result/bin/hookshim
+A pipeline is a directory with a `pipeline.dot` graph. Prompts reference
+run context with `$context.<key>`:
 
-# Run a pipeline from the personal library.
-mkdir -p ~/.attractor/pipelines
-cp -r examples/hello ~/.attractor/pipelines/
+```dot
+// hello/pipeline.dot
+digraph hello {
+    graph [goal="say hi to $context.name", vars="name"]
 
-./result/bin/attractor run --backend simulation --var name=world hello
+    start [shape=Mdiamond]
+    greet [prompt="Say hi to $context.name in one sentence. Goal: $goal"]
+    done  [shape=Msquare]
+
+    start -> greet -> done
+}
 ```
 
-Or run directly against a path:
-
 ```bash
-./result/bin/attractor run --backend simulation --var name=world examples/hello/pipeline.dot
+attractor run --backend simulation -var name=world hello/pipeline.dot
 ```
 
-Without `--backend`, each codergen node is routed to a backend via the
-provider config (`~/.attractor/config.toml`, overlaid by
-`./.attractor/config.toml`) per its `llm_provider` / `llm_model` — see
-[provider-config](./docs/provider-config.md). With no config the run
-falls back to simulation.
+`-var name=world` seeds the run context; `vars="name"` declares it
+required, so a missing value fails before any node runs. `--backend
+simulation` returns synthetic responses (no LLM) — good for wiring tests.
 
-`--backend` / `--acp-cmd` are run-wide overrides for debugging that
-bypass the config. `--backend simulation` skips the LLM and returns
-synthetic responses, useful for wiring tests. `--backend claude` runs
-Claude Code via its stream-JSON CLI. `--backend acp` drives any
+## Key concepts
+
+**Pipelines are directories.** Bare names resolve under `./pipelines/`
+then `~/.attractor/pipelines/`; a path or `.dot` suffix loads directly.
+`prompt="@prompts/greet.md"` inlines a file relative to the `.dot` source.
+
+**Context interpolation (runtime).** Handlers expand `$context.<key>`
+against the live context when the node runs — both seeded inputs and
+values written by earlier nodes resolve. An undefined key **fails the
+node** (`unresolved $context.foo`). `$goal` is the one built-in (sugar
+for `$context.graph.goal`); `$$` is a literal `$`; every other `$`
+(shell `$HOME`, `$(…)`, prose) passes through untouched. Full model:
+[context-interpolation-spec](./docs/context-interpolation-spec.md).
+
+**Backends.** Without `--backend`, each codergen node picks a backend
+from the provider config (`~/.attractor/config.toml`, overlaid by
+`./.attractor/config.toml`) per its `llm_provider` / `llm_model`; with no
+config the run falls back to simulation. `--backend` / `--acp-cmd` are
+run-wide overrides. `simulation` skips the LLM; `claude` runs Claude Code
+via its stream-JSON CLI; `acp` drives any
 [Agent Client Protocol](https://agentclientprotocol.com) agent over
-stdio. Backend selection is always explicit — a run never spawns an
-agent you didn't ask for.
-
-The ACP agent command has no default. Supply it via the provider
-config, per node or per graph with the `acp_command` attribute, or
-run-wide with `--acp-cmd`; node beats graph beats provider config.
-Leading `NAME=value` tokens become process environment, which is one
-way to pick a model per node:
-
-```dot
-plan  [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-opus-4-8 claude-agent-acp"]
-build [type="codergen.acp", acp_command="ANTHROPIC_MODEL=claude-sonnet-5 claude-agent-acp"]
-```
-
-## Token usage and the stall watchdog
-
-The ACP backend reads the agent's per-turn token counts from its
-`usage` session updates and emits one `usage` event per stage
-(`{input_tokens, output_tokens}`). The engine sums them across the run
-and attaches the rollup to the terminal `pipeline_completed` /
-`pipeline_failed` event; `serve` also exposes the run total as `tokens`
-in the `GET /pipelines` summaries and persists it to `manifest.json`.
-A stage that reports no usage emits nothing, so zero stays unambiguous.
-
-A **stall watchdog** guards against agents that go silent without ever
-hitting the overall `timeout` — stuck on a tool, wedged in a retry. Set
-`stall_timeout` on a node (or graph) and the ACP backend kills the turn
-if no session update arrives within that window; each update resets the
-countdown. A stall is reported as `acp: stalled: no activity for <d>`,
-distinct from a plain timeout. Absent (or zero) `stall_timeout` leaves
-the watchdog off.
-
-```dot
-build [type="codergen.acp", timeout="30m", stall_timeout="3m"]
-```
+stdio. See [provider-config](./docs/provider-config.md) and
+[acp-backend](./docs/acp-backend.md).
 
 ## CLI
 
 | Command | Purpose |
 |---|---|
 | `attractor run <name-or-path>` | parse, validate, execute |
-| `attractor validate <path>` | lint only; non-zero exit on error-severity diagnostics |
+| `attractor validate <path>` | lint only; non-zero exit on errors |
 | `attractor render <path> [-o out.svg]` | DOT → SVG via graphviz |
 | `attractor serve` | HTTP server (default `127.0.0.1:7681`) |
-| `attractor automations list` | list saved automations |
-| `attractor automations run <name>` | run a saved automation standalone |
+| `attractor automations list\|run <name>` | manage saved runs |
 | `attractor version` | print version |
 
-Common flags for `run`:
+Key `run` flags: `--backend claude|acp|simulation`, `--acp-cmd CMD`,
+`-var name=value` (repeatable), `--logs DIR`, `--json`,
+`--human auto|console|approve`. Full list: `attractor run --help`.
 
-```
---backend claude|acp|simulation    codergen backend (default: simulation)
---acp-cmd CMD                      ACP agent command for --backend acp (fallback when the graph sets no acp_command)
---logs DIR                         pipeline artefact directory (default: ~/.attractor/runs/<run-id>, outside the working tree)
---var name=value                   pipeline variable; repeatable; required for every name in graph attr `vars`
---json                             emit one JSON event per line on stdout
---human auto|console|approve       interviewer for wait.human (default: auto = console on TTY, approve otherwise)
---hookshim PATH                    override hookshim binary location (default: sibling of attractor)
-```
+## Server
 
-## Pipeline layout convention
+`attractor serve` exposes the run API over HTTP (submit, stream events
+via SSE, answer human gates, render graph, checkpoint) plus a bundled web
+UI at `/ui` and cron-driven automations. Bind, auth, endpoints, and
+run-data layout: [service-spec](./docs/service-spec.md).
 
-A pipeline is a directory. The CLI resolves bare names (no `/`, no
-`.dot` suffix) in this order:
+## Docs
 
-1. `./pipelines/<name>/pipeline.dot`
-2. `./pipelines/<name>.dot`
-3. `~/.attractor/pipelines/<name>/pipeline.dot`
-4. `~/.attractor/pipelines/<name>.dot`
-
-Paths with separators or a `.dot` extension bypass the lookup and are
-loaded directly. A typical pipeline directory:
-
-```
-~/.attractor/pipelines/<name>/
-  pipeline.dot           # the graph
-  pipeline.md            # human-readable description (optional)
-  prompts/               # external prompt files
-    plan.md
-    implement.md
-```
-
-## Variables and prompt loading
-
-`prompt="@path/to/file.md"` loads the file relative to the .dot source
-and inlines its contents. Both inlined content and inline prompts are
-then variable-expanded.
-
-Variables come from `--var name=value` on the CLI. `$goal` always
-resolves to the graph's `goal` attribute (itself eligible for `$var`
-expansion). `$$` is a literal `$`. Unknown names are left verbatim so
-typos surface in the rendered prompt.
-
-Graphs that require runtime input must declare their expected names in
-the graph-level `vars` attribute so missing values fail before
-execution:
-
-```dot
-digraph my_pipeline {
-    graph [
-        goal="implement $epic_id",
-        vars="epic_id"
-    ]
-    ...
-}
-```
-
-```
-attractor run my-pipeline --var epic_id=ABC-123
-```
-
-## HTTP server
-
-```bash
-# loopback, no auth
-attractor serve
-
-# non-loopback bind: requires --auth-token (bearer) or --insecure (network does auth)
-attractor serve --bind 0.0.0.0:7681 --auth-token
-
-# Tailscale pattern: bind to a Tailscale IP, the network ACLs do the work
-attractor serve --bind 100.x.x.x:7681 --insecure
-```
-
-Endpoints (spec §9.5):
-
-| Method | Path |
+| Doc | Covers |
 |---|---|
-| POST | `/pipelines` |
-| GET | `/pipelines/{id}` |
-| GET | `/pipelines/{id}/events` *(SSE)* |
-| POST | `/pipelines/{id}/cancel` |
-| GET | `/pipelines/{id}/graph` *(SVG)* |
-| GET | `/pipelines/{id}/questions` |
-| POST | `/pipelines/{id}/questions/{qid}/answer` |
-| GET | `/pipelines/{id}/checkpoint` |
-| GET | `/pipelines/{id}/context` |
-| GET | `/automations` |
-| POST | `/automations/{name}/run` |
-| GET | `/healthz` |
+| [attractor-spec](./docs/attractor-spec.md) | canonical pipeline / engine spec |
+| [context-interpolation-spec](./docs/context-interpolation-spec.md) | `$context.*` runtime interpolation model |
+| [codergen-backends-spec](./docs/codergen-backends-spec.md) | Claude Code / agent CLI integration |
+| [acp-backend](./docs/acp-backend.md) | ACP backend, token usage, stall watchdog |
+| [provider-config](./docs/provider-config.md) | per-node backend / model routing |
+| [service-spec](./docs/service-spec.md) | HTTP server + automations |
+| [router-spec](./docs/router-spec.md) | work routing via inline sub-pipelines |
+| [items-spec](./docs/items-spec.md) | work items (GitHub / Linear intake) |
+| [tui-spec](./docs/tui-spec.md) | terminal UI |
 
-With `--auth-token`, every endpoint except `/healthz` requires
-`Authorization: Bearer <token>`. Loopback callers always bypass the
-check. The token lives at `~/.attractor/api-key` (mode 0600) and is
-auto-generated on first use.
+## Contributing
 
-Run data layout (file-backed, survives server restart):
-
-```
-~/.attractor/runs/
-  <run-id>/
-    manifest.json        # run metadata + final status + token rollup
-    source.dot           # the submitted DOT
-    events.jsonl         # append-only event log for replay
-    checkpoint.json      # engine state for resume
-    artifacts/
-    <node-id>/
-      prompt.md
-      response.md
-      status.json
-      tool_calls/
-```
-
-A run marked `running` or `queued` in its manifest at server startup
-(i.e. the server didn't survive its own shutdown) is rehydrated as
-`cancelled` rather than spuriously resumed.
-
-## Automations
-
-An automation is a saved run config + trigger, stored as one TOML file
-per automation under `~/.attractor/automations/` (file-first, no DB):
-
-```toml
-# ~/.attractor/automations/nightly-triage.toml
-pipeline = "~/.attractor/pipelines/triage/pipeline.dot"
-cwd      = "/home/agent/repo-a"
-
-[vars]
-label = "bug"
-
-[trigger]
-cron = "0 3 * * *"     # five-field cron, local time
-```
-
-`serve` loads the directory at startup: the cron scheduler submits each
-automation on schedule through the same admission path as
-`POST /pipelines`, and `POST /automations/{name}/run` fires one manually
-(re-read from disk so on-disk edits apply without a restart). Automations
-without a `[trigger].cron` are manual-only. The cron field supports `*`,
-lists, ranges, and steps across minute, hour, day-of-month, month, and
-day-of-week; when both day fields are restricted a day matches if either
-does (Vixie union).
-
-`attractor automations list|run <name>` works standalone against the
-same directory; the `pipeline` field must be a filesystem path (a
-leading `~` is expanded).
-
-## Spec divergences
-
-The implementation tracks the canonical Attractor spec exactly with
-three pragmatic departures, all driven by the conventions established
-in other implementations and example pipelines from the community.
-
-| Feature | Spec stance | Why we diverge |
-|---|---|---|
-| `prompt="@path"` external prompt loading | silent (§9.3 supports custom transforms) | de-facto convention; clean fit as a custom transform |
-| `$var` substitution beyond `$goal` | §4.5: "the only built-in template variable is `$goal`" | every real-world pipeline needs runtime parameters; declared via graph `vars` so the divergence is opt-in |
-| `contains` / `!` operators in conditions | §10.7 explicitly tells implementations not to add these without a spec extension | **not implemented** — we kept the spec position; use multiple condition-bearing edges or a `diamond` routing node instead |
-
-## Repo layout
-
-```
-.
-├── cmd/attractor/                  # CLI entrypoint
-├── hookshim/                       # tiny binary Claude Code launches per hook
-├── internal/
-│   ├── dot/                        # DOT subset lexer + parser
-│   ├── graph/                      # Graph model + typed attribute accessors
-│   ├── transform/                  # AST transforms (stylesheet, variable, prompt_file)
-│   ├── lint/                       # built-in rules
-│   ├── condition/                  # edge condition expression language
-│   ├── engine/                     # run loop, edge select, retry, checkpoint, fidelity
-│   ├── handler/                    # built-in handlers
-│   ├── backend/                    # CodergenBackend interface + fake + claudecode/
-│   ├── ingest/                     # localhost ingest HTTP for hook payloads
-│   ├── render/                     # graphviz subprocess
-│   ├── server/                     # §9.5 HTTP server + file-backed registry + auth
-│   ├── interviewer/                # human-gate interfaces (AutoApprove, Queue, Callback)
-│   ├── artifact/                   # spec §5.5 file-backed store
-│   └── cli/                        # subcommand wiring
-├── tests/                          # e2e/integration suite (package attractor_test)
-├── testdata/pipelines/             # fixture DOTs used by tests
-├── examples/hello/                 # runnable reference pipeline
-├── docs/
-│   ├── attractor-spec.md           # upstream canonical spec
-│   └── codergen-backends-spec.md   # Claude Code / agent CLI integration spec
-├── flake.nix                       # nix dev shell + buildGoModule (+ graphviz)
-└── go.mod
-```
-
-## Testing
-
-The suite is exclusively e2e / integration / capability — tests drive
-public APIs, never internals:
+Handlers, engine, and CLI live under `internal/`; the e2e/integration
+suite (drives public APIs only) is in `tests/`. Run it:
 
 ```bash
 nix develop --command go test ./tests/...
-
-# or via the flake check (sandboxed, matches CI)
-nix build .#checks.x86_64-linux.attractor-test
 ```
 
 The real `claude` CLI is exercised by an opt-in test gated on
-`ATTRACTOR_REAL_CLAUDE=1`; it skips otherwise so the suite remains free
+`ATTRACTOR_REAL_CLAUDE=1`; it skips otherwise, so the suite stays free
 and offline-safe.
-
-## Building
-
-```bash
-nix develop                 # drops you in a shell with go, graphviz, gopls
-nix build .#attractor       # builds attractor + hookshim into ./result/bin/
-nix run .#attractor -- run examples/hello/pipeline.dot --var name=world
-```
-
-Runtime closure includes `graphviz` so SVG rendering works wherever the
-binary is installed via nix.
 
 ## License
 
