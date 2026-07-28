@@ -19,6 +19,7 @@ import (
 var shippedPipelineFiles = []string{
 	"../pipelines/review/pipeline.dot",
 	"../pipelines/review/prompts/review.md",
+	"../pipelines/review-core/pipeline.dot",
 	"../pipelines/implement/pipeline.dot",
 	"../pipelines/implement/prompts/implement.md",
 	"../pipelines/build/pipeline.dot",
