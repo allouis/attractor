@@ -75,9 +75,10 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: build child: %v", err)}
 	}
+	cVars := childVars(env, childGraph)
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  string(childSrc),
-		Vars:    childVars(env, childGraph),
+		Vars:    cVars,
 		BaseDir: childWorkdir,
 	})
 	if err != nil {
@@ -88,7 +89,11 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if registry == nil {
 		registry = engine.NewRegistry()
 	}
-	childEng := engine.New(engine.Config{Registry: registry, LogsRoot: childLogs})
+	// Seed the child's vars into its initial context so run-start `vars=`
+	// validation sees them (C3), matching every other run path. The
+	// prepare-time transform still expands the child's `$var` bodies until
+	// pipelines migrate to `$context.*` (C6).
+	childEng := engine.New(engine.Config{Registry: registry, LogsRoot: childLogs, InitialContext: cVars})
 	childStatus := newChildTelemetry(env.Context)
 	doneCh := make(chan engine.Outcome, 1)
 

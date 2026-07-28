@@ -35,9 +35,12 @@ func TestSetup_PrepareInlinesFileAndExpandsVars(t *testing.T) {
 	}
 }
 
-// TestSetup_PrepareMissingDeclaredVar fails when a declared var has no
-// supplied value, matching the CLI's hard-error behaviour.
-func TestSetup_PrepareMissingDeclaredVar(t *testing.T) {
+// TestSetup_PrepareDoesNotValidateDeclaredVars: the `vars=` contract is
+// validated at run-start against the seeded context, not at prepare time,
+// so Prepare succeeds even when a declared var is unsupplied (spec
+// locked-decision 6, C3). The engine fails the run at start if it stays
+// missing.
+func TestSetup_PrepareDoesNotValidateDeclaredVars(t *testing.T) {
 	src := `digraph g {
 		vars = "task"
 		start [shape=Mdiamond]
@@ -45,12 +48,8 @@ func TestSetup_PrepareMissingDeclaredVar(t *testing.T) {
 		done [shape=Msquare]
 		start -> plan -> done
 	}`
-	_, err := setup.Prepare(setup.Options{Source: src})
-	if err == nil {
-		t.Fatal("expected error when declared var missing")
-	}
-	if !strings.Contains(err.Error(), "task") {
-		t.Fatalf("error should name the missing var: %v", err)
+	if _, err := setup.Prepare(setup.Options{Source: src}); err != nil {
+		t.Fatalf("Prepare should not validate declared vars, got %v", err)
 	}
 }
 

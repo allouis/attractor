@@ -44,7 +44,14 @@ func TestReviewPipeline_DispatchRunsCheckoutInCwd(t *testing.T) {
 	})
 	must(t, err)
 
-	out := runPrepared(t, prepared, fake.New())
+	// The daemon seeds the Item's vars into the run's initial context; do
+	// the same here so run-start `vars=` validation sees them (C3).
+	out := runPrepared(t, prepared, fake.New(), map[string]string{
+		"repo":      "owner/repo",
+		"pr_number": "42",
+		"url":       "https://github.com/owner/repo/pull/42",
+		"title":     "Fix login",
+	})
 	if out.Status != engine.StatusSuccess {
 		t.Fatalf("status=%s reason=%q", out.Status, out.FailureReason)
 	}
@@ -57,8 +64,9 @@ func TestReviewPipeline_DispatchRunsCheckoutInCwd(t *testing.T) {
 
 // runPrepared runs an already-prepared graph (vars expanded, prompts
 // resolved, cwd defaulted) to completion with the given backend, mirroring
-// the daemon's registry wiring.
-func runPrepared(t *testing.T, prepared *engine.PreparedGraph, be *fake.Backend) engine.Outcome {
+// the daemon's registry wiring. initialContext seeds the run's context
+// with the submitted vars, as the daemon does before Run.
+func runPrepared(t *testing.T, prepared *engine.PreparedGraph, be *fake.Backend, initialContext map[string]string) engine.Outcome {
 	t.Helper()
 	registry := engine.NewRegistry()
 	registry.Register("start", handler.Start{})
@@ -66,7 +74,7 @@ func runPrepared(t *testing.T, prepared *engine.PreparedGraph, be *fake.Backend)
 	registry.Register("conditional", handler.Conditional{})
 	registry.Register("tool", handler.Tool{})
 	registry.SetDefault(handler.Codergen{Backend: be})
-	eng := engine.New(engine.Config{Registry: registry, LogsRoot: t.TempDir(), RunID: "test"})
+	eng := engine.New(engine.Config{Registry: registry, LogsRoot: t.TempDir(), RunID: "test", InitialContext: initialContext})
 	done := make(chan struct{})
 	go func() {
 		for range eng.Events() {
