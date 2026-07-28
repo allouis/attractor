@@ -1,9 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -109,5 +113,74 @@ func TestWorkflowsCatalog_MissingRootIsEmpty(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("want empty, got %+v", got)
+	}
+}
+
+// TestWorkflowGraph_RendersSVG proves GET /workflows/{name}/graph renders the
+// definition file to SVG via render.SVG, same as the run-graph endpoint.
+func TestWorkflowGraph_RendersSVG(t *testing.T) {
+	if _, err := exec.LookPath("dot"); err != nil {
+		t.Skip("graphviz `dot` not on PATH")
+	}
+	root := t.TempDir()
+	writeWorkflow(t, root, "alpha")
+	srv := workflowsServer(t, root)
+
+	resp, err := http.Get(srv.URL() + "/workflows/alpha/graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "image/svg+xml" {
+		t.Fatalf("content-type=%q", ct)
+	}
+	if !bytes.Contains(body, []byte("<svg")) {
+		t.Fatal("graph endpoint did not return SVG")
+	}
+}
+
+// TestWorkflowGraph_UnknownName404 proves an absent definition is a 404, not
+// a render error.
+func TestWorkflowGraph_UnknownName404(t *testing.T) {
+	srv := workflowsServer(t, t.TempDir())
+
+	resp, err := http.Get(srv.URL() + "/workflows/ghost/graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404", resp.StatusCode)
+	}
+}
+
+// TestWorkflowGraph_RejectsTraversal proves a name that escapes the catalog
+// root is confined to a 404 and never reads outside it. The handler is
+// exercised directly because net/http normalizes ".." out of the request
+// path before it reaches the mux.
+func TestWorkflowGraph_RejectsTraversal(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "catalog")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A pipeline.dot one level above the catalog root: a successful
+	// traversal would render it.
+	outside := filepath.Dir(root)
+	if err := os.WriteFile(filepath.Join(outside, "pipeline.dot"), []byte("digraph x { a }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{workflowsDir: root}
+
+	req := httptest.NewRequest(http.MethodGet, "/workflows/x/graph", nil)
+	req.SetPathValue("name", "..")
+	rec := httptest.NewRecorder()
+	s.getWorkflowGraph(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404 (traversal must be rejected)", rec.Code)
 	}
 }

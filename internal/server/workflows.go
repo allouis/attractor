@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+
+	"github.com/allouis/attractor/internal/render"
 )
 
 // defaultWorkflowsDir is the catalog root used when Config.WorkflowsDir is
@@ -52,4 +55,30 @@ func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	writeJSON(w, http.StatusOK, out)
+}
+
+// getWorkflowGraph serves GET /workflows/{name}/graph: the definition's
+// pipeline.dot rendered to SVG via render.SVG — the same renderer as the
+// run-graph endpoint, but from the catalog file with no run needed
+// (web-ui-spec W2). The name is confined to the catalog root so it cannot
+// traverse out, mirroring getArtifact.
+func (s *Server) getWorkflowGraph(w http.ResponseWriter, r *http.Request) {
+	root := filepath.Clean(s.workflowsDir)
+	dir := filepath.Join(root, filepath.Clean("/"+r.PathValue("name")))
+	if dir != root && !strings.HasPrefix(dir, root+string(filepath.Separator)) {
+		http.NotFound(w, r)
+		return
+	}
+	source, err := os.ReadFile(filepath.Join(dir, "pipeline.dot"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	svg, err := render.SVG(source)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Write(svg)
 }
