@@ -660,7 +660,7 @@ async function renderRuns() {
   if (!runs.length) { $('run-list').innerHTML = '<p class="muted">no runs yet</p>'; return; }
   const rows = runs.map(runRowHtml).join('');
   $('run-list').innerHTML = `<table>
-    <thead><tr><th>run</th><th>status</th><th>cwd</th><th>started</th></tr></thead>
+    <thead><tr><th>run</th><th>status</th><th>cwd</th><th>started</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -675,7 +675,7 @@ function renderRunCounts(runs) {
   el.innerHTML =
     countPill('running', byStatus('running')) +
     countPill('queued', byStatus('queued')) +
-    countPill('needs-human', runs.filter(p => p.needs_human).length) +
+    countPill('needs-human', runs.filter(runNeedsHuman).length) +
     countPill('failed', byStatus('failed'));
 }
 
@@ -692,14 +692,51 @@ function countPill(state, n) {
 // and the router opens it, so no inline JS carries the id. A blocked run
 // carries the loud needs-human chip — the fleet's highest-attention flag.
 function runRowHtml(p) {
-  const chip = p.needs_human ? '<span class="chip needs-human">needs human</span>' : '';
+  const chip = runNeedsHuman(p) ? '<span class="chip needs-human">needs human</span>' : '';
   return `
     <tr>
       <td><a href="#run/${escapeHtml(p.id)}">${escapeHtml(p.graph_name || p.id)}</a></td>
       <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}</td>
       <td class="muted">${escapeHtml(p.cwd || '')}</td>
       <td class="muted">${escapeHtml(p.started_at || '')}</td>
+      <td>${runCancelButton(p)}</td>
     </tr>`;
+}
+
+// runCancelButton renders a cancel trigger for a live run only; a terminal
+// run (completed/failed/cancelled) has nothing to cancel. The run id rides
+// on a data-* attribute (escaped) rather than an inline onclick, matching
+// the page's no-inline-JS convention; a delegated click on #run-list fires
+// the cancel (web-ui-spec §Runs view).
+function runCancelButton(p) {
+  if (isTerminal(p)) return '';
+  return `<button data-cancel data-cancel-id="${escapeHtml(p.id)}">cancel</button>`;
+}
+
+// isTerminal reports whether a run has finished. A terminal run offers no
+// cancel, and cannot be waiting on a human — so cancelling a needs-human
+// run clears its flag on the next poll rather than leaving it nagging.
+function isTerminal(p) {
+  return p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled';
+}
+
+// runNeedsHuman gates the needs-human flag on the run still being live, so
+// a finished run whose question was never formally answered (e.g. it was
+// cancelled mid-wait) stops flagging in the fleet counts and rows.
+function runNeedsHuman(p) {
+  return !!p.needs_human && !isTerminal(p);
+}
+
+// cancelRun confirms then POSTs /pipelines/{id}/cancel. It does not
+// optimistically mutate the row — the ~2.5s poll re-reflects the run's true
+// state (cancellation is best-effort server-side), so a failed cancel
+// simply shows the run still running on the next tick.
+async function cancelRun(id) {
+  if (!id || !confirm('Cancel this run?')) return;
+  try {
+    await postJSON(`/pipelines/${id}/cancel`, {});
+  } catch (e) { /* transient; the next poll re-reflects the true state */ }
+  renderRuns();
 }
 
 // ---- run view ----------------------------------------------------------
@@ -888,6 +925,13 @@ window.addEventListener('load', () => {
   $('items-list')?.addEventListener('click', e => {
     const btn = e.target.closest('button[data-run]');
     if (btn) openRunPicker(btn);
+  });
+  // Delegated cancel trigger: run rows are innerHTML (and re-rendered every
+  // poll tick), so a single listener on the list handles whichever row's
+  // cancel button was clicked.
+  $('run-list')?.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-cancel]');
+    if (btn) cancelRun(btn.dataset.cancelId);
   });
   $('run-picker-cancel')?.addEventListener('click', () => $('run-picker').close());
   $('run-picker-run')?.addEventListener('click', submitRun);
