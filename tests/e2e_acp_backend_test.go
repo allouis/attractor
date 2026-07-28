@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	acpbackend "github.com/fabro/attractor/internal/backend/acp"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
+	acpbackend "github.com/allouis/attractor/internal/backend/acp"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // fakeACPCommand returns a command line that re-invokes this test

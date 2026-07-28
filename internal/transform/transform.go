@@ -1,6 +1,6 @@
 package transform
 
-import "github.com/fabro/attractor/internal/graph"
+import "github.com/allouis/attractor/internal/graph"
 
 // Transform is the AST-transform interface (spec §9.1). Implementations
 // receive a Graph and return a (possibly new) Graph.

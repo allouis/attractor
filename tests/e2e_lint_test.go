@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/dot"
-	"github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/lint"
 )
 
 func build(t *testing.T, src string) *graph.Graph {

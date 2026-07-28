@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/cron"
+	"github.com/allouis/attractor/internal/cron"
 )
 
 func TestCron_ParseErrors(t *testing.T) {

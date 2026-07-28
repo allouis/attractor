@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fabro/attractor/internal/backend"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/interviewer"
 )
 
 // Start is a no-op handler used for `start` nodes (spec §4.3).

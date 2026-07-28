@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/server"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/server"
 )
 
 // TestServer_UI confirms the embedded single-page UI is served at /ui

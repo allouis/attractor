@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // Provider is one entry in the [providers.<name>] table.

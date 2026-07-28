@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/cli"
 )
 
 // putFakeClaudeOnPATH builds a directory containing a fake `claude`

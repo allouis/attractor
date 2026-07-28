@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/backend/fake"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/setup"
+	"github.com/allouis/attractor/internal/backend/fake"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/setup"
 )
 
 // TestReviewPipeline_DispatchRunsCheckoutInCwd drives the review pipeline

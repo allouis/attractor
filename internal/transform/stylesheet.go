@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // Stylesheet applies CSS-like rules declared in the graph-level

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fabro/attractor/internal/config"
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/config"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // These two rules are config-aware, so they are not part of BuiltIn():

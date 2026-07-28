@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/fabro/attractor/internal/backend"
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // Step is a single canned reply for a node. Either Outcome or Text wins.

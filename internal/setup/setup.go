@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fabro/attractor/internal/dot"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/transform"
+	"github.com/allouis/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/transform"
 )
 
 // Options are the inputs to the shared setup path.

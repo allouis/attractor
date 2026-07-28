@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/server"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/server"
 )
 
 // TestServer_StreamCompletedRun guards a deadlock the UI triggers every

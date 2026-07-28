@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // Tool executes an external command configured on the node and returns

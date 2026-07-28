@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fabro/attractor/internal/automation"
-	"github.com/fabro/attractor/internal/cron"
+	"github.com/allouis/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/cron"
 )
 
 // Fire submits an automation's pipeline, returning the new run id. The

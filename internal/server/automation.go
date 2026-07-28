@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fabro/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/automation"
 )
 
 // listAutomations returns the loaded automations for the UI's automation

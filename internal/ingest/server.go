@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // Server is a small localhost HTTP server. The Attractor engine starts

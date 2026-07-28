@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/interviewer"
 )
 
 // TestEngine_MaxNodeVisitsBoundsLoops: a node caught in a failure loop

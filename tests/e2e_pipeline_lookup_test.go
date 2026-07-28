@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/cli"
 )
 
 // TestCLI_ResolvesPipelineFromDotAttractorPipelines verifies that a bare

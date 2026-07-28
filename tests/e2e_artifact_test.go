@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/artifact"
+	"github.com/allouis/attractor/internal/artifact"
 )
 
 func TestArtifact_MemoryRoundTrip(t *testing.T) {

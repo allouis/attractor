@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // TestCLI_RunPersistsEvents confirms a standalone `run` writes

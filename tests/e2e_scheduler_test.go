@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/automation"
-	"github.com/fabro/attractor/internal/scheduler"
+	"github.com/allouis/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/scheduler"
 )
 
 func mustAuto(t *testing.T, name, src string) automation.Automation {

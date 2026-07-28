@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/fabro/attractor/internal/backend"
-	acpbackend "github.com/fabro/attractor/internal/backend/acp"
-	"github.com/fabro/attractor/internal/config"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/backend"
+	acpbackend "github.com/allouis/attractor/internal/backend/acp"
+	"github.com/allouis/attractor/internal/config"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // Router implements backend.CodergenBackend by routing per node.

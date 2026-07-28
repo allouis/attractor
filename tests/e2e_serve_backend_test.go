@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
-	"github.com/fabro/attractor/internal/server"
+	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/server"
 )
 
 // TestServe_RoutesNodesThroughProviderConfig is the server-side mirror of

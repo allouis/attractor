@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // TestStreamEventsSinceReplaysAfterCursor seeds a finished run's events.jsonl

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/backend"
-	"github.com/fabro/attractor/internal/backend/fake"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/backend/fake"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/interviewer"
 )
 
 const linearDOT = `digraph linear {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // fakeDoer replays a canned HTTP response and records the last request.

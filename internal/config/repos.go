@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fabro/attractor/internal/toml"
+	"github.com/allouis/attractor/internal/toml"
 )
 
 // Repos maps a GitHub `owner/name` to a local jj-colocated checkout

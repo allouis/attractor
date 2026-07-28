@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fabro/attractor/internal/backend"
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // Backend is the Claude Code CodergenBackend implementation.

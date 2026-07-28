@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // GitHub lists pull requests via the machine-authed `gh` CLI

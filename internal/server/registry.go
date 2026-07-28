@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/graph"
-	"github.com/fabro/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/interviewer"
 )
 
 // RunStatus is the lifecycle state of a pipeline.

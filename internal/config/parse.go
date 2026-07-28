@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fabro/attractor/internal/toml"
+	"github.com/allouis/attractor/internal/toml"
 )
 
 // Parse reads the minimal TOML subset Attractor's config uses:

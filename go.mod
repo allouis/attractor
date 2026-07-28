@@ -1,3 +1,3 @@
-module github.com/fabro/attractor
+module github.com/allouis/attractor
 
 go 1.23

@@ -3,7 +3,7 @@ package attractor_test
 import (
 	"testing"
 
-	"github.com/fabro/attractor/internal/condition"
+	"github.com/allouis/attractor/internal/condition"
 )
 
 func eval(t *testing.T, expr string, vals map[string]string) bool {

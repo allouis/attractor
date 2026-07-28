@@ -20,9 +20,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fabro/attractor/internal/acp"
-	"github.com/fabro/attractor/internal/backend"
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/acp"
+	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // killGrace is how long the backend waits for the agent process to

@@ -8,7 +8,7 @@ package source
 import (
 	"context"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // Item is a live projection of a single piece of external work. It is

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fabro/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/graph"
 )
 
 // PromptFile resolves `prompt="@path/to/file.md"` references by reading

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/ingest"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/ingest"
 )
 
 func TestIngest_PersistsAndEmitsEvent(t *testing.T) {

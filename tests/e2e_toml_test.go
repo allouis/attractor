@@ -3,7 +3,7 @@ package attractor_test
 import (
 	"testing"
 
-	"github.com/fabro/attractor/internal/toml"
+	"github.com/allouis/attractor/internal/toml"
 )
 
 func TestTOML_StripComment(t *testing.T) {

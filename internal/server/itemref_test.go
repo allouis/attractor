@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // TestNewRunStampsItemRef checks the item_ref supplied at creation is

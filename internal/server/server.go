@@ -20,15 +20,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fabro/attractor/internal/automation"
-	"github.com/fabro/attractor/internal/config"
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/handler"
-	"github.com/fabro/attractor/internal/interviewer"
-	"github.com/fabro/attractor/internal/render"
-	"github.com/fabro/attractor/internal/scheduler"
-	"github.com/fabro/attractor/internal/setup"
-	"github.com/fabro/attractor/internal/source"
+	"github.com/allouis/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/config"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/render"
+	"github.com/allouis/attractor/internal/scheduler"
+	"github.com/allouis/attractor/internal/setup"
+	"github.com/allouis/attractor/internal/source"
 )
 
 // defaultMaxConcurrentRuns bounds runs executing at once when the config

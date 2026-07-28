@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/fabro/attractor/internal/engine"
-	"github.com/fabro/attractor/internal/source"
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/source"
 )
 
 // linkedRun is the run-side annotation attached to an Item: which runs

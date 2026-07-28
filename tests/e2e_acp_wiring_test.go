@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/cli"
-	"github.com/fabro/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/lint"
 )
 
 // TestCLI_ACPBackendEndToEnd runs a whole pipeline through the ACP

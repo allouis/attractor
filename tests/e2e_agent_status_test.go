@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fabro/attractor/internal/backend"
-	"github.com/fabro/attractor/internal/backend/fake"
-	"github.com/fabro/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/backend/fake"
+	"github.com/allouis/attractor/internal/engine"
 )
 
 // TestAgentStatus_AgentCanFailStage exercises the status-file contract
