@@ -166,11 +166,14 @@ Status flipped to `done` in the milestone's final commit):
 | I3 | repo→path config (`~/.attractor/repos.toml`): `owner/name → local jj-colocated checkout` | — | done |
 | I4 | `POST /items/run {item_ref, pipeline, repo}` — resolve item → vars, repo → `cwd`, stamp `item_ref`, start a run; PR auto-fills repo, non-PR picks from the map | I1, I2, I3 | done |
 | I5 | a `review` pipeline (first node `gh pr checkout`, then a codergen review stage) | — | done |
-| I6 | TUI Items view — list items, in-progress badge, **pick item → pick workflow → pick repo → run** | I4, tui branch | blocked |
+| I6 | Items view — list items, in-progress badge, **pick item → pick workflow → pick repo → run** | I4 | retargeted → `docs/web-ui-spec.md` |
 
 I1–I5 are the backend spine, buildable on this `items` branch and
-validatable by `curl`. **I6 is `blocked`** — it needs the TUI, whose
-fate (rebase vs redo) is undecided; skip it until then.
+validatable by `curl`. **I6 was retargeted**: originally a TUI view
+(blocked on the TUI's undecided fate), it is now delivered as a **web**
+view — the TUI is parked and the web UI chosen. See
+`docs/web-ui-spec.md` (milestones W1–W6), whose Items view + run action
+(W3/W4) are exactly this milestone.
 
 ## Phase 2 — Workflow dispatch (routing)
 

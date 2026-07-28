@@ -1,5 +1,11 @@
 # Attractor TUI build spec
 
+> **PARKED (2026-07).** The visualisation UI is being built as a **web**
+> view instead — see `docs/web-ui-spec.md`. T1–T3 (the `internal/client`
+> package) are merged and reused; T4–T7 (the Bubble Tea TUI) are built on
+> the stale `tui` bookmark but unmerged and not being pursued. Kept for
+> reference; revisit only if a terminal-native client is wanted later.
+
 A Bubble Tea terminal UI for driving the attractor daemon: list runs,
 watch them live, tail node output, answer human gates, start and cancel
 runs — all over the same HTTP API the web UI uses, so it works locally
