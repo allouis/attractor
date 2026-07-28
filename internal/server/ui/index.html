@@ -155,7 +155,9 @@
            text-decoration: none; margin-right: var(--space-1); }
   .badge.in-progress { color: var(--state-running); border-color: var(--state-running); }
   .layout { display: grid; grid-template-columns: 1fr 360px; gap: var(--space-4); align-items: start; }
-  #graph svg { max-width: 100%; height: auto; }
+  /* Shared graph-pane sizing: the run-detail graph and the static workflow
+     graph both render server-side SVG and size identically. */
+  .graph-pane svg { max-width: 100%; height: auto; }
   #graph g.node { cursor: pointer; }
   #node-pane { border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3);
                min-height: 120px; background: var(--surface-1); }
@@ -228,12 +230,17 @@
     <div id="run-counts" class="counts"></div>
     <section id="run-list"></section>
   </section>
-  <section id="workflows-view"><p class="muted">No workflows yet.</p></section>
+  <section id="workflows-view"><div id="workflows-list"></div></section>
+  <section id="workflow-view">
+    <p><a href="#workflows">&larr; all workflows</a></p>
+    <h2 id="workflow-title"></h2>
+    <div id="workflow-graph" class="graph-pane"></div>
+  </section>
   <section id="run-view">
     <p><a href="#runs">&larr; all runs</a></p>
     <h2 id="run-title"></h2>
     <div class="layout">
-      <div id="graph"></div>
+      <div id="graph" class="graph-pane"></div>
       <div>
         <div id="node-pane"><p class="muted">Click a node to inspect it.</p></div>
         <div id="human-dock"></div>
@@ -296,9 +303,11 @@ function route() {
   const m = location.hash.match(/^#run\/(.+)$/);
   if (m) { openRun(m[1]); return; }
   teardownRun();
+  const wf = location.hash.match(/^#workflow\/(.+)$/);
+  if (wf) { openWorkflow(decodeURIComponent(wf[1])); return; }
   const tab = location.hash.replace(/^#/, '') || 'items';
   if (tab === 'runs') { highlightNav('runs'); showView('runs-view'); showRuns(); return; }
-  if (tab === 'workflows') { highlightNav('workflows'); showView('workflows-view'); return; }
+  if (tab === 'workflows') { highlightNav('workflows'); showView('workflows-view'); showWorkflows(); return; }
   highlightNav('items'); showView('items-view'); showItems();
 }
 
@@ -621,6 +630,44 @@ async function submitRun() {
     runSubmitting = false;
     if (btn) btn.disabled = false;
   }
+}
+
+// ---- workflows view ----------------------------------------------------
+// The Workflows view browses the workflow catalog (GET /workflows) and,
+// per entry, renders the definition's static graph (GET /workflows/{name}/
+// graph → SVG). Read-only: no run, no SSE (web-ui-spec §Workflows view).
+// showWorkflows lists the catalog; each name links to #workflow/<name>.
+async function showWorkflows() {
+  const listEl = $('workflows-list');
+  listEl.innerHTML = '<p class="muted">loading…</p>';
+  let wfs;
+  try {
+    wfs = await fetchWorkflows();   // reuses the run-picker's catalog cache
+  } catch (e) {
+    listEl.innerHTML = '<p class="banner error">could not load workflows</p>';
+    return;
+  }
+  if (!wfs.length) { listEl.innerHTML = '<p class="muted">no workflows</p>'; return; }
+  listEl.innerHTML = `<table>
+    <thead><tr><th>workflow</th></tr></thead>
+    <tbody>${wfs.map(w =>
+      `<tr><td><a href="#workflow/${encodeURIComponent(w.name)}">${escapeHtml(w.name)}</a></td></tr>`
+    ).join('')}</tbody></table>`;
+}
+
+// openWorkflow shows one workflow's static graph, rendered server-side from
+// its definition (same renderer as the run graph, but no run). The SVG is
+// injected as-is, matching loadGraph's trust of the server-rendered graph.
+async function openWorkflow(name) {
+  highlightNav('workflows');
+  showView('workflow-view');
+  $('workflow-title').textContent = name;
+  const pane = $('workflow-graph');
+  pane.innerHTML = '<p class="muted">loading…</p>';
+  try {
+    const r = await fetch(`/workflows/${encodeURIComponent(name)}/graph`);
+    pane.innerHTML = r.ok ? await r.text() : '<p class="muted">graph unavailable</p>';
+  } catch (e) { pane.innerHTML = '<p class="muted">graph unavailable</p>'; }
 }
 
 // ---- runs fleet view ---------------------------------------------------
