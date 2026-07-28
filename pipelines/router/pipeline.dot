@@ -1,0 +1,53 @@
+// router — route an Item to the right work pipeline (router-spec R6).
+//
+// Run through the single admission point, exactly like any pipeline:
+//
+//   POST /items/run {item_ref, pipeline: ".../router/pipeline.dot", repo}
+//
+// The daemon resolves the Item to vars and SEEDS them — plus the
+// Ref-derived item.type/item.source/item.id — into the run's initial
+// context (router-spec R2). `classify` branches on that seeded
+// `item.type` with conditional edges (router-spec "Routing is edges").
+//
+// Route targets are a CLOSED set declared here — one stack.manager_loop
+// node per work pipeline. Each loop runs its child INLINE and sources
+// the child's declared vars from context (router-spec R1/R3). The agent
+// `triage` node handles the ambiguous case: it emits a `decision` label
+// within the same closed set, never an arbitrary pipeline path.
+//
+// child_dotfile paths are authored relative to this pipeline's directory.
+digraph router {
+    goal = "Route the item to the right work pipeline"
+    max_node_visits = 2
+
+    start [shape=Mdiamond]
+
+    classify [type="conditional"]
+
+    review_loop    [type="stack.manager_loop", stack.child_dotfile="../review/pipeline.dot"]
+    implement_loop [type="stack.manager_loop", stack.child_dotfile="../implement/pipeline.dot"]
+
+    // Agent fallback for the ambiguous case → writes `decision` to context.
+    triage [prompt="@prompts/triage.md"]
+
+    // Surface an undecidable item to a human (router-spec: "surface to a
+    // human"). A deterministic tool node — no agent judgement here.
+    needs_design [type="tool",
+                  tool_command="echo 'router: item needs a human design decision' >&2"]
+
+    done [shape=Msquare]
+
+    start -> classify
+
+    classify -> review_loop    [condition="item.type=pr"]
+    classify -> implement_loop [condition="item.type=issue"]
+    classify -> triage         [condition="item.type=unknown"]
+
+    triage -> review_loop    [condition="decision=review"]
+    triage -> implement_loop [condition="decision=implement"]
+    triage -> needs_design   [condition="decision=design"]
+
+    review_loop    -> done
+    implement_loop -> done
+    needs_design   -> done
+}
