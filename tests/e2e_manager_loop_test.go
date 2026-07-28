@@ -2,6 +2,7 @@ package attractor_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,41 @@ import (
 	"github.com/allouis/attractor/internal/backend/fake"
 	"github.com/allouis/attractor/internal/engine"
 )
+
+// TestManagerLoop_ResolvesChildRelativeToPipelineDir verifies that a
+// relative stack.child_dotfile is resolved against the parent pipeline's
+// directory (its BaseDir), not the process working directory — so
+// `attractor run some/dir/parent.dot` works from anywhere and a relative
+// "../sibling/child.dot" reference holds regardless of cwd.
+func TestManagerLoop_ResolvesChildRelativeToPipelineDir(t *testing.T) {
+	baseDir := t.TempDir()
+	childName := "child_ml_reltest.dot"
+	childSrc := `digraph child {
+		start [shape=Mdiamond]
+		work  [prompt="hi"]
+		done  [shape=Msquare]
+		start -> work -> done
+	}`
+	must(t, os.WriteFile(filepath.Join(baseDir, childName), []byte(childSrc), 0o644))
+
+	// Sanity: the relative name must NOT resolve from the test's cwd, so a
+	// pass can only come from BaseDir-relative resolution.
+	if _, err := os.Stat(childName); err == nil {
+		t.Skipf("%s unexpectedly exists in cwd", childName)
+	}
+
+	parentSrc := fmt.Sprintf(`digraph parent {
+		start [shape=Mdiamond]
+		loop  [type="stack.manager_loop", stack.child_dotfile="%s"]
+		done  [shape=Msquare]
+		start -> loop -> done
+	}`, childName)
+
+	out, _ := runFixtureBaseDir(t, parentSrc, baseDir, fake.New())
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("relative child not resolved via BaseDir: status=%s reason=%q", out.Status, out.FailureReason)
+	}
+}
 
 func TestManagerLoop_SupervisesChildToSuccess(t *testing.T) {
 	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")

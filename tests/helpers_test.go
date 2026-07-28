@@ -77,6 +77,45 @@ func runFixtureInSeeded(t *testing.T, src string, be backend.CodergenBackend, iv
 	return outcome, events
 }
 
+// runFixtureBaseDir runs src with its graph BaseDir set to baseDir, so a
+// handler that resolves a relative path against the pipeline's directory
+// (e.g. a manager_loop child_dotfile) can be exercised independent of the
+// process cwd.
+func runFixtureBaseDir(t *testing.T, src, baseDir string, be backend.CodergenBackend) (engine.Outcome, string) {
+	t.Helper()
+	logsRoot := t.TempDir()
+	file, err := dot.Parse(src)
+	must(t, err)
+	g, err := graphpkg.Build(file)
+	must(t, err)
+	prepared, err := engine.Prepare(g)
+	must(t, err)
+	prepared.Graph.BaseDir = baseDir
+	registry := engine.NewRegistry()
+	registry.Register("start", handler.Start{})
+	registry.Register("exit", handler.Exit{})
+	registry.Register("conditional", handler.Conditional{})
+	registry.Register("codergen", handler.Codergen{Backend: be})
+	registry.Register("tool", handler.Tool{})
+	registry.Register("parallel", handler.Parallel{})
+	registry.Register("parallel.fan_in", handler.FanIn{})
+	registry.Register("stack.manager_loop", handler.ManagerLoop{})
+	registry.SetDefault(handler.Codergen{Backend: be})
+	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, RunID: "test"})
+	done := make(chan struct{})
+	go func() {
+		for range eng.Events() {
+		}
+		close(done)
+	}()
+	out, err := eng.Run(prepared)
+	if err != nil && out.Status != engine.StatusFail {
+		t.Fatalf("engine error: %v", err)
+	}
+	<-done
+	return out, logsRoot
+}
+
 func readStatus(t *testing.T, logsRoot, nodeID string) engine.Outcome {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(logsRoot, nodeID, "status.json"))

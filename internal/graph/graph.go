@@ -23,6 +23,11 @@ type Graph struct {
 	NodeOrder      []string
 	Edges          []*Edge
 	edgesByFromIdx map[string][]int
+	// BaseDir is the directory the pipeline's .dot file was loaded from,
+	// used to resolve relative references (e.g. a stack.manager_loop
+	// child_dotfile) independent of the process working directory. Set by
+	// setup.Prepare; empty when the source has no on-disk location.
+	BaseDir string
 }
 
 // Node is a pipeline stage in the graph. Subgraphs records the names of
