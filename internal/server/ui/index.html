@@ -110,6 +110,12 @@
   .status.running { color: var(--state-running); }
   .status.retrying { color: var(--state-retrying); }
   .status.queued { color: var(--state-queued); }
+  /* Item badges: a linked-run pill (status-tinted, links to #run/<id>) and
+     the deliberately loud in-progress chip. */
+  .badge { display: inline-block; font-size: var(--font-sm); font-weight: 600;
+           padding: 0 var(--space-2); border-radius: 999px; border: 1px solid var(--border);
+           text-decoration: none; margin-right: var(--space-1); }
+  .badge.in-progress { color: var(--state-running); border-color: var(--state-running); }
   .layout { display: grid; grid-template-columns: 1fr 360px; gap: var(--space-4); align-items: start; }
   #graph svg { max-width: 100%; height: auto; }
   #graph g.node { cursor: pointer; }
@@ -254,7 +260,7 @@ function renderItems() {
   if (!list.length) { $('items-list').innerHTML = '<p class="muted">no items</p>'; return; }
   const rows = list.map(itemRowHtml).join('');
   $('items-list').innerHTML = `<table>
-    <thead><tr><th>title</th><th>source</th><th>type</th><th>repo</th></tr></thead>
+    <thead><tr><th>title</th><th>source</th><th>type</th><th>repo</th><th>runs</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -269,7 +275,21 @@ function itemRowHtml(it) {
       <td class="muted">${escapeHtml(ref.source || '')}</td>
       <td class="muted">${escapeHtml(ref.type || '')}</td>
       <td class="muted">${escapeHtml(repo)}</td>
+      <td>${itemBadges(it)}</td>
     </tr>`;
+}
+
+// itemBadges renders the item's run annotation (web-ui-spec §Items view):
+// a loud in-progress chip when a linked run is queued/running, then one
+// status-tinted pill per linked run linking to #run/<id>.
+function itemBadges(it) {
+  let html = it.in_progress ? '<span class="badge in-progress">in progress</span>' : '';
+  for (const run of it.linked_runs || []) {
+    const id = run.id || '';
+    html += `<a class="badge status ${escapeHtml(run.status || '')}" href="#run/${escapeHtml(id)}"` +
+            ` title="${escapeHtml(run.status || '')}">${escapeHtml(id.slice(0, 8))}</a>`;
+  }
+  return html;
 }
 
 async function renderList() {

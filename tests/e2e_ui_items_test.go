@@ -37,3 +37,17 @@ func TestServer_UI_Items_List(t *testing.T) {
 		}
 	}
 }
+
+// TestServer_UI_Items_Badges guards the linked-run / in-progress badge on
+// an item row (web-ui-spec W3): the badge markup hook and its styling. The
+// badge links to #run/<id> so a click jumps to the linked run.
+func TestServer_UI_Items_Badges(t *testing.T) {
+	page := uiPage(t)
+
+	if !strings.Contains(page, ".badge") {
+		t.Errorf("page missing badge styling")
+	}
+	if !strings.Contains(page, "itemBadges") {
+		t.Errorf("page missing itemBadges JS")
+	}
+}
