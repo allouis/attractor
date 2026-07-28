@@ -137,6 +137,15 @@ func TestManagerLoop_TwoNodesDistinctChildren(t *testing.T) {
 	if out.Status != engine.StatusSuccess {
 		t.Fatalf("two-child manager_loop status=%s reason=%q", out.Status, out.FailureReason)
 	}
+	// Each boss ran its OWN child: child.dot's `do` node and
+	// child_alt.dot's `alt` node were each invoked exactly once. If a
+	// boss read the wrong child_dotfile, one of these counts would be 0.
+	if got := be.CallCount("do"); got != 1 {
+		t.Fatalf("child.dot `do` node ran %d times, want 1 (boss1's child)", got)
+	}
+	if got := be.CallCount("alt"); got != 1 {
+		t.Fatalf("child_alt.dot `alt` node ran %d times, want 1 (boss2's child)", got)
+	}
 }
 
 func TestManagerLoop_NodeChildWorkdir(t *testing.T) {
