@@ -500,13 +500,6 @@ func loadGraph(path string) (*graph.Graph, error) {
 	return graph.Build(file)
 }
 
-// buildRegistry wires every built-in handler with the AutoApprove
-// interviewer. Kept for callers that don't need to customise human
-// gates (tests, simple smoke runs).
-func buildRegistry(codergen handler.Codergen) *engine.Registry {
-	return buildRegistryWith(codergen, interviewer.AutoApprove{})
-}
-
 // buildRegistryWith wires every built-in handler, parameterised by the
 // codergen handler and the interviewer used by wait.human nodes.
 func buildRegistryWith(codergen handler.Codergen, iv interviewer.Interviewer) *engine.Registry {

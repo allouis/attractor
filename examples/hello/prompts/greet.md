@@ -1,3 +1,3 @@
-Print a friendly hello to `$name`. One sentence, no preamble.
+Print a friendly hello to `$context.name`. One sentence, no preamble.
 
 Goal: $goal
