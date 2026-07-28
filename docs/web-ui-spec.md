@@ -219,7 +219,7 @@ milestone's final commit. Only that pipeline (or a human) edits it.
 |---|---|---|---|
 | W1 | Design foundation + nav shell: token system (surface/text ramp, spacing/type scale, state palette), dark/light with `prefers-color-scheme` + persisted toggle; restyle the existing Runs list + Run detail to tokens; 3-tab nav (Items/Runs/Workflows) + hash routing, default Items | — | done |
 | W2 | `GET /workflows` catalog + `GET /workflows/{name}/graph` (SVG via `render.SVG`), server-side, with tests | — | done |
-| W3 | Items view: per-source fetch + client merge, frontend filters (source/type/repo/text/in-progress), sort/group, linked-run + in-progress badges | W1, W2 | todo |
+| W3 | Items view: per-source fetch + client merge, frontend filters (source/type/repo/text/in-progress), sort/group, linked-run + in-progress badges | W1, W2 | done |
 | W4 | Items run action: workflow-picker (from catalog) + repo resolution → `POST /items/run`, link to the resulting run | W3 | todo |
 | W5 | Runs view: run-centric list, poll-live counts (running/queued/needs-human/failed), prominent needs-human flag, item↔run + workflow backlinks, cancel with confirm | W1 | todo |
 | W6 | Workflows view: catalog list + static graph render; wire the item/workflow backlinks across all views | W2, W5 | todo |
