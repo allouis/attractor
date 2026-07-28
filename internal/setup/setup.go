@@ -54,10 +54,3 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 		transform.VariableExpansion{Vars: o.Vars},
 	)
 }
-
-// DeclaredVars returns the names listed in the graph's `vars` attribute.
-// Delegates to graph.Graph.DeclaredVars — kept here as the name callers
-// (manager_loop's child prepare) already use.
-func DeclaredVars(g *graph.Graph) []string {
-	return g.DeclaredVars()
-}
