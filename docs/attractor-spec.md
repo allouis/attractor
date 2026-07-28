@@ -1057,10 +1057,13 @@ Context:
 
 > **Extension (see `docs/router-spec.md`).** A run may be started with a
 > **seeded initial context** — the daemon applies a caller-supplied map
-> (e.g. an Item's fields) to the context before the start node runs, via
-> the same `apply_updates` used for checkpoint restore. This lets
-> external inputs drive conditional edges at runtime and be handed to an
-> inline child pipeline as its prepare-time `$vars`.
+> to the context before the start node runs, via the same `apply_updates`
+> used for checkpoint restore. For an Item run (`POST /items/run`) the map
+> is the Item's `Vars` under their plain names (`repo`, `pr_number`, …)
+> plus the Ref-derived keys `item.type`, `item.source`, `item.id`. These
+> are **daemon-seeded, not engine-set**; they let external inputs drive
+> conditional edges at runtime (the router branches on `item.type`) and be
+> handed to an inline child pipeline as its prepare-time `$vars`.
 
 **Built-in context keys set by the engine:**
 
