@@ -59,6 +59,15 @@ func Load(homeDir, cwd string) (Config, error) {
 		}
 		cfg.overlay(layer)
 	}
+	// Environment fallback: LINEAR_API_KEY lets the Linear key live in the
+	// process env (like GH_TOKEN does for the GitHub source via `gh`)
+	// rather than only in config.toml. A config file still wins when both
+	// are set.
+	if cfg.LinearAPIKey == "" {
+		if k := os.Getenv("LINEAR_API_KEY"); k != "" {
+			cfg.LinearAPIKey = k
+		}
+	}
 	return cfg, nil
 }
 

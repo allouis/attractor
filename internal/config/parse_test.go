@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseProviderHeaderDottedName(t *testing.T) {
 	cases := []struct {
@@ -55,5 +59,38 @@ func TestLinearAPIKeyOverlay(t *testing.T) {
 	cfg.overlay(Config{LinearAPIKey: "cwd"})
 	if cfg.LinearAPIKey != "cwd" {
 		t.Errorf("LinearAPIKey = %q, want %q", cfg.LinearAPIKey, "cwd")
+	}
+}
+
+// TestLoadLinearAPIKeyFromEnv verifies LINEAR_API_KEY is picked up from the
+// process environment when no config file sets it, and that a config file
+// still wins when both are present.
+func TestLoadLinearAPIKeyFromEnv(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "lin_from_env")
+
+	// No config file anywhere → env fills the key.
+	cfg, err := Load(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LinearAPIKey != "lin_from_env" {
+		t.Fatalf("env fallback not applied: %q", cfg.LinearAPIKey)
+	}
+
+	// A config file setting the key wins over the env.
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".attractor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".attractor", "config.toml"),
+		[]byte("[linear]\napi_key = \"lin_from_file\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(home, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LinearAPIKey != "lin_from_file" {
+		t.Fatalf("config file should win over env: %q", cfg.LinearAPIKey)
 	}
 }
