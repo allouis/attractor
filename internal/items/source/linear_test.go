@@ -116,3 +116,35 @@ func TestLinearListError(t *testing.T) {
 		t.Fatal("expected error when the HTTP call fails")
 	}
 }
+
+// TestLinearListFiltersResolvedIssues verifies Done (completed) and
+// Canceled issues are dropped from the intake list.
+func TestLinearListFiltersResolvedIssues(t *testing.T) {
+	const body = `{"data":{"viewer":{"assignedIssues":{"nodes":[
+	  {"id":"a","title":"Active","url":"u1","state":{"type":"started","name":"In Progress"}},
+	  {"id":"b","title":"Done thing","url":"u2","state":{"type":"completed","name":"Done"}},
+	  {"id":"c","title":"Backlog thing","url":"u3","state":{"type":"backlog","name":"Backlog"}},
+	  {"id":"d","title":"Cancelled thing","url":"u4","state":{"type":"canceled","name":"Canceled"}}
+	]}}}}`
+	src := &Linear{apiKey: "k", doer: &fakeDoer{body: body}}
+	got, err := src.List(context.Background(), Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, it := range got {
+		titles = append(titles, it.Title)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 non-resolved issues, got %d: %v", len(got), titles)
+	}
+	for _, it := range got {
+		if it.Title == "Done thing" || it.Title == "Cancelled thing" {
+			t.Fatalf("resolved issue leaked into list: %q", it.Title)
+		}
+	}
+	// The query must ask for state so the filter has data.
+	if fd := src.doer.(*fakeDoer); !strings.Contains(fd.sent, "state") {
+		t.Fatalf("query should request issue state; sent: %s", fd.sent)
+	}
+}

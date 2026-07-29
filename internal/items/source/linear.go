@@ -16,7 +16,11 @@ const linearEndpoint = "https://api.linear.app/graphql"
 
 // linearQuery fetches the viewer's assigned issues — Linear scopes
 // "assigned to me" server-side via the authenticated viewer.
-const linearQuery = `{ viewer { assignedIssues(first: 50) { nodes { id identifier title url } } } }`
+// linearQuery filters resolved issues server-side (Done / Canceled /
+// Duplicate) so the first-N window isn't consumed by closed work — a
+// large done backlog would otherwise crowd out active issues. The
+// client-side resolved() check stays as defence in depth.
+const linearQuery = `{ viewer { assignedIssues(first: 100, filter: { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }) { nodes { id identifier title url state { type name } } } } }`
 
 // httpDoer is the subset of *http.Client the Linear source needs;
 // injectable so tests replay canned GraphQL responses.
@@ -43,6 +47,21 @@ type linearIssue struct {
 	Identifier string `json:"identifier"`
 	Title      string `json:"title"`
 	URL        string `json:"url"`
+	State      struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+	} `json:"state"`
+}
+
+// resolved reports whether the issue is in a terminal state (Linear state
+// type "completed" = Done, or "canceled") — work that no longer needs
+// doing and so is filtered out of the intake list.
+func (n linearIssue) resolved() bool {
+	switch n.State.Type {
+	case "completed", "canceled", "duplicate":
+		return true
+	}
+	return false
 }
 
 func (n linearIssue) item() Item {
@@ -79,6 +98,9 @@ func (l *Linear) List(ctx context.Context, _ Filter) ([]Item, error) {
 	nodes := parsed.Data.Viewer.AssignedIssues.Nodes
 	items := make([]Item, 0, len(nodes))
 	for _, n := range nodes {
+		if n.resolved() {
+			continue // skip Done / Canceled issues — not actionable intake
+		}
 		items = append(items, n.item())
 	}
 	return items, nil
