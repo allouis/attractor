@@ -10,6 +10,12 @@ The issue is at $context.url. The repo is checked out in your working directory.
    what the issue asks — nothing missing, nothing beyond.
 3. Run the project's tests and formatter before you finish.
 
+After you finish, deterministic checks run — dependency install,
+typecheck, lint, and the test suite — followed by an adversarial
+multi-lens review of your diff. **If you were routed back here** because
+a check or the review failed, the failing output / findings are the
+thing to fix now: address exactly what was reported, then finish again.
+
 Report your outcome by writing `{stage_dir}/status.json`: `success`
 when the change is complete and the tests pass, otherwise `fail` with a
 `failure_reason` describing what blocked you.

@@ -17,7 +17,7 @@ import (
 // once that transform is removed (C7), pins that nothing regresses to
 // bare-var syntax. Shell forms (`$(…)`, `$$`) are left for the shell.
 var shippedPipelineFiles = []string{
-	"../pipelines/review/pipeline.dot",
+	"../pipelines/review-pr/pipeline.dot",
 	"../pipelines/review-core/pipeline.dot",
 	"../pipelines/implement/pipeline.dot",
 	"../pipelines/implement/prompts/implement.md",
@@ -26,6 +26,10 @@ var shippedPipelineFiles = []string{
 	"../pipelines/build/prompts/implement.md",
 	"../pipelines/build/prompts/review.md",
 	"../pipelines/build/prompts/record.md",
+	"../pipelines/bug-fix/pipeline.dot",
+	"../pipelines/bug-fix/prompts/understand.md",
+	"../pipelines/bug-fix/prompts/reproduce.md",
+	"../pipelines/bug-fix/prompts/fix.md",
 	"../pipelines/router/pipeline.dot",
 	"../pipelines/router/prompts/triage.md",
 }

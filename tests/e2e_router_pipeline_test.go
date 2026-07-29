@@ -50,69 +50,62 @@ func condEdgeTo(t *testing.T, g *graphpkg.Graph, from, cond string) string {
 	return ""
 }
 
-// TestRouterPipeline_RoutesItemTypeToManagerLoops pins the R6 contract:
-// a conditional `classify` node routes on the seeded `item.type` to a
-// per-type `stack.manager_loop` target, each carrying its own child
-// pipeline. `pr` -> review child, `issue` -> implement child.
+// managerLoopChild asserts `target` is a stack.manager_loop and returns its
+// child_dotfile.
+func managerLoopChild(t *testing.T, g *graphpkg.Graph, target string) string {
+	t.Helper()
+	n := g.Nodes[target]
+	if n.Type() != "stack.manager_loop" {
+		t.Fatalf("target %q type=%q, want stack.manager_loop", target, n.Type())
+	}
+	return n.Attrs["stack.child_dotfile"]
+}
+
+// TestRouterPipeline_RoutesItemTypeToManagerLoops pins the R6 contract: the
+// conditional `classify` routes a PR deterministically to the review-pr
+// child, and sends an issue (or unknown type) to the `triage` agent.
 func TestRouterPipeline_RoutesItemTypeToManagerLoops(t *testing.T) {
 	g := buildRouterGraph(t)
 
-	// start -> classify (a conditional node).
-	out := g.OutgoingEdges("start")
-	if len(out) != 1 {
-		t.Fatalf("start should have exactly one outgoing edge, got %d", len(out))
-	}
-	classifyID := out[0].To
+	classifyID := g.OutgoingEdges("start")[0].To
 	if got := g.Nodes[classifyID].Type(); got != "conditional" {
 		t.Fatalf("classify node %q type=%q, want conditional", classifyID, got)
 	}
 
-	cases := []struct {
-		itemType    string
-		childSuffix string
-	}{
-		{"item.type=pr", "review/pipeline.dot"},
-		{"item.type=issue", "implement/pipeline.dot"},
+	// pr -> review-pr manager_loop (deterministic).
+	if child := managerLoopChild(t, g, condEdgeTo(t, g, classifyID, "item.type=pr")); !strings.HasSuffix(child, "review-pr/pipeline.dot") {
+		t.Fatalf("pr target child=%q, want review-pr/pipeline.dot", child)
 	}
-	for _, c := range cases {
-		target := condEdgeTo(t, g, classifyID, c.itemType)
-		n := g.Nodes[target]
-		if n.Type() != "stack.manager_loop" {
-			t.Fatalf("%s target %q type=%q, want stack.manager_loop", c.itemType, target, n.Type())
-		}
-		child := n.Attrs["stack.child_dotfile"]
-		if !strings.HasSuffix(child, c.childSuffix) {
-			t.Fatalf("%s target child_dotfile=%q, want suffix %q", c.itemType, child, c.childSuffix)
+	// issue and unknown both go to the triage agent (a codergen node).
+	for _, cond := range []string{"item.type=issue", "item.type=unknown"} {
+		target := condEdgeTo(t, g, classifyID, cond)
+		if got := g.Nodes[target].Type(); got != "codergen" {
+			t.Fatalf("%s target %q type=%q, want codergen (triage)", cond, target, got)
 		}
 	}
 }
 
-// TestRouterPipeline_TriageFallback confirms the ambiguous path: an
-// unknown item type routes to an agent `triage` node (a prompt-bearing
-// codergen stage) whose emitted `decision` label routes to the same
-// closed set of targets, plus a `needs_design` human surface.
+// TestRouterPipeline_TriageFallback confirms the triage agent's `decision`
+// routes within the closed work-pipeline set: bugfix / implement / review
+// each to their manager_loop child, and design to the human surface.
 func TestRouterPipeline_TriageFallback(t *testing.T) {
 	g := buildRouterGraph(t)
 
 	classifyID := g.OutgoingEdges("start")[0].To
-	triageID := condEdgeTo(t, g, classifyID, "item.type=unknown")
-
+	triageID := condEdgeTo(t, g, classifyID, "item.type=issue")
 	triage := g.Nodes[triageID]
-	if triage.Type() != "codergen" {
-		t.Fatalf("triage node %q type=%q, want codergen (agent fallback)", triageID, triage.Type())
-	}
-	if triage.Prompt() == "" {
-		t.Fatalf("triage node %q has no prompt", triageID)
+	if triage.Type() != "codergen" || triage.Prompt() == "" {
+		t.Fatalf("triage node %q type=%q prompt=%q, want a prompt-bearing codergen", triageID, triage.Type(), triage.Prompt())
 	}
 
-	// The agent's `decision` label routes within the closed target set.
-	reviewTarget := condEdgeTo(t, g, classifyID, "item.type=pr")
-	implementTarget := condEdgeTo(t, g, classifyID, "item.type=issue")
-	if got := condEdgeTo(t, g, triageID, "decision=review"); got != reviewTarget {
-		t.Fatalf("triage decision=review -> %q, want %q (same review target as classify)", got, reviewTarget)
-	}
-	if got := condEdgeTo(t, g, triageID, "decision=implement"); got != implementTarget {
-		t.Fatalf("triage decision=implement -> %q, want %q (same implement target)", got, implementTarget)
+	for decision, childSuffix := range map[string]string{
+		"decision=review":    "review-pr/pipeline.dot",
+		"decision=implement": "implement/pipeline.dot",
+		"decision=bugfix":    "bug-fix/pipeline.dot",
+	} {
+		if child := managerLoopChild(t, g, condEdgeTo(t, g, triageID, decision)); !strings.HasSuffix(child, childSuffix) {
+			t.Fatalf("triage %s child=%q, want %q", decision, child, childSuffix)
+		}
 	}
 	designTarget := condEdgeTo(t, g, triageID, "decision=design")
 	if g.Nodes[designTarget].Type() != "tool" {

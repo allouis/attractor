@@ -26,7 +26,7 @@ func TestReviewPipeline_DispatchRunsCheckoutInCwd(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(binDir, "gh"), []byte(stub), 0o755))
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	src, err := os.ReadFile("../pipelines/review/pipeline.dot")
+	src, err := os.ReadFile("../pipelines/review-pr/pipeline.dot")
 	must(t, err)
 	baseDir, err := filepath.Abs("../pipelines/review")
 	must(t, err)

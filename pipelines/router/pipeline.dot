@@ -6,14 +6,14 @@
 //
 // The daemon resolves the Item to vars and SEEDS them — plus the
 // Ref-derived item.type/item.source/item.id — into the run's initial
-// context (router-spec R2). `classify` branches on that seeded
-// `item.type` with conditional edges (router-spec "Routing is edges").
+// context (router-spec R2). `classify` branches on that seeded `item.type`.
 //
-// Route targets are a CLOSED set declared here — one stack.manager_loop
-// node per work pipeline. Each loop runs its child INLINE and sources
-// the child's declared vars from context (router-spec R1/R3). The agent
-// `triage` node handles the ambiguous case: it emits a `decision` label
-// within the same closed set, never an arbitrary pipeline path.
+// A PR is always a review (deterministic → review-pr). An issue could be a
+// feature or a bug, so it goes to the `triage` agent, which reads it and
+// emits `decision` ∈ {implement, bugfix, design}. An unknown type triages
+// against the full set. Route targets are a CLOSED set — one
+// stack.manager_loop per work pipeline, each running its child inline and
+// sourcing the child's vars from context (router-spec R1/R3).
 //
 // child_dotfile paths are authored relative to this pipeline's directory.
 digraph router {
@@ -24,14 +24,14 @@ digraph router {
 
     classify [type="conditional"]
 
-    review_loop    [type="stack.manager_loop", stack.child_dotfile="../review/pipeline.dot"]
+    review_pr_loop [type="stack.manager_loop", stack.child_dotfile="../review-pr/pipeline.dot"]
     implement_loop [type="stack.manager_loop", stack.child_dotfile="../implement/pipeline.dot"]
+    bugfix_loop    [type="stack.manager_loop", stack.child_dotfile="../bug-fix/pipeline.dot"]
 
-    // Agent fallback for the ambiguous case → writes `decision` to context.
+    // Agent that reads an issue and picks the work pipeline for it.
     triage [prompt="@prompts/triage.md"]
 
-    // Surface an undecidable item to a human (router-spec: "surface to a
-    // human"). A deterministic tool node — no agent judgement here.
+    // Undecidable item → surface to a human (a deterministic tool node).
     needs_design [type="tool",
                   tool_command="echo 'router: item needs a human design decision' >&2"]
 
@@ -39,15 +39,17 @@ digraph router {
 
     start -> classify
 
-    classify -> review_loop    [condition="item.type=pr"]
-    classify -> implement_loop [condition="item.type=issue"]
+    classify -> review_pr_loop [condition="item.type=pr"]
+    classify -> triage         [condition="item.type=issue"]
     classify -> triage         [condition="item.type=unknown"]
 
-    triage -> review_loop    [condition="decision=review"]
+    triage -> review_pr_loop [condition="decision=review"]
     triage -> implement_loop [condition="decision=implement"]
+    triage -> bugfix_loop    [condition="decision=bugfix"]
     triage -> needs_design   [condition="decision=design"]
 
-    review_loop    -> done
+    review_pr_loop -> done
     implement_loop -> done
+    bugfix_loop    -> done
     needs_design   -> done
 }

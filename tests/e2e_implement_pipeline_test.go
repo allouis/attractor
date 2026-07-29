@@ -50,25 +50,44 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	g := buildImplementGraph(t)
 
 	// start -> implement (the codergen build stage).
-	out := g.OutgoingEdges("start")
-	if len(out) != 1 {
-		t.Fatalf("start should have exactly one outgoing edge, got %d", len(out))
-	}
-	implementID := out[0].To
+	implementID := g.OutgoingEdges("start")[0].To
 	if impl := g.Nodes[implementID]; impl.Type() != "codergen" {
 		t.Fatalf("first stage %q type=%q, want codergen", implementID, impl.Type())
 	}
 
-	// implement -> review_loop (the self-review gate).
-	io := g.OutgoingEdges(implementID)
-	if len(io) != 1 {
-		t.Fatalf("implement should have exactly one outgoing edge, got %d", len(io))
+	// Static checks: tool nodes running the repo's configured commands
+	// ($context.check.*), each routing back to implement on failure.
+	checkTools := 0
+	for id, n := range g.Nodes {
+		if n.Type() != "tool" || !strings.Contains(n.Attrs["tool_command"], "$context.check.") {
+			continue
+		}
+		checkTools++
+		back := false
+		for _, e := range g.OutgoingEdges(id) {
+			if strings.Contains(e.Attrs["condition"], "outcome=fail") && e.To == implementID {
+				back = true
+			}
+		}
+		if !back {
+			t.Errorf("check node %q does not route back to implement on failure", id)
+		}
 	}
-	loopID := io[0].To
+	if checkTools < 4 {
+		t.Fatalf("want >=4 static-check tool nodes (deps/typecheck/lint/test), got %d", checkTools)
+	}
+
+	// The self-review loop: a manager_loop over review-core with jj diff.
+	var loopID string
+	for id, n := range g.Nodes {
+		if n.Type() == "stack.manager_loop" {
+			loopID = id
+		}
+	}
+	if loopID == "" {
+		t.Fatal("no stack.manager_loop self-review node")
+	}
 	loop := g.Nodes[loopID]
-	if loop.Type() != "stack.manager_loop" {
-		t.Fatalf("review stage %q type=%q, want stack.manager_loop", loopID, loop.Type())
-	}
 	if child := loop.Attrs["stack.child_dotfile"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
 		t.Fatalf("review_loop child_dotfile=%q, want suffix review-core/pipeline.dot", child)
 	}
@@ -76,22 +95,34 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 		t.Fatalf("review_loop diff_cmd=%q, want it to contain `jj diff`", diffCmd)
 	}
 
-	// review_loop branches on the verdict: FAIL -> implement, PASS -> exit.
-	var backToImplement, toExit bool
+	// review_loop -> implement on FAIL, -> a human ship gate on PASS.
+	var backToImplement bool
+	var shipID string
 	for _, e := range g.OutgoingEdges(loopID) {
 		cond := e.Attrs["condition"]
-		switch {
-		case strings.Contains(cond, "outcome=fail") && e.To == implementID:
+		if strings.Contains(cond, "outcome=fail") && e.To == implementID {
 			backToImplement = true
-		case strings.Contains(cond, "outcome=success") && g.Nodes[e.To].Type() == "exit":
-			toExit = true
+		}
+		if strings.Contains(cond, "outcome=success") && g.Nodes[e.To].Type() == "wait.human" {
+			shipID = e.To
 		}
 	}
 	if !backToImplement {
-		t.Fatal("review_loop should route back to implement on outcome=fail")
+		t.Error("review_loop should route back to implement on outcome=fail")
+	}
+	if shipID == "" {
+		t.Fatal("review_loop should route to a human ship gate on outcome=success")
+	}
+
+	// The ship gate reaches exit on approval.
+	toExit := false
+	for _, e := range g.OutgoingEdges(shipID) {
+		if g.Nodes[e.To].Type() == "exit" {
+			toExit = true
+		}
 	}
 	if !toExit {
-		t.Fatal("review_loop should route to exit on outcome=success")
+		t.Error("ship gate should route to exit on approve")
 	}
 }
 

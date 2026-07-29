@@ -1,43 +1,58 @@
-// implement — build the change an Issue asks for (router-spec R6),
-// gated by a self-review (review-pipeline-spec RV4).
+// implement — build the change an Issue asks for, gated by static checks,
+// then an adversarial self-review, then a human ship gate. Merges the old
+// `task` pipeline's deterministic check backbone (deps/typecheck/lint/test)
+// into the item-driven implement flow.
 //
 // The router's `issue` target: stack.manager_loop runs this child inline
-// and sources its declared vars from context (router-spec R3). It also
-// runs standalone from the CLI against the same prepare-time contract:
+// and sources its declared vars from context (router-spec R3). It also runs
+// standalone from the CLI against the same contract:
 //
 //   attractor run implement -var repo=owner/name -var identifier=ENG-42 \
 //     -var url=… -var title=…
 //
-// These are exactly the vars a Linear issue Item supplies
-// (internal/items/source/linear.go), plus `repo` from the run request.
-//
-// After the agent implements, `review_loop` runs the shared multi-lens
-// review-core sub-pipeline inline via stack.manager_loop, seeding its one
-// input — diff_cmd = `jj diff` — so the five lenses review the agent's own
-// uncommitted work. review-core's synth verdict becomes the loop's outcome:
-// a FAIL routes back to `implement` (re-review, bounded by max_node_visits),
-// a PASS exits. The agent must pass its own review before the run finishes.
-//
-// Note: on a re-review the manager_loop child resumes its checkpoint, so the
-// SUCCESS-class lenses are cached and only synth re-runs — a fresh fan-out
-// per attempt needs a manager_loop that restarts its child (future work).
+// Flow: the agent implements, then four deterministic tool nodes run the
+// repo's configured checks (seeded as $context.check.<name> from the repo's
+// .attractor/config.toml [checks] table; a no-op when unconfigured). Each
+// check routes back to `implement` on failure so the agent fixes it. Once
+// the checks pass, `review_loop` runs the shared review-core sub-pipeline
+// (five adversarial lenses + synth) against the agent's uncommitted diff; a
+// FAIL routes back to implement. A PASS reaches the human ship gate.
 digraph implement {
     goal = "Implement issue $context.identifier — \"$context.title\" — in $context.repo"
     vars = "repo,identifier,url,title"
-    max_node_visits = 3
+    max_node_visits = 6
 
     start [shape=Mdiamond]
 
     implement [timeout="120m", prompt="@prompts/implement.md"]
 
-    review_loop [type="stack.manager_loop",
+    // Deterministic checks — commands come from the repo's [checks] config,
+    // seeded into context by the daemon. They run in the run's cwd (the repo).
+    deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
+    typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
+    lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
+    test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+
+    // Adversarial self-review of the uncommitted change (review-core).
+    review_loop [type="stack.manager_loop", timeout="45m",
                  stack.child_dotfile="../review-core/pipeline.dot",
                  stack.child.var.diff_cmd="jj diff"]
 
+    ship [shape=hexagon, label="Ship these changes? (checks + self-review passed)"]
+
     done [shape=Msquare]
 
-    start -> implement
-    implement -> review_loop
-    review_loop -> implement [condition="outcome=fail", label="Address findings"]
-    review_loop -> done      [condition="outcome=success"]
+    start -> implement -> deps
+    deps      -> typecheck   [condition="outcome=success"]
+    deps      -> implement   [condition="outcome=fail", label="Fix deps"]
+    typecheck -> lint        [condition="outcome=success"]
+    typecheck -> implement   [condition="outcome=fail", label="Fix types"]
+    lint      -> test        [condition="outcome=success"]
+    lint      -> implement   [condition="outcome=fail", label="Fix lint"]
+    test      -> review_loop  [condition="outcome=success"]
+    test      -> implement    [condition="outcome=fail", label="Fix tests"]
+    review_loop -> ship       [condition="outcome=success"]
+    review_loop -> implement  [condition="outcome=fail", label="Address findings"]
+    ship -> done      [label="[S] Ship"]
+    ship -> implement [label="[C] Request changes"]
 }

@@ -16,7 +16,7 @@ import (
 // reviewPipelineSrc reads the shipped review pipeline (items-spec I5).
 func reviewPipelineSrc(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("../pipelines/review/pipeline.dot")
+	b, err := os.ReadFile("../pipelines/review-pr/pipeline.dot")
 	must(t, err)
 	return string(b)
 }
