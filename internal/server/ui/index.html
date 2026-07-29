@@ -734,6 +734,27 @@ function countPill(state, n) {
   return `<span class="count count-${state}${loud}">${n} ${escapeHtml(state)}</span>`;
 }
 
+// fmtDate renders an ISO timestamp as a compact relative time ("2m ago",
+// "3h ago", "Jul 28") with the full local timestamp on hover. Empty or
+// unparseable input yields a muted em dash rather than a raw nanosecond
+// string.
+function fmtDate(iso) {
+  if (!iso) return '<span class="muted">—</span>';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return escapeHtml(iso);
+  const secs = (Date.now() - d.getTime()) / 1000;
+  let rel;
+  if (secs < 0) rel = 'just now';
+  else if (secs < 60) rel = Math.floor(secs) + 's ago';
+  else if (secs < 3600) rel = Math.floor(secs / 60) + 'm ago';
+  else if (secs < 86400) rel = Math.floor(secs / 3600) + 'h ago';
+  else if (secs < 7 * 86400) rel = Math.floor(secs / 86400) + 'd ago';
+  else rel = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const full = d.toLocaleString(undefined,
+    { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `<span title="${escapeHtml(full)}">${escapeHtml(rel)}</span>`;
+}
+
 // runRowHtml builds one fleet row: the run (id → #run/<id>) alongside its
 // provenance backlinks (web-ui-spec W6) — the workflow it ran (→ #workflow/
 // <name>) and the item it was dispatched for (→ #items). Every
@@ -750,7 +771,7 @@ function runRowHtml(p) {
       <td class="muted">${runWorkflowCell(p)}</td>
       <td class="muted">${runItemCell(p)}</td>
       <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}</td>
-      <td class="muted">${escapeHtml(p.started_at || '')}</td>
+      <td class="muted">${fmtDate(p.started_at)}</td>
       <td>${runCancelButton(p)}</td>
     </tr>`;
 }
