@@ -44,7 +44,10 @@ func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []workflow{}
 	for _, e := range entries {
-		if !e.IsDir() {
+		// Stat (not DirEntry.IsDir) so a symlinked workflow directory
+		// counts — users commonly symlink their repo's pipelines into the
+		// catalog root rather than copy them.
+		if info, err := os.Stat(filepath.Join(s.workflowsDir, e.Name())); err != nil || !info.IsDir() {
 			continue
 		}
 		def := filepath.Join(s.workflowsDir, e.Name(), "pipeline.dot")
