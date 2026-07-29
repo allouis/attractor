@@ -44,7 +44,7 @@ type Deps interface {
 	// Submit runs the shared admission path, stamping the run with the
 	// opaque item tag and the workflow's catalog name (the run→workflow
 	// backlink handle, web-ui-spec W6), and returns the new run id.
-	Submit(dot string, vars map[string]string, cwd, tag, workflowName string) (string, error)
+	Submit(dot string, vars map[string]string, cwd, tag, workflowName, baseDir string) (string, error)
 	// LinkedRuns returns the runs stamped with the item tag, newest first.
 	LinkedRuns(tag string) []LinkedRun
 }
@@ -159,8 +159,13 @@ func (h *handlers) runItem(w http.ResponseWriter, r *http.Request) {
 	// resolves against GET /workflows/{name} (web-ui-spec W6). This is the
 	// dir name, not the DOT digraph name; the two can differ (graphviz ids
 	// forbid hyphens).
-	workflowName := filepath.Base(filepath.Dir(req.Pipeline))
-	id, err := h.deps.Submit(string(dot), item.Vars, cwd, req.ItemRef.String(), workflowName)
+	pipelinePath := expandTilde(req.Pipeline)
+	workflowName := filepath.Base(filepath.Dir(pipelinePath))
+	// baseDir is the pipeline's own directory, so its @prompt refs and any
+	// manager_loop child_dotfile (authored relative to the pipeline) resolve
+	// against it rather than the work cwd (the target repo).
+	baseDir := filepath.Dir(pipelinePath)
+	id, err := h.deps.Submit(string(dot), item.Vars, cwd, req.ItemRef.String(), workflowName, baseDir)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return

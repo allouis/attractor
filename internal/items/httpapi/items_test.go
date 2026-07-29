@@ -51,6 +51,7 @@ type fakeDeps struct {
 	subCwd      string
 	subTag      string
 	subWorkflow string
+	subBaseDir  string
 	subID       string
 	subErr      error
 }
@@ -70,8 +71,8 @@ func (d *fakeDeps) SourceNames() []string {
 
 func (d *fakeDeps) RepoPath(repo string) (string, bool) { return d.repos.Path(repo) }
 
-func (d *fakeDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName string) (string, error) {
-	d.subDot, d.subVars, d.subCwd, d.subTag, d.subWorkflow = dot, vars, cwd, tag, workflowName
+func (d *fakeDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName, baseDir string) (string, error) {
+	d.subDot, d.subVars, d.subCwd, d.subTag, d.subWorkflow, d.subBaseDir = dot, vars, cwd, tag, workflowName, baseDir
 	return d.subID, d.subErr
 }
 

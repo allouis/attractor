@@ -67,11 +67,14 @@ func (s *Server) lookupAutomation(name string) (automation.Automation, error) {
 // a filesystem path (bare-name pipeline lookup is a CLI-only convenience);
 // a leading ~ is expanded to the home directory.
 func (s *Server) fireAutomation(a automation.Automation) (string, error) {
-	src, err := os.ReadFile(expandTilde(a.Pipeline))
+	path := expandTilde(a.Pipeline)
+	src, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("automation %q: read pipeline: %w", a.Name, err)
 	}
-	return s.submit(string(src), a.Vars, a.Cwd, "", "")
+	// baseDir = the pipeline's dir so its @prompts / child_dotfile resolve
+	// relative to itself, not the automation's work cwd.
+	return s.submit(string(src), a.Vars, a.Cwd, "", "", filepath.Dir(path))
 }
 
 // expandTilde replaces a leading ~ with the user's home directory.

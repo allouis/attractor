@@ -249,7 +249,7 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		tag = itemRef.String()
 	}
 	// A raw dot submission carries no catalog path, so no workflow_name.
-	id, err := s.submit(source, vars, cwd, tag, "")
+	id, err := s.submit(source, vars, cwd, tag, "", "")
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -278,8 +278,8 @@ func (d itemsDeps) SourceNames() []string {
 
 func (d itemsDeps) RepoPath(repo string) (string, bool) { return d.s.repos.Path(repo) }
 
-func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName string) (string, error) {
-	return d.s.submit(dot, vars, cwd, tag, workflowName)
+func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName, baseDir string) (string, error) {
+	return d.s.submit(dot, vars, cwd, tag, workflowName, baseDir)
 }
 
 func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
@@ -308,10 +308,19 @@ func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
 // automation and cron callers pass "". workflowName, when non-empty, is the
 // catalog directory the run was dispatched from — the run→workflow backlink
 // handle (web-ui-spec W6); raw dot and automation callers pass "".
-func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, workflowName string) (string, error) {
+func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, workflowName, baseDir string) (string, error) {
+	// The pipeline's own files (@prompt refs, a manager_loop child_dotfile)
+	// resolve against baseDir — the directory the pipeline was loaded from —
+	// so a workflow dispatched from the catalog can reference its prompts and
+	// sub-pipelines relative to itself. cwd stays the work directory the
+	// agent operates in (the target repo). A raw-dot submit has no on-disk
+	// pipeline, so baseDir falls back to cwd.
+	if baseDir == "" {
+		baseDir = cwd
+	}
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  source,
-		BaseDir: cwd,
+		BaseDir: baseDir,
 		Cwd:     cwd,
 	})
 	if err != nil {
