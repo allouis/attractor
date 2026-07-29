@@ -48,19 +48,37 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 		cooldown = d
 	}
 
-	childWorkdir := nodeOrGraphAttr(env, "stack.child_workdir")
-	if childWorkdir == "" {
-		childWorkdir = filepath.Dir(childDot)
-	}
-	childLogs := filepath.Join(env.LogsRoot, env.Node.ID, "child")
-	if err := os.MkdirAll(childLogs, 0o755); err != nil {
-		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: %v", err)}
-	}
-
+	// Resolve a relative child_dotfile. Precedence:
+	//  1. an explicit stack.child_workdir wins (legacy caller intent);
+	//  2. else the parent pipeline's directory (its BaseDir), so the path
+	//     holds regardless of the process cwd — `attractor run
+	//     some/dir/parent.dot` referencing `../sibling/child.dot` works from
+	//     anywhere — but only when that resolves to an existing file;
+	//  3. else leave it relative to the process cwd (legacy default), so the
+	//     daemon (which passes the submission cwd as BaseDir) isn't regressed.
+	childWorkdirAttr := nodeOrGraphAttr(env, "stack.child_workdir")
 	dotPath := childDot
 	if !filepath.IsAbs(dotPath) {
-		dotPath = filepath.Join(childWorkdir, dotPath)
+		switch {
+		case childWorkdirAttr != "":
+			dotPath = filepath.Join(childWorkdirAttr, dotPath)
+		case env.Graph.BaseDir != "" && fileExists(filepath.Join(env.Graph.BaseDir, dotPath)):
+			dotPath = filepath.Join(env.Graph.BaseDir, dotPath)
+		}
 	}
+
+	childWorkdir := childWorkdirAttr
+	if childWorkdir == "" {
+		childWorkdir = filepath.Dir(dotPath)
+	}
+	// The child run writes under a "child" subdir of this stage, through
+	// its own engine store (which creates the directory). Empty when the
+	// parent run has no logs root, so the child runs no-persistence too.
+	childLogs := ""
+	if env.Stage != nil {
+		childLogs = env.Stage.Sub("child").Root()
+	}
+
 	childSrc, err := os.ReadFile(dotPath)
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: read %s: %v", dotPath, err)}
@@ -71,6 +89,16 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	})
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: validate child: %v", err)}
+	}
+	// A reusable child pipeline that declares no acp_command inherits the
+	// parent's (node- then graph-level), so it runs under the same run-wide
+	// agent command without needing its own attr or a --acp-cmd flag. Only
+	// the agent command carries over — cwd/goal deliberately do not (the
+	// child mirrors its own graph; see childInitialContext).
+	if prepared.Graph.Attrs["acp_command"] == "" {
+		if pa := nodeOrGraphAttr(env, "acp_command"); pa != "" {
+			prepared.Graph.Attrs["acp_command"] = pa
+		}
 	}
 
 	registry := env.Registry
@@ -154,6 +182,12 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 		Status:        engine.StatusFail,
 		FailureReason: "manager_loop: max cycles exceeded",
 	}
+}
+
+// fileExists reports whether path names an existing regular file.
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
 
 // childVarPrefix scopes node attrs that override a child var by name:

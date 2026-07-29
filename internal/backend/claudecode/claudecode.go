@@ -61,7 +61,7 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		if err != nil {
 			return backend.Result{}, err
 		}
-		defer os.Remove(path)
+		defer func() { _ = env.Stage.Remove("claude.settings.json") }()
 		settingsPath = path
 	}
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose"}
@@ -230,19 +230,17 @@ func (b *Backend) writeSettingsFile(env engine.HandlerEnv) (string, error) {
 		}
 		cfg["hooks"].(map[string]any)[h.Name] = []any{entry}
 	}
-	dir := filepath.Join(env.LogsRoot, env.Node.ID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+	if env.Stage == nil {
+		return "", fmt.Errorf("claudecode: a logs root is required for the hook settings file")
 	}
-	path := filepath.Join(dir, "claude.settings.json")
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := env.Stage.Write("claude.settings.json", data); err != nil {
 		return "", err
 	}
-	return path, nil
+	return env.Stage.Path("claude.settings.json")
 }
 
 func resultFromEnvelope(envelope map[string]any) backend.Result {

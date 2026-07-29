@@ -14,6 +14,7 @@ import (
 	acpbackend "github.com/allouis/attractor/internal/backend/acp"
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/runstore"
 )
 
 // fakeACPCommand returns a command line that re-invokes this test
@@ -34,9 +35,11 @@ func acpEnv(t *testing.T, node *graph.Node) (engine.HandlerEnv, func() []engine.
 	t.Helper()
 	var mu sync.Mutex
 	var events []engine.Event
+	logsRoot := t.TempDir()
 	env := engine.HandlerEnv{
 		Node:     node,
-		LogsRoot: t.TempDir(),
+		LogsRoot: logsRoot,
+		Stage:    runstore.New(logsRoot).Sub(node.ID),
 		RunID:    "test-run",
 		Cwd:      t.TempDir(),
 		Emit: func(ev engine.Event) {

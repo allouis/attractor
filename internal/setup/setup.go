@@ -47,7 +47,16 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 	if o.Cwd != "" && g.Attrs["cwd"] == "" {
 		g.Attrs["cwd"] = o.Cwd
 	}
-	return engine.Prepare(g,
+	pg, err := engine.Prepare(g,
 		transform.PromptFile{BaseDir: o.BaseDir},
 	)
+	if err != nil {
+		return nil, err
+	}
+	// Record where the pipeline was loaded from so runtime handlers can
+	// resolve relative references (e.g. a manager_loop child_dotfile)
+	// independent of the process cwd. Set after Prepare so transforms,
+	// which may rebuild the graph, cannot drop it.
+	pg.Graph.BaseDir = o.BaseDir
+	return pg, nil
 }

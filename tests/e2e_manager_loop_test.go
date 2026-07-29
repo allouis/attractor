@@ -2,14 +2,90 @@ package attractor_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/allouis/attractor/internal/backend"
 	"github.com/allouis/attractor/internal/backend/fake"
 	"github.com/allouis/attractor/internal/engine"
 )
+
+// TestManagerLoop_ChildInheritsParentAcpCommand verifies a child pipeline
+// with no acp_command inherits the parent's, so a reusable sub-pipeline
+// (e.g. review-core) runs under a standalone `--backend acp` run without
+// needing its own acp_command attr or a --acp-cmd flag.
+func TestManagerLoop_ChildInheritsParentAcpCommand(t *testing.T) {
+	dir := t.TempDir()
+	childPath := filepath.Join(dir, "child.dot")
+	must(t, os.WriteFile(childPath, []byte(`digraph child {
+		start [shape=Mdiamond]
+		childwork [prompt="x"]
+		done [shape=Msquare]
+		start -> childwork -> done
+	}`), 0o644))
+
+	parentSrc := fmt.Sprintf(`digraph parent {
+		acp_command="claude-agent-acp"
+		start [shape=Mdiamond]
+		loop [type="stack.manager_loop", stack.child_dotfile="%s"]
+		done [shape=Msquare]
+		start -> loop -> done
+	}`, childPath)
+
+	var childAcp string
+	be := backend.Func(func(env engine.HandlerEnv, prompt string) (backend.Result, error) {
+		if env.Node.ID == "childwork" {
+			childAcp = env.Graph.Attrs["acp_command"]
+		}
+		return backend.Result{ResponseText: "ok"}, nil
+	})
+
+	out, _, _ := runFixture(t, parentSrc, be, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("status=%s reason=%q", out.Status, out.FailureReason)
+	}
+	if childAcp != "claude-agent-acp" {
+		t.Fatalf("child did not inherit parent acp_command; got %q", childAcp)
+	}
+}
+
+// TestManagerLoop_ResolvesChildRelativeToPipelineDir verifies that a
+// relative stack.child_dotfile is resolved against the parent pipeline's
+// directory (its BaseDir), not the process working directory — so
+// `attractor run some/dir/parent.dot` works from anywhere and a relative
+// "../sibling/child.dot" reference holds regardless of cwd.
+func TestManagerLoop_ResolvesChildRelativeToPipelineDir(t *testing.T) {
+	baseDir := t.TempDir()
+	childName := "child_ml_reltest.dot"
+	childSrc := `digraph child {
+		start [shape=Mdiamond]
+		work  [prompt="hi"]
+		done  [shape=Msquare]
+		start -> work -> done
+	}`
+	must(t, os.WriteFile(filepath.Join(baseDir, childName), []byte(childSrc), 0o644))
+
+	// Sanity: the relative name must NOT resolve from the test's cwd, so a
+	// pass can only come from BaseDir-relative resolution.
+	if _, err := os.Stat(childName); err == nil {
+		t.Skipf("%s unexpectedly exists in cwd", childName)
+	}
+
+	parentSrc := fmt.Sprintf(`digraph parent {
+		start [shape=Mdiamond]
+		loop  [type="stack.manager_loop", stack.child_dotfile="%s"]
+		done  [shape=Msquare]
+		start -> loop -> done
+	}`, childName)
+
+	out, _ := runFixtureBaseDir(t, parentSrc, baseDir, fake.New())
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("relative child not resolved via BaseDir: status=%s reason=%q", out.Status, out.FailureReason)
+	}
+}
 
 func TestManagerLoop_SupervisesChildToSuccess(t *testing.T) {
 	childPath, err := filepath.Abs("../testdata/pipelines/child.dot")
