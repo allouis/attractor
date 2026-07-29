@@ -84,6 +84,13 @@ func (r *runRegistry) reload() {
 		if err := json.Unmarshal(data, &m); err != nil {
 			continue
 		}
+		// Skip runs that carry no id: a daemon run always has one stamped at
+		// creation, so an id-less manifest is a standalone `attractor run`
+		// dir sharing the logs root. Loading them would collapse every such
+		// run into a single broken r.runs[""] entry in the fleet view.
+		if m.ID == "" {
+			continue
+		}
 		status := m.Status
 		if status == RunRunning || status == RunQueued {
 			status = RunCancelled

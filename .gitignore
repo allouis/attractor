@@ -5,3 +5,7 @@
 .playwright-mcp/
 .attractor-runs/
 status.json
+attractor-ui
+result
+ui-runs-dark.png
+*.png
