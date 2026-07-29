@@ -77,7 +77,15 @@ func (s *Server) getWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	svg, err := render.SVG(source)
+	// ?expand=1 inlines each stack.manager_loop node's child pipeline as a
+	// nested cluster, resolving relative child_dotfile paths against the
+	// workflow's own directory.
+	var svg []byte
+	if r.URL.Query().Get("expand") != "" {
+		svg, err = render.SVGExpanded(source, dir)
+	} else {
+		svg, err = render.SVG(source)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

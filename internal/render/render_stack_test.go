@@ -1,7 +1,9 @@
 package render
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -53,5 +55,36 @@ func TestGraphvizSafe_ShapesByType(t *testing.T) {
 		if want := `"` + node + `" [shape="` + shape + `"`; !strings.Contains(out, want) {
 			t.Errorf("node %q: want shape %q; DOT:\n%s", node, shape, out)
 		}
+	}
+}
+
+// TestGraphvizExpanded_InlinesChild verifies a stack.manager_loop node is
+// expanded into a cluster containing the (namespaced) child pipeline, with
+// compound edges clipped at the cluster boundary.
+func TestGraphvizExpanded_InlinesChild(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "child.dot"), []byte(`digraph child {
+		start [shape=Mdiamond]
+		worka [prompt="a"]
+		done [shape=Msquare]
+		start -> worka -> done
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := `digraph parent {
+		start [shape=Mdiamond]
+		loop [type="stack.manager_loop", stack.child_dotfile="child.dot"]
+		done [shape=Msquare]
+		start -> loop -> done
+	}`
+	out := string(graphvizExpanded([]byte(parent), dir))
+	for _, want := range []string{"subgraph cluster_loop", `"loop/worka"`, "lhead=", "ltail=", "compound=true"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expanded DOT missing %q:\n%s", want, out)
+		}
+	}
+	// The manager_loop node itself must not also appear as a plain node.
+	if strings.Contains(out, `"loop" [shape`) {
+		t.Errorf("expanded node also drawn as a plain node:\n%s", out)
 	}
 }

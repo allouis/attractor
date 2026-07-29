@@ -157,6 +157,7 @@
   .layout { display: grid; grid-template-columns: 1fr 360px; gap: var(--space-4); align-items: start; }
   /* Shared graph-pane sizing: the run-detail graph and the static workflow
      graph both render server-side SVG and size identically. */
+.workflow-expand { display: inline-block; margin: 0 0 var(--space-3); color: var(--text-muted); font-size: .9em; cursor: pointer; }
   .graph-pane svg { max-width: 100%; height: auto; }
   #graph g.node { cursor: pointer; }
   #node-pane { border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3);
@@ -235,6 +236,7 @@
     <p><a href="#workflows">&larr; all workflows</a></p>
     <h2 id="workflow-title"></h2>
     <p class="muted">Run this workflow by picking an <a href="#items">item</a>.</p>
+    <label class="workflow-expand"><input type="checkbox" id="workflow-expand"> expand sub-workflows</label>
     <div id="workflow-graph" class="graph-pane"></div>
   </section>
   <section id="run-view">
@@ -659,14 +661,27 @@ async function showWorkflows() {
 // openWorkflow shows one workflow's static graph, rendered server-side from
 // its definition (same renderer as the run graph, but no run). The SVG is
 // injected as-is, matching loadGraph's trust of the server-rendered graph.
+let currentWorkflow = null;
+
 async function openWorkflow(name) {
+  currentWorkflow = name;
   highlightNav('workflows');
   showView('workflow-view');
   $('workflow-title').textContent = name;
+  await renderWorkflowGraph();
+}
+
+// renderWorkflowGraph (re)loads the current workflow's graph, honouring the
+// "expand sub-workflows" toggle (?expand inlines each manager_loop child as
+// a nested cluster). The SVG is injected as-is, matching loadGraph's trust
+// of the server-rendered graph.
+async function renderWorkflowGraph() {
+  if (!currentWorkflow) return;
   const pane = $('workflow-graph');
   pane.innerHTML = '<p class="muted">loading…</p>';
+  const expand = $('workflow-expand') && $('workflow-expand').checked ? '?expand=1' : '';
   try {
-    const r = await fetch(`/workflows/${encodeURIComponent(name)}/graph`);
+    const r = await fetch(`/workflows/${encodeURIComponent(currentWorkflow)}/graph${expand}`);
     pane.innerHTML = r.ok ? await r.text() : '<p class="muted">graph unavailable</p>';
   } catch (e) { pane.innerHTML = '<p class="muted">graph unavailable</p>'; }
 }
@@ -1014,6 +1029,7 @@ window.addEventListener('load', () => {
     $(id)?.addEventListener('change', renderItems);
   }
   $('items-filter-text')?.addEventListener('input', renderItems);
+  $('workflow-expand')?.addEventListener('change', renderWorkflowGraph);
   // Delegated run trigger: item rows are innerHTML, so a single listener on
   // the list opens the picker for whichever row's run button was clicked.
   $('items-list')?.addEventListener('click', e => {
