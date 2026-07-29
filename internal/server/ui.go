@@ -11,8 +11,9 @@ import (
 //go:embed ui/index.html
 var uiFS embed.FS
 
-// serveUI returns the embedded UI page. It reads the file per request so
-// the handler stays trivial; the page is small and cached by the client.
+// serveUI returns the embedded UI page. Cache-Control: no-cache makes the
+// browser revalidate every load, so a redeployed binary's updated page is
+// picked up immediately rather than served stale from disk cache.
 func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 	page, err := uiFS.ReadFile("ui/index.html")
 	if err != nil {
@@ -20,5 +21,6 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(page)
 }
