@@ -71,9 +71,12 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if childWorkdir == "" {
 		childWorkdir = filepath.Dir(dotPath)
 	}
-	childLogs := filepath.Join(env.LogsRoot, env.Node.ID, "child")
-	if err := os.MkdirAll(childLogs, 0o755); err != nil {
-		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("manager_loop: %v", err)}
+	// The child run writes under a "child" subdir of this stage, through
+	// its own engine store (which creates the directory). Empty when the
+	// parent run has no logs root, so the child runs no-persistence too.
+	childLogs := ""
+	if env.Stage != nil {
+		childLogs = env.Stage.Sub("child").Root()
 	}
 
 	childSrc, err := os.ReadFile(dotPath)

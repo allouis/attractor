@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/allouis/attractor/internal/engine"
 )
@@ -43,16 +41,18 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 
 	exe := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-	stageDir := filepath.Join(env.LogsRoot, env.Node.ID)
-	if err := os.MkdirAll(stageDir, 0o755); err != nil {
-		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("tool: mkdir stage dir: %v", err)}
+	stage := env.Stage
+	if stage != nil {
+		if err := stage.MkdirAll(); err != nil {
+			return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("tool: mkdir stage dir: %v", err)}
+		}
 	}
 	// Run from env.Cwd when set; fall back to the stage dir so
 	// short-lived commands still have a writable scratch directory.
 	if env.Cwd != "" {
 		exe.Dir = env.Cwd
-	} else {
-		exe.Dir = stageDir
+	} else if stage != nil {
+		exe.Dir = stage.Root()
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -61,8 +61,10 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 	err = exe.Run()
 
 	// Persist stdout/stderr to the stage dir regardless of cwd.
-	_ = os.WriteFile(filepath.Join(stageDir, "stdout.txt"), stdout.Bytes(), 0o644)
-	_ = os.WriteFile(filepath.Join(stageDir, "stderr.txt"), stderr.Bytes(), 0o644)
+	if stage != nil {
+		_ = stage.Write("stdout.txt", stdout.Bytes())
+		_ = stage.Write("stderr.txt", stderr.Bytes())
+	}
 
 	if err != nil {
 		return engine.Outcome{

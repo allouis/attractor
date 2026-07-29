@@ -17,6 +17,7 @@ import (
 	"github.com/allouis/attractor/internal/artifact"
 	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/runstore"
 	"github.com/allouis/attractor/internal/transform"
 )
 
@@ -25,6 +26,7 @@ import (
 type Engine struct {
 	Registry        *Registry
 	LogsRoot        string
+	store           *runstore.Dir
 	RunID           string
 	Artifacts       *artifact.Store
 	MaxLoopRestarts int
@@ -70,6 +72,7 @@ func New(cfg Config) *Engine {
 	return &Engine{
 		Registry:        cfg.Registry,
 		LogsRoot:        cfg.LogsRoot,
+		store:           newStore(cfg.LogsRoot),
 		RunID:           runID,
 		Artifacts:       artifact.New(filepath.Join(cfg.LogsRoot, "artifacts")),
 		MaxLoopRestarts: 100,
@@ -78,6 +81,26 @@ func New(cfg Config) *Engine {
 		now:             cfg.Now,
 		initialContext:  cfg.InitialContext,
 	}
+}
+
+// newStore returns the run-artifact write seam rooted at logsRoot, or nil
+// when there is no logs root (a no-persistence run). nil is deliberate: it
+// makes the engine skip artifact writes rather than fall back to a raw,
+// possibly-relative path that could land in the process cwd.
+func newStore(logsRoot string) *runstore.Dir {
+	if logsRoot == "" {
+		return nil
+	}
+	return runstore.New(logsRoot)
+}
+
+// stageStore returns the write seam for a node's stage directory, or nil
+// when the run has no logs root.
+func (e *Engine) stageStore(nodeID string) *runstore.Dir {
+	if e.store == nil {
+		return nil
+	}
+	return e.store.Sub(nodeID)
 }
 
 // Events returns the read-only event channel. The channel is closed
@@ -112,8 +135,10 @@ func Prepare(g *graph.Graph, extra ...transform.Transform) (*PreparedGraph, erro
 func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 	defer close(e.events)
 	g := pg.Graph
-	if err := os.MkdirAll(e.LogsRoot, 0o755); err != nil {
-		return failOutcome(fmt.Sprintf("create logs root: %v", err)), err
+	if e.store != nil {
+		if err := e.store.MkdirAll(); err != nil {
+			return failOutcome(fmt.Sprintf("create logs root: %v", err)), err
+		}
 	}
 	e.openEventsFile()
 	defer e.closeEventsFile()
@@ -351,8 +376,9 @@ func (e *Engine) archiveCurrentLogs() {
 		return
 	}
 	e.restartCount++
-	archive := filepath.Join(e.LogsRoot, fmt.Sprintf("_restart_%d", e.restartCount))
-	if err := os.MkdirAll(archive, 0o755); err != nil {
+	archiveName := fmt.Sprintf("_restart_%d", e.restartCount)
+	archive := filepath.Join(e.LogsRoot, archiveName)
+	if err := e.store.Sub(archiveName).MkdirAll(); err != nil {
 		return
 	}
 	entries, err := os.ReadDir(e.LogsRoot)
@@ -424,6 +450,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 	env := HandlerEnv{
 		Node:      node,
 		Graph:     g,
+		Stage:     e.stageStore(node.ID),
 		Context:   state.context,
 		LogsRoot:  e.LogsRoot,
 		RunID:     e.RunID,
@@ -571,20 +598,22 @@ func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(e.LogsRoot, "manifest.json"), data, 0o644)
+	if e.store == nil {
+		return nil
+	}
+	return e.store.Write("manifest.json", data)
 }
 
 func (e *Engine) writeStatus(nodeID string, outcome Outcome) error {
-	dir := filepath.Join(e.LogsRoot, nodeID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
 	outcome.Finalize()
 	data, err := json.MarshalIndent(outcome, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "status.json"), data, 0o644)
+	if e.store == nil {
+		return nil
+	}
+	return e.store.Sub(nodeID).Write("status.json", data)
 }
 
 func (e *Engine) saveCheckpoint(state *runState) error {
@@ -615,7 +644,10 @@ func (e *Engine) saveCheckpoint(state *runState) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(e.LogsRoot, "checkpoint.json"), data, 0o644)
+	if e.store == nil {
+		return nil
+	}
+	return e.store.Write("checkpoint.json", data)
 }
 
 func (e *Engine) loadCheckpoint() (*Checkpoint, error) {
@@ -644,11 +676,10 @@ func (e *Engine) loadCheckpoint() (*Checkpoint, error) {
 // A failure to open is non-fatal: the run proceeds without persistence.
 func (e *Engine) openEventsFile() {
 	e.closeEventsFile()
-	if e.LogsRoot == "" {
+	if e.store == nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(e.LogsRoot, "events.jsonl"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := e.store.OpenAppend("events.jsonl")
 	if err != nil {
 		return
 	}

@@ -172,7 +172,7 @@ func (b *Backend) runTurn(ctx context.Context, client *acp.Client, turn *turnSta
 	}
 	cwd := env.Cwd
 	if cwd == "" {
-		cwd, _ = os.Getwd()
+		cwd, _ = os.Getwd() // runstore:allow the agent's working dir defaults to attractor's cwd when the node sets none
 	}
 	reusable := env.Fidelity == engine.FidelityFull && env.ThreadID != ""
 	sessionID := ""
@@ -320,20 +320,18 @@ func (t *turnState) emit(ev engine.Event) {
 // persistToolCall writes the raw update payload under the stage's
 // tool_calls directory, mirroring the hookshim ingest layout.
 func (t *turnState) persistToolCall(u acp.SessionUpdate) {
+	if t.env.Stage == nil {
+		return
+	}
 	t.mu.Lock()
 	t.toolCalls++
 	n := t.toolCalls
 	t.mu.Unlock()
-	dir := filepath.Join(t.env.LogsRoot, t.env.Node.ID, "tool_calls")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
-	}
 	data, err := json.MarshalIndent(json.RawMessage(u.Raw), "", "  ")
 	if err != nil {
 		data = u.Raw
 	}
-	path := filepath.Join(dir, fmt.Sprintf("%03d-%s.json", n, u.Kind))
-	_ = os.WriteFile(path, data, 0o644)
+	_ = t.env.Stage.Write(filepath.Join("tool_calls", fmt.Sprintf("%03d-%s.json", n, u.Kind)), data)
 }
 
 // resultFromStop maps the agent's stop reason onto a backend Result.

@@ -12,6 +12,7 @@ import (
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/interviewer"
+	"github.com/allouis/attractor/internal/runstore"
 )
 
 // Start is a no-op handler used for `start` nodes (spec §4.3).
@@ -73,21 +74,26 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 		prompt = env.Preamble + "\n\n---\n\n" + prompt
 	}
 
-	stageDir := filepath.Join(env.LogsRoot, env.Node.ID)
-	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+	// All artifacts are written through the stage store, which is rooted at
+	// the stage dir and cannot write outside it. A nil store means a
+	// no-persistence run: run the backend but skip all file I/O.
+	stage := env.Stage
+	if stage == nil {
+		return h.runNoPersistence(env, prompt)
+	}
+	if err := stage.MkdirAll(); err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("mkdir stage dir: %v", err)}
 	}
 	// Wipe any status.json left behind by a previous attempt so the
 	// self-report check below only fires for the agent's own writes.
-	statusPath := filepath.Join(stageDir, "status.json")
-	_ = os.Remove(statusPath)
-	if err := os.WriteFile(filepath.Join(stageDir, "prompt.md"), []byte(prompt), 0o644); err != nil {
+	_ = stage.Remove("status.json")
+	if err := stage.Write("prompt.md", []byte(prompt)); err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("write prompt: %v", err)}
 	}
 
 	if h.Backend == nil {
 		response := "[simulated] " + env.Node.ID
-		_ = os.WriteFile(filepath.Join(stageDir, "response.md"), []byte(response), 0o644)
+		_ = stage.Write("response.md", []byte(response))
 		return engine.Outcome{
 			Status:         engine.StatusSuccess,
 			Notes:          "Stage completed (simulated): " + env.Node.ID,
@@ -102,21 +108,23 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	// relocated into the stage dir afterwards — otherwise the engine misses
 	// the agent's self-report (silently defaulting to SUCCESS) and the file
 	// leaks into the work dir / a tracked repo.
-	workStatus, workStatusExisted := leakedStatusProbe(env, statusPath)
+	workStatus, workStatusExisted := leakedStatusProbe(env)
 
 	result, err := h.Backend.Run(env, prompt)
-	relocateLeakedStatus(workStatus, statusPath, workStatusExisted)
+	relocateLeakedStatus(stage, workStatus, workStatusExisted)
 	if err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: err.Error()}
 	}
 	if result.Outcome != nil {
-		_ = writeIfNonEmpty(filepath.Join(stageDir, "response.md"), result.ResponseText)
+		if result.ResponseText != "" {
+			_ = stage.Write("response.md", []byte(result.ResponseText))
+		}
 		return *result.Outcome
 	}
 	response := result.ResponseText
-	_ = os.WriteFile(filepath.Join(stageDir, "response.md"), []byte(response), 0o644)
+	_ = stage.Write("response.md", []byte(response))
 
-	if oc, ok := readAgentStatus(statusPath); ok {
+	if oc, ok := readAgentStatus(stage); ok {
 		// Status-file contract: agent self-reported its outcome.
 		// Merge in the routing baggage so the engine still sees last_stage
 		// and last_response in context.
@@ -129,6 +137,23 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 		Notes:          "Stage completed: " + env.Node.ID,
 		ContextUpdates: applyDefaults(nil, env.Node, response),
 	}
+}
+
+// runNoPersistence runs the backend without any artifact file I/O, for a
+// run that has no logs root (env.Stage == nil).
+func (h Codergen) runNoPersistence(env engine.HandlerEnv, prompt string) engine.Outcome {
+	if h.Backend == nil {
+		response := "[simulated] " + env.Node.ID
+		return engine.Outcome{Status: engine.StatusSuccess, Notes: "Stage completed (simulated): " + env.Node.ID, ContextUpdates: applyDefaults(nil, env.Node, response)}
+	}
+	result, err := h.Backend.Run(env, prompt)
+	if err != nil {
+		return engine.Outcome{Status: engine.StatusFail, FailureReason: err.Error()}
+	}
+	if result.Outcome != nil {
+		return *result.Outcome
+	}
+	return engine.Outcome{Status: engine.StatusSuccess, Notes: "Stage completed: " + env.Node.ID, ContextUpdates: applyDefaults(nil, env.Node, result.ResponseText)}
 }
 
 // applyDefaults fills the routing baggage (last_stage, last_response) and,
@@ -157,16 +182,17 @@ func setIfAbsent(m map[string]string, key, value string) {
 // back to attractor's cwd) — and whether a file already exists there. An
 // empty work dir, or one whose status.json coincides with the stage dir,
 // yields an empty path (nothing to relocate).
-func leakedStatusProbe(env engine.HandlerEnv, stageStatus string) (path string, existed bool) {
+func leakedStatusProbe(env engine.HandlerEnv) (path string, existed bool) {
 	workDir := env.Cwd
 	if workDir == "" {
-		workDir, _ = os.Getwd()
+		workDir, _ = os.Getwd() // runstore:allow read (not write) the ambient cwd to locate a subprocess's leaked status.json
 	}
 	if workDir == "" {
 		return "", false
 	}
 	ws := filepath.Join(workDir, "status.json")
-	if ws == stageStatus {
+	// If the work dir IS the stage dir, the agent writing there is correct.
+	if env.Stage != nil && ws == filepath.Join(env.Stage.Root(), "status.json") {
 		return "", false
 	}
 	_, err := os.Stat(ws)
@@ -180,7 +206,7 @@ func leakedStatusProbe(env engine.HandlerEnv, stageStatus string) (path string, 
 // turn is left untouched (it is not this agent's self-report). If the
 // agent also wrote to the stage dir, that copy wins and the work-dir file
 // is merely cleaned up.
-func relocateLeakedStatus(workStatus, stageStatus string, existedBefore bool) {
+func relocateLeakedStatus(stage *runstore.Dir, workStatus string, existedBefore bool) {
 	if workStatus == "" || existedBefore {
 		return
 	}
@@ -188,18 +214,18 @@ func relocateLeakedStatus(workStatus, stageStatus string, existedBefore bool) {
 	if err != nil {
 		return // agent wrote nothing to its cwd
 	}
-	_ = os.Remove(workStatus) // clean up the leak
-	if _, err := os.Stat(stageStatus); err == nil {
+	_ = os.Remove(workStatus) // runstore:allow remove the agent's leaked file from the work dir (cwd), not an artifact write
+	if stage.Exists("status.json") {
 		return // agent also wrote the stage-dir copy; keep that one
 	}
-	_ = os.WriteFile(stageStatus, data, 0o644)
+	_ = stage.Write("status.json", data)
 }
 
 // readAgentStatus reads the agent-authored status.json if present and
 // well-formed. Returns (outcome, true) on success or (zero, false)
 // otherwise so the handler falls through to its default SUCCESS path.
-func readAgentStatus(path string) (engine.Outcome, bool) {
-	data, err := os.ReadFile(path)
+func readAgentStatus(stage *runstore.Dir) (engine.Outcome, bool) {
+	data, err := stage.Read("status.json")
 	if err != nil {
 		return engine.Outcome{}, false
 	}
@@ -344,11 +370,4 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
-}
-
-func writeIfNonEmpty(path, content string) error {
-	if content == "" {
-		return nil
-	}
-	return os.WriteFile(path, []byte(content), 0o644)
 }

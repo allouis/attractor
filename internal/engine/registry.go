@@ -5,6 +5,7 @@ import (
 
 	"github.com/allouis/attractor/internal/artifact"
 	"github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/runstore"
 )
 
 // Handler executes a single node and returns its Outcome. Handlers are
@@ -18,8 +19,13 @@ type Handler interface {
 // a struct keeps the interface stable as new optional inputs are added
 // (event channels, ingest URL, etc).
 type HandlerEnv struct {
-	Node      *graph.Node
-	Graph     *graph.Graph
+	Node  *graph.Node
+	Graph *graph.Graph
+	// Stage is the write seam for this node's stage directory. Handlers
+	// and backends persist prompt/response/status/tool-call artifacts
+	// through it so they cannot write outside the stage dir (e.g. into the
+	// process cwd / a user repo). Nil only for no-persistence runs.
+	Stage     *runstore.Dir
 	Context   *Context
 	LogsRoot  string
 	RunID     string
