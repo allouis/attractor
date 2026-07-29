@@ -31,3 +31,27 @@ func TestSVG_RendersDottedAttrPipeline(t *testing.T) {
 		t.Fatalf("node label missing from SVG")
 	}
 }
+
+// TestGraphvizSafe_ShapesByType asserts the renderer picks a distinct
+// shape from each node's resolved type, so the graph distinguishes roles
+// even when pipelines set type= explicitly with a default box shape.
+func TestGraphvizSafe_ShapesByType(t *testing.T) {
+	src := `digraph p {
+		start [shape=Mdiamond]
+		gen  [type="codergen.acp", prompt="x"]
+		run  [type="tool", tool_command="x"]
+		loop [type="stack.manager_loop", stack.child_dotfile="c.dot"]
+		gate [type="conditional"]
+		done [shape=Msquare]
+		start -> gen -> run -> loop -> gate -> done
+	}`
+	out := string(graphvizSafe([]byte(src)))
+	for node, shape := range map[string]string{
+		"start": "Mdiamond", "gen": "box", "run": "parallelogram",
+		"loop": "box3d", "gate": "diamond", "done": "Msquare",
+	} {
+		if want := `"` + node + `" [shape="` + shape + `"`; !strings.Contains(out, want) {
+			t.Errorf("node %q: want shape %q; DOT:\n%s", node, shape, out)
+		}
+	}
+}

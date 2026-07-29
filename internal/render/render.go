@@ -61,7 +61,7 @@ func graphvizSafe(src []byte) []byte {
 	b.WriteString("digraph pipeline {\n  rankdir=TB;\n")
 	for _, id := range g.NodeOrder {
 		n := g.Nodes[id]
-		fmt.Fprintf(&b, "  %q [shape=%q, label=%q];\n", id, n.Shape(), id)
+		fmt.Fprintf(&b, "  %q [shape=%q, label=%q];\n", id, displayShape(n), id)
 	}
 	for _, e := range g.Edges {
 		label := e.Label()
@@ -76,4 +76,34 @@ func graphvizSafe(src []byte) []byte {
 	}
 	b.WriteString("}\n")
 	return []byte(b.String())
+}
+
+// displayShape maps a node's resolved handler type to a distinct graphviz
+// shape, so the rendered graph distinguishes node roles even when the
+// pipeline sets `type=` explicitly and leaves `shape` at the default box.
+// It is the visual inverse of graph.TypeFromShape (Attractor Appendix B).
+func displayShape(n *graph.Node) string {
+	t := n.Type()
+	switch {
+	case t == "start":
+		return "Mdiamond"
+	case t == "exit":
+		return "Msquare"
+	case t == "conditional":
+		return "diamond"
+	case t == "wait.human":
+		return "hexagon"
+	case t == "tool":
+		return "parallelogram"
+	case t == "parallel":
+		return "component"
+	case t == "parallel.fan_in":
+		return "tripleoctagon"
+	case t == "stack.manager_loop":
+		return "box3d" // a sub-pipeline: a "stacked" box
+	case strings.HasPrefix(t, "codergen"):
+		return "box"
+	default:
+		return n.Shape()
+	}
 }
