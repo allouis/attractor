@@ -49,6 +49,11 @@ func Parse(data []byte) (Config, error) {
 				cfg.DefaultProvider = val
 			case curTable == "linear" && key == "api_key":
 				cfg.LinearAPIKey = val
+			case curTable == "checks":
+				if cfg.Checks == nil {
+					cfg.Checks = map[string]string{}
+				}
+				cfg.Checks[key] = val
 			}
 			continue
 		}

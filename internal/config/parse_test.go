@@ -94,3 +94,15 @@ func TestLoadLinearAPIKeyFromEnv(t *testing.T) {
 		t.Fatalf("config file should win over env: %q", cfg.LinearAPIKey)
 	}
 }
+
+// TestParseChecksTable captures the [checks] table used to configure a
+// repo's static-check commands.
+func TestParseChecksTable(t *testing.T) {
+	cfg, err := Parse([]byte("[checks]\ndeps = \"npm ci\"\nlint = \"npm run lint\"\ntest = \"npm test\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Checks["deps"] != "npm ci" || cfg.Checks["lint"] != "npm run lint" || cfg.Checks["test"] != "npm test" {
+		t.Fatalf("checks not parsed: %#v", cfg.Checks)
+	}
+}

@@ -33,6 +33,12 @@ type Config struct {
 	// LinearAPIKey authenticates the Linear source (items-spec I2). The
 	// daemon can't borrow the session's MCP, so the key lives in config.
 	LinearAPIKey string
+	// Checks maps a static-check name (deps, typecheck, lint, test) to the
+	// shell command that runs it for this repo. A repo's own
+	// .attractor/config.toml [checks] table supplies them; the daemon seeds
+	// them into the run context as $context.check.<name> so a work pipeline
+	// (implement, bug-fix) can gate on them without hardcoding a toolchain.
+	Checks map[string]string
 }
 
 // Load reads ~/.attractor/config.toml then overlays
@@ -78,6 +84,14 @@ func (c *Config) overlay(src Config) {
 	}
 	if src.LinearAPIKey != "" {
 		c.LinearAPIKey = src.LinearAPIKey
+	}
+	if len(src.Checks) > 0 {
+		if c.Checks == nil {
+			c.Checks = map[string]string{}
+		}
+		for k, v := range src.Checks {
+			c.Checks[k] = v
+		}
 	}
 	if c.Providers == nil {
 		c.Providers = map[string]Provider{}

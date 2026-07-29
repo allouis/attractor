@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/allouis/attractor/internal/automation"
+	"github.com/allouis/attractor/internal/config"
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/handler"
 	"github.com/allouis/attractor/internal/interviewer"
@@ -326,7 +328,8 @@ func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, wor
 	if err != nil {
 		return "", err
 	}
-	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seedContext(vars, itemRef))
+	seed := seedChecks(seedContext(vars, itemRef), cwd)
+	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seed)
 	s.dispatcher.enqueue(run)
 	return run.ID, nil
 }
@@ -337,6 +340,36 @@ func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, wor
 // branches on (router-spec §"Seeded initial context"). Returns nil only
 // when there is nothing to seed — no vars and no Item — so a bare run
 // starts unseeded.
+// checkNames are the static checks a work pipeline (implement, bug-fix)
+// can gate on, each seeded into the run context as $context.check.<name>.
+var checkNames = []string{"deps", "typecheck", "lint", "test"}
+
+// seedChecks adds $context.check.<name> for every static check, taking the
+// command from the target repo's .attractor/config.toml [checks] table and
+// falling back to a no-op (echo … ; success) when a repo configures none,
+// so a work pipeline can reference them unconditionally.
+func seedChecks(seed map[string]string, cwd string) map[string]string {
+	if seed == nil {
+		seed = map[string]string{}
+	}
+	var configured map[string]string
+	if cwd != "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			if cfg, err := config.Load(home, cwd); err == nil {
+				configured = cfg.Checks
+			}
+		}
+	}
+	for _, name := range checkNames {
+		cmd := configured[name]
+		if cmd == "" {
+			cmd = "echo '" + name + ": not configured for this repo (skipped)'"
+		}
+		seed["check."+name] = cmd
+	}
+	return seed
+}
+
 func seedContext(vars map[string]string, itemRef string) map[string]string {
 	if len(vars) == 0 && itemRef == "" {
 		return nil
