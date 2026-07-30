@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -38,6 +39,51 @@ func TestIngestTerminalEventCompletesRun(t *testing.T) {
 	}
 	if run.completedAt.IsZero() {
 		t.Fatalf("completedAt not set")
+	}
+}
+
+// recordingLauncher notes it ran and immediately completes the run (as a
+// phone-home child would, via the terminal event).
+type recordingLauncher struct {
+	name string
+	seen *[]string
+}
+
+func (l recordingLauncher) Launch(run *Run, _ string) error {
+	*l.seen = append(*l.seen, l.name)
+	run.Ingest(engine.Event{Kind: engine.EventPipelineCompleted, Status: "success"})
+	return nil
+}
+
+// A submission's `runner` field selects a named launcher per run (V18),
+// overriding the daemon default; unknown/empty falls back to the default.
+func TestPerRunPlacementSelectsNamedLauncher(t *testing.T) {
+	tmp := t.TempDir()
+	var seen []string
+	def := recordingLauncher{name: "default", seen: &seen}
+	vm := recordingLauncher{name: "vm", seen: &seen}
+	srv := New(Config{
+		Addr: "127.0.0.1:0", LogsRoot: tmp,
+		Launcher:  def,
+		Launchers: map[string]Launcher{"vm": vm, "direct": def},
+	})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer srv.Close()
+
+	// runner="vm" → vm launcher
+	id1, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "vm")
+	waitTerminal(t, srv, id1, 5*time.Second)
+	// no runner → default
+	id2, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "")
+	waitTerminal(t, srv, id2, 5*time.Second)
+	// unknown runner → default
+	id3, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "bogus")
+	waitTerminal(t, srv, id3, 5*time.Second)
+
+	if !slices.Equal(seen, []string{"vm", "default", "default"}) {
+		t.Fatalf("launcher order = %v, want [vm default default]", seen)
 	}
 }
 

@@ -48,7 +48,8 @@ type Server struct {
 	makeHandlers HandlerFactory
 	authToken    string
 	dispatcher   *dispatcher
-	launcher     Launcher
+	launcher     Launcher            // default launcher
+	launchers    map[string]Launcher // named launchers for per-run override
 	sources      map[string]source.Source
 	repos        items.Repos
 
@@ -92,10 +93,15 @@ type Config struct {
 	// `<name>/pipeline.dot` definitions (web-ui-spec W2). Empty defaults to
 	// ~/.attractor/pipelines.
 	WorkflowsDir string
-	// Launcher selects where runs execute. Nil defaults to the in-process
-	// `direct` launcher (decision D5); `local`/`vm` spawn phone-home
-	// subprocesses / VMs.
+	// Launcher selects where runs execute by default. Nil defaults to the
+	// in-process `direct` launcher (decision D5); `local`/`vm` spawn
+	// phone-home subprocesses / VMs.
 	Launcher Launcher
+	// Launchers are named launchers a submission may select per run via a
+	// `runner` field (V18), e.g. {"vm": …} so one daemon can run most
+	// pipelines `direct` but a test run in a `vm`. Unknown names fall back
+	// to Launcher.
+	Launchers map[string]Launcher
 }
 
 // New constructs an unstarted server.
@@ -120,6 +126,7 @@ func New(cfg Config) *Server {
 		authToken:      cfg.AuthToken,
 		dispatcher:     newDispatcher(cfg.MaxConcurrentRuns),
 		launcher:       cfg.Launcher,
+		launchers:      cfg.Launchers,
 		automationsDir: cfg.AutomationsDir,
 		workflowsDir:   cfg.WorkflowsDir,
 		sources:        cfg.Sources,
@@ -128,7 +135,7 @@ func New(cfg Config) *Server {
 	if s.launcher == nil {
 		s.launcher = directLauncher{}
 	}
-	s.dispatcher.launch = func(r *Run) { _ = s.launcher.Launch(r, s.reportURL()) }
+	s.dispatcher.launch = func(r *Run) { _ = s.launcherFor(r.placement).Launch(r, s.reportURL()) }
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
 	mux.HandleFunc("GET /pipelines", s.listPipelines)
@@ -235,13 +242,14 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	r.Body.Close()
 	source := string(body)
 	var vars map[string]string
-	var cwd string
+	var cwd, placement string
 	var itemRef *items.ItemRef
 	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "application/json") {
 		var payload struct {
 			Dot     string            `json:"dot"`
 			Vars    map[string]string `json:"vars"`
 			Cwd     string            `json:"cwd"`
+			Runner  string            `json:"runner"`
 			ItemRef *items.ItemRef    `json:"item_ref"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
@@ -251,6 +259,7 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		source = payload.Dot
 		vars = payload.Vars
 		cwd = payload.Cwd
+		placement = payload.Runner
 		if payload.ItemRef != nil {
 			if payload.ItemRef.Source == "" || payload.ItemRef.Type == "" || payload.ItemRef.ExternalID == "" {
 				http.Error(w, "item_ref requires source, type, and external_id", http.StatusBadRequest)
@@ -264,7 +273,7 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		tag = itemRef.String()
 	}
 	// A raw dot submission carries no catalog path, so no workflow_name.
-	id, err := s.submit(source, vars, cwd, tag, "", "")
+	id, err := s.submit(source, vars, cwd, tag, "", "", placement)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -294,7 +303,8 @@ func (d itemsDeps) SourceNames() []string {
 func (d itemsDeps) RepoPath(repo string) (string, bool) { return d.s.repos.Path(repo) }
 
 func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName, baseDir string) (string, error) {
-	return d.s.submit(dot, vars, cwd, tag, workflowName, baseDir)
+	// Item-dispatched runs use the daemon's default launcher.
+	return d.s.submit(dot, vars, cwd, tag, workflowName, baseDir, "")
 }
 
 func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
@@ -323,7 +333,7 @@ func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
 // automation and cron callers pass "". workflowName, when non-empty, is the
 // catalog directory the run was dispatched from — the run→workflow backlink
 // handle (web-ui-spec W6); raw dot and automation callers pass "".
-func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, workflowName, baseDir string) (string, error) {
+func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, workflowName, baseDir, placement string) (string, error) {
 	// The pipeline's own files (@prompt refs, a manager_loop child_dotfile)
 	// resolve against baseDir — the directory the pipeline was loaded from —
 	// so a workflow dispatched from the catalog can reference its prompts and
@@ -343,6 +353,7 @@ func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, wor
 	}
 	seed := seedChecks(seedContext(vars, itemRef), cwd)
 	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seed)
+	run.placement = placement
 	s.dispatcher.enqueue(run)
 	return run.ID, nil
 }

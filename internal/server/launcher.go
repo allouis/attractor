@@ -17,6 +17,22 @@ type Launcher interface {
 	Launch(run *Run, reportURL string) error
 }
 
+// launcherFor returns the launcher for a run's placement: the named
+// launcher when the run requested one that exists, else the default. This
+// lets a single daemon run most pipelines one way while a submission can
+// override per run (e.g. `{"runner":"vm"}`) for testing.
+func (s *Server) launcherFor(placement string) Launcher {
+	if placement != "" {
+		if l, ok := s.launchers[placement]; ok {
+			return l
+		}
+	}
+	return s.launcher
+}
+
+// NewDirectLauncher returns the in-process launcher (registry Run.execute).
+func NewDirectLauncher() Launcher { return directLauncher{} }
+
 // directLauncher runs the engine in-process (registry Run.execute). It is
 // the default so existing behavior and tests are unchanged (decision D5).
 type directLauncher struct{}

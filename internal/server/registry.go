@@ -220,6 +220,9 @@ type Run struct {
 	// child presents it on POST /events, GET /control, POST /artifacts so
 	// only the process the daemon started can drive the run.
 	token string
+	// placement names the launcher this run requested (V18); "" uses the
+	// daemon's default launcher.
+	placement string
 	// initialContext seeds the run's context at start (Item vars + item.*
 	// metadata); nil for runs with no seed (router-spec deviation B).
 	initialContext map[string]string

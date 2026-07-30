@@ -48,7 +48,7 @@ func TestLocalLauncherEndToEnd(t *testing.T) {
 		work -> done
 	}`
 	work := t.TempDir()
-	id, err := srv.submit(pipeline, nil, work, "", "", "")
+	id, err := srv.submit(pipeline, nil, work, "", "", "", "")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}

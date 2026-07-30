@@ -74,7 +74,7 @@ func (s *Server) fireAutomation(a automation.Automation) (string, error) {
 	}
 	// baseDir = the pipeline's dir so its @prompts / child_dotfile resolve
 	// relative to itself, not the automation's work cwd.
-	return s.submit(string(src), a.Vars, a.Cwd, "", "", filepath.Dir(path))
+	return s.submit(string(src), a.Vars, a.Cwd, "", "", filepath.Dir(path), "")
 }
 
 // expandTilde replaces a leading ~ with the user's home directory.
