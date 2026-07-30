@@ -1,0 +1,16 @@
+{
+  "name": "node-ts-example",
+  "version": "1.0.0",
+  "description": "Minimal Node + TypeScript app for attractor VM runners",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc --noEmit -p .",
+    "start": "node dist/index.js",
+    "test": "node --test dist/"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

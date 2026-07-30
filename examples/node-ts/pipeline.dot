@@ -1,0 +1,23 @@
+// Build, run, and test a Node + TypeScript app inside an attractor VM
+// runner. Each tool node runs in the VM's /mnt/workspace (the app tree,
+// 9p-shared from the host). node + npm come from the runner image
+// (nix/vm-runner.nix, decision D8); dev deps (typescript, @types/node)
+// are installed by the deps stage over the VM's user-net.
+digraph node_ts {
+  graph [goal="install, build, run and test the node/ts example"]
+
+  start [shape=Mdiamond]
+  deps [type="tool", tool_command="npm install --no-audit --no-fund"]
+  typecheck [type="tool", tool_command="npm run typecheck"]
+  build [type="tool", tool_command="npm run build"]
+  run [type="tool", tool_command="npm start"]
+  test [type="tool", tool_command="npm test"]
+  done [shape=Msquare]
+
+  start -> deps
+  deps -> typecheck
+  typecheck -> build
+  build -> run
+  run -> test
+  test -> done
+}
