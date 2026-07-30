@@ -60,16 +60,16 @@ to its interviewer. No new question API on the daemon side.
 
 ## Phases & milestones (TDD, atomic commits)
 
-### Phase 1 — Phone-home reporting protocol (additive; no VM)
-- **V1** Daemon ingest: `POST /pipelines/{id}/events` accepts one `engine.Event`
+### Phase 1 — Phone-home reporting protocol (additive; no VM) ✅
+- **V1 ✅** Daemon ingest: `POST /pipelines/{id}/events` accepts one `engine.Event`
   (run-token auth), appends to history + fans out to SSE + persists.
-- **V2** Daemon control: `GET /pipelines/{id}/control` returns `{cancel: bool,
-  answers: {qid: label}}`.
-- **V3** `httpsink` event forwarder: consumes an engine event stream, POSTs each.
-- **V4** `httpinterviewer`: emits question as event, polls `/control` for answer.
-- **V5** Artifact upload: `POST /pipelines/{id}/artifacts/{path…}`; child uploads
+- **V2 ✅** Daemon control: `GET /pipelines/{id}/control` returns `{cancel: bool,
+  answers: {qid: label}}`. (answers wired with the poll interviewer, Phase 4.)
+- **V3 ✅** `report.Client` event forwarder: drains an engine event stream, POSTs each.
+- **V4 (deferred → Phase 4)** poll interviewer. Report mode uses AutoApprove (D4).
+- **V5 ✅** Artifact upload: `POST /pipelines/{id}/artifacts/{path…}`; child uploads
   its stage dir on completion.
-- **V6** `attractor run --report-to URL --run-id ID --token T`: wires V3+V4+V5.
+- **V6 ✅** `attractor run --report-to URL --run-id ID --report-token T`: wires V3+V5.
 
 ### Phase 2 — Launcher seam + `local`
 - **V7** `Launcher` interface + `RunSpec` value type.
