@@ -26,3 +26,14 @@ for local-subprocess, VM, and remote.
 **Why:** One code path. Loopback HTTP is fast/reliable locally; same code works
 remote. Reuses the existing `internal/ingest` phone-home pattern. Bonus: crash
 isolation (a run panic no longer kills the daemon).
+
+## D4 — Phone-home human gates deferred; report-to defaults to AutoApprove
+**Context:** The `interview_started` event carries no options, so a polling
+child can't reconstruct the choice set without enriching the event schema.
+VM/CI runs are non-interactive by nature.
+**Decision:** `attractor run --report-to` uses a non-interactive interviewer
+(AutoApprove) for now. Cancel still works via `GET /control` (D3). Poll-based
+human gates (enrich `interview_started` with options; child polls `/control`
+for the answer) are a Phase-4 milestone.
+**Why:** Unblocks the VM dogfooding goal fastest; human gates inside automated
+VM runs are uncommon; nothing here precludes adding the poll path later.
