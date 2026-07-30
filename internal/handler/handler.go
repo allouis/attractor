@@ -278,11 +278,21 @@ func (h WaitHuman) Execute(env engine.HandlerEnv) engine.Outcome {
 		Stage:   env.Node.ID,
 	}
 	if env.Emit != nil {
+		opts := make([]engine.InterviewOption, 0, len(options))
+		for _, o := range options {
+			opts = append(opts, engine.InterviewOption{Key: o.Key, Label: o.Label})
+		}
 		env.Emit(engine.Event{
 			Kind:       engine.EventInterviewStarted,
 			NodeID:     env.Node.ID,
 			QuestionID: question.ID,
 			Message:    text,
+			Question: &engine.InterviewQuestion{
+				Text:    text,
+				Type:    "multiple_choice",
+				Stage:   env.Node.ID,
+				Options: opts,
+			},
 		})
 	}
 	answer, err := h.Interviewer.Ask(question)

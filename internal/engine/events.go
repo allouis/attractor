@@ -18,6 +18,11 @@ type Event struct {
 	Detail     map[string]string `json:"detail,omitempty"`
 	QuestionID string            `json:"question_id,omitempty"`
 	Usage      *Usage            `json:"usage,omitempty"`
+	// Question carries the full human-gate question on an
+	// EventInterviewStarted (spec §9.6 InterviewStarted(question)), so a
+	// frontend consuming the event stream — including a phone-home daemon —
+	// can present the choices without a side channel.
+	Question *InterviewQuestion `json:"question,omitempty"`
 	// Seq is a monotonic per-run sequence number stamped by emit. It lets
 	// SSE consumers resume with ?since=<seq> without duplicating events (T3).
 	Seq int64 `json:"seq,omitempty"`
@@ -34,6 +39,22 @@ type Usage struct {
 func (u *Usage) Add(other Usage) {
 	u.InputTokens += other.InputTokens
 	u.OutputTokens += other.OutputTokens
+}
+
+// InterviewQuestion is the self-contained question an EventInterviewStarted
+// carries (spec §9.6). It mirrors the interviewer Question's presentable
+// fields without the engine importing the interviewer package.
+type InterviewQuestion struct {
+	Text    string            `json:"text"`
+	Type    string            `json:"type,omitempty"`
+	Stage   string            `json:"stage,omitempty"`
+	Options []InterviewOption `json:"options,omitempty"`
+}
+
+// InterviewOption is one multiple-choice option (key + display label).
+type InterviewOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
 }
 
 // EventKind enumerates pipeline-engine lifecycle events.
