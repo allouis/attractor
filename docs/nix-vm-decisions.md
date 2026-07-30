@@ -56,3 +56,28 @@ are proven, when it's a cheap deletion.
 **Why:** Captures the structural win (one seam; local and vm slot in cleanly)
 without paying the blast-radius cost now. Phone-home runs self-complete from
 the ingested terminal event so `direct` and `local`/`vm` share completion.
+
+## D6 — VM workspace + job via `virtualisation.sharedDirectories` (9p, env source)
+**Context:** Getting a per-run host dir into the guest. First tried plain
+`fileSystems."/mnt/job"` — the qemu-vm module **overrides** top-level
+`fileSystems` (`fileSystems = mkVMOverride cfg.fileSystems`), so custom mounts
+were silently dropped. Also learned 9p mounts need `neededForBoot=true` +
+`x-systemd.requires=modprobe@9pnet_virtio.service` (a `nofail`/device-timeout
+mount is skipped because a 9p tag is not a udev device).
+**Decision:** Declare the shares via `virtualisation.sharedDirectories`, whose
+`source` accepts a **shell variable** (like the built-in `shared`=$SHARED_DIR).
+Launcher sets `ATTRACTOR_JOB_DIR` (job.json + source.dot, ro) and
+`ATTRACTOR_WORKSPACE` (the repo, rw) as env vars; the generated runner script
+expands them into `-virtfs` and auto-generates the correct guest mounts.
+**Why:** Uses the module's intended, tested path; no manual mount options; the
+per-run host paths stay runtime, not baked. **Proven:** a VM booted under TCG,
+mounted both shares, ran the pipeline, wrote through the rw workspace to the
+host, and phoned home a full event stream + artifacts.
+
+## D7 — Guest reaches the daemon at 10.0.2.2 (QEMU user-net)
+**Context:** The phone-home child in the VM needs the daemon's URL.
+**Decision:** VM launcher rewrites the daemon's reportURL host to `10.0.2.2`
+(the host as seen from the guest over QEMU slirp user networking), keeping the
+port. A daemon on `127.0.0.1:PORT` is reachable this way (slirp forwards
+guest→10.0.2.2 to the host loopback).
+**Why:** No host networking/bridge setup; works with the default user-net.
