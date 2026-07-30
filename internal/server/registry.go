@@ -463,6 +463,20 @@ func (r *Run) SubmitAnswer(qid string, payload AnswerPayload) error {
 	if !ok {
 		return fmt.Errorf("question %q not pending", qid)
 	}
+	// Phone-home question (no answer channel): store the answer for the
+	// polling child to collect via GET /control (spec §6 — the frontend
+	// submits, the headless engine's interviewer fetches).
+	if pq.answer == nil {
+		r.mu.Lock()
+		if r.answers == nil {
+			r.answers = map[string]controlAnswer{}
+		}
+		r.answers[qid] = controlAnswer{Key: payload.Key, Label: payload.Label, Text: payload.Text}
+		delete(r.questions, qid)
+		r.mu.Unlock()
+		r.writeManifest()
+		return nil
+	}
 	answer := interviewer.Answer{Value: interviewer.AnswerText, Text: payload.Text}
 	if payload.Key != "" || payload.Label != "" {
 		opt := &interviewer.Option{Key: payload.Key, Label: payload.Label}
@@ -578,8 +592,65 @@ func (r *Run) Ingest(ev engine.Event) {
 	switch ev.Kind {
 	case engine.EventPipelineStarted:
 		r.markRunning()
+	case engine.EventInterviewStarted:
+		r.registerPhoneHomeQuestion(ev)
+	case engine.EventInterviewAnswered:
+		r.clearQuestion(ev.QuestionID)
 	case engine.EventPipelineCompleted, engine.EventPipelineFailed:
 		r.finishFromEvent(ev)
+	}
+}
+
+// registerPhoneHomeQuestion registers a pending human-gate question from an
+// ingested InterviewStarted event (spec §9.6), so the run reports
+// needs_human and the existing /questions + /answer surface presents and
+// resolves it. The pending question has a nil answer channel, marking it
+// phone-home: SubmitAnswer stores the answer for the polling child to
+// collect via /control rather than delivering over a channel.
+func (r *Run) registerPhoneHomeQuestion(ev engine.Event) {
+	if ev.QuestionID == "" || ev.Question == nil {
+		return
+	}
+	q := interviewer.Question{
+		ID:    ev.QuestionID,
+		Text:  ev.Question.Text,
+		Type:  parseQuestionType(ev.Question.Type),
+		Stage: ev.Question.Stage,
+	}
+	for _, o := range ev.Question.Options {
+		q.Options = append(q.Options, interviewer.Option{Key: o.Key, Label: o.Label})
+	}
+	r.mu.Lock()
+	if _, exists := r.questions[ev.QuestionID]; !exists {
+		r.questions[ev.QuestionID] = &pendingQuestion{question: q, answer: nil, nodeID: ev.NodeID}
+	}
+	r.mu.Unlock()
+	r.writeManifest()
+}
+
+// clearQuestion drops a pending question once the child reports it answered
+// (InterviewAnswered), covering the case where the child's own interviewer
+// resolved it (e.g. a timeout default) without a daemon /answer call.
+func (r *Run) clearQuestion(qid string) {
+	if qid == "" {
+		return
+	}
+	r.mu.Lock()
+	delete(r.questions, qid)
+	r.mu.Unlock()
+}
+
+// parseQuestionType maps the event's question-type string to the enum.
+func parseQuestionType(s string) interviewer.QuestionType {
+	switch s {
+	case "yes_no":
+		return interviewer.QuestionYesNo
+	case "confirmation":
+		return interviewer.QuestionConfirmation
+	case "freeform":
+		return interviewer.QuestionFreeform
+	default:
+		return interviewer.QuestionMultipleChoice
 	}
 }
 
