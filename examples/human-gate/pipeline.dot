@@ -1,0 +1,28 @@
+// A human-in-the-loop gate that works the same in-process and in a VM.
+// The `gate` hexagon (wait.human) blocks the run until a human picks an
+// option; the selected edge's label routes the flow (spec §4.6 / §6).
+//
+// In a VM runner the gate works over the daemon: the child emits the
+// InterviewStarted event (with options, spec §9.6), the daemon presents it
+// (GET /pipelines/{id}/questions, needs_human=true), a human answers
+// (POST …/questions/{qid}/answer), and the child's poll interviewer picks
+// up the answer via GET /control. Answer the gate with:
+//   curl -X POST $DAEMON/pipelines/$ID/questions/gate-$ID/answer \
+//     -H 'Content-Type: application/json' -d '{"key":"A","label":"[A] Approve"}'
+digraph human_gate {
+  graph [goal="prepare, gate on human approval, then ship or fix"]
+
+  start [shape=Mdiamond]
+  prep [type="tool", tool_command="echo prepared > prep.txt"]
+  gate [shape=hexagon, label="Approve deploy?"]
+  ship [type="tool", tool_command="echo shipped > ship.txt"]
+  fix [type="tool", tool_command="echo fixing > fix.txt"]
+  done [shape=Msquare]
+
+  start -> prep
+  prep -> gate
+  gate -> ship [label="[A] Approve"]
+  gate -> fix [label="[F] Fix"]
+  ship -> done
+  fix -> done
+}

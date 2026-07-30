@@ -170,15 +170,22 @@ func Run(args []string) error {
 		defer ingestSrv.Close()
 	}
 
-	// Report mode: phone home to the daemon that launched us. wait.human
-	// is non-interactive here (no TTY in a subprocess/VM), so force
-	// AutoApprove regardless of --human (decision D4).
+	// Report mode: phone home to the daemon that launched us. There's no
+	// TTY in a subprocess/VM, so a wait.human gate is answered through the
+	// daemon: the PollInterviewer blocks until a human answers via the
+	// daemon's /questions surface (spec §6). `--human approve` forces
+	// non-interactive AutoApprove for unattended runs.
 	if *reportTo != "" {
 		if *runID == "" {
 			return fmt.Errorf("run: --report-to requires --run-id")
 		}
-		rep := &reportSink{client: report.New(*reportTo, *runID, *reportToken), runID: *runID}
-		return runEngineReporting(prepared, codergenBackend, interviewer.AutoApprove{}, logsRoot, *jsonOut, vars, rep)
+		client := report.New(*reportTo, *runID, *reportToken)
+		var iv interviewer.Interviewer = report.NewPollInterviewer(client, 0)
+		if *humanFlag == "approve" {
+			iv = interviewer.AutoApprove{}
+		}
+		rep := &reportSink{client: client, runID: *runID}
+		return runEngineReporting(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars, rep)
 	}
 
 	iv := resolveInterviewer(*humanFlag)

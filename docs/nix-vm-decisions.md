@@ -38,6 +38,22 @@ for the answer) are a Phase-4 milestone.
 **Why:** Unblocks the VM dogfooding goal fastest; human gates inside automated
 VM runs are uncommon; nothing here precludes adding the poll path later.
 
+## D4a — Human gates over HTTP: event-carried question (supersedes D4's deferral)
+**Context:** D4 deferred phone-home human gates because `interview_started`
+carried no options. Revisited against the pristine spec: §9.6 defines
+`InterviewStarted(question, stage)` — the event *is* the question-delivery
+channel; §6.1/§6.4 make the Interviewer a pluggable frontend adapter (a
+`CallbackInterviewer` "for … web UI, API"). So the spec-faithful design is
+event-enrichment, not a side-channel `POST /questions`.
+**Decision:** Enrich `interview_started` with the full question (options/
+type/stage). Daemon registers the pending question on ingest → existing
+needs_human + `/questions` + `/answer` surface. Child uses a poll
+interviewer (`report.PollInterviewer`) that blocks on `GET /control` for the
+answer. Report mode defaults to it; `--human approve` keeps AutoApprove.
+**Why:** Adheres to spec (§4.6/§6/§9.6), fixes an existing deviation (event
+dropped the options), reuses the whole in-process gate UI, no new route.
+Timeout (§6.5, `timeout_seconds`/`human.default_choice`) still TODO.
+
 ## D5 — Keep in-process as the `direct` Launcher; add `local`/`vm` alongside
 **Context:** Two subagents debated retiring in-process execution entirely (all
 runs → subprocess phone-home) vs keeping it. Grounded findings:
