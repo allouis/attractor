@@ -30,6 +30,7 @@ import (
 	"github.com/allouis/attractor/internal/items/source"
 	"github.com/allouis/attractor/internal/lint"
 	"github.com/allouis/attractor/internal/render"
+	"github.com/allouis/attractor/internal/report"
 	"github.com/allouis/attractor/internal/server"
 	"github.com/allouis/attractor/internal/setup"
 )
@@ -100,6 +101,9 @@ func Run(args []string) error {
 	acpCmd := fs.String("acp-cmd", "", "ACP agent command for --backend acp (fallback when the graph sets no acp_command attribute)")
 	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
 	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
+	reportTo := fs.String("report-to", "", "daemon base URL to phone home to (events + artifacts); enables report mode")
+	runID := fs.String("run-id", "", "run id the daemon assigned (report mode)")
+	reportToken := fs.String("report-token", "", "phone-home auth token for the run (report mode)")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	positional, err := parseFlexible(fs, args)
@@ -158,6 +162,17 @@ func Run(args []string) error {
 		defer ingestSrv.Close()
 	}
 
+	// Report mode: phone home to the daemon that launched us. wait.human
+	// is non-interactive here (no TTY in a subprocess/VM), so force
+	// AutoApprove regardless of --human (decision D4).
+	if *reportTo != "" {
+		if *runID == "" {
+			return fmt.Errorf("run: --report-to requires --run-id")
+		}
+		rep := &reportSink{client: report.New(*reportTo, *runID, *reportToken), runID: *runID}
+		return runEngineReporting(prepared, codergenBackend, interviewer.AutoApprove{}, logsRoot, *jsonOut, vars, rep)
+	}
+
 	iv := resolveInterviewer(*humanFlag)
 	return runEngine(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars)
 }
@@ -183,11 +198,32 @@ func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
 // `automations run`. initialContext seeds the run's context with the
 // `-var`/automation vars so `$context.<var>` resolves at runtime (C3).
 func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string) error {
-	registry := buildRegistryWith(handler.Codergen{Backend: cb}, iv)
-	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, InitialContext: initialContext})
+	return runEngineReporting(prepared, cb, iv, logsRoot, jsonOut, initialContext, nil)
+}
+
+// reportSink phones a run's activity home to a daemon (phone-home mode).
+// nil means a standalone `attractor run` that only prints to stdout.
+type reportSink struct {
+	client *report.Client
+	runID  string
+}
+
+// runEngineReporting is runEngine plus optional phone-home reporting: when
+// rep is non-nil it stamps the daemon's run id on the engine, forwards
+// every event to the daemon as it happens, and uploads the run's stage
+// artifacts on completion (skipping files the daemon owns itself).
+func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, rep *reportSink) error {
+	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext}
+	if rep != nil {
+		cfg.RunID = rep.runID
+	}
+	eng := engine.New(cfg)
 	done := make(chan struct{})
 	go func() {
 		for ev := range eng.Events() {
+			if rep != nil {
+				_ = rep.client.Event(ev)
+			}
 			if jsonOut {
 				_ = json.NewEncoder(os.Stdout).Encode(ev)
 				continue
@@ -199,6 +235,9 @@ func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv in
 	}()
 	outcome, runErr := eng.Run(prepared)
 	<-done
+	if rep != nil {
+		_ = rep.client.UploadDir(logsRoot, daemonOwnedArtifact)
+	}
 	fmt.Printf("\npipeline %s logs=%s\n", outcome.Status, logsRoot)
 	if runErr != nil {
 		return runErr
@@ -207,6 +246,18 @@ func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv in
 		return fmt.Errorf("pipeline failed: %s", outcome.FailureReason)
 	}
 	return nil
+}
+
+// daemonOwnedArtifact reports whether a run-dir file is one the daemon
+// writes itself and must not be overwritten by a phone-home upload: the
+// daemon builds events.jsonl from ingested events, and stamps
+// manifest.json / source.dot at run creation.
+func daemonOwnedArtifact(rel string) bool {
+	switch rel {
+	case "events.jsonl", "manifest.json", "source.dot":
+		return true
+	}
+	return false
 }
 
 // Render shells the input .dot file through graphviz to produce SVG.
