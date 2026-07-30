@@ -161,6 +161,22 @@ The mechanism is ordinary NixOS: add packages / `environment.etc` /
 `systemd.tmpfiles` rules to `nix/vm-runner.nix`. Nothing in the launcher or
 protocol changes — a prefilled image is just a different `run-nixos-vm`.
 
+## Build skew (daemon vs baked VM image)
+
+The daemon and the in-VM child are two builds of the same source: the
+daemon binary on the host, and a copy baked into the VM image at image
+build time. They can drift — change child code, rebuild only the daemon,
+and the VM still runs the old binary.
+
+Guardrail: the git revision is stamped into every build (`internal/version`,
+via the flake's `-ldflags`), the child advertises it on each phone-home
+request (`X-Attractor-Revision`), and the daemon logs a one-shot warning
+per run when the child's revision differs from its own — telling you to
+`nix build .#vm-runner`. `attractor version` prints the revision. In normal
+use `serve --runner vm` auto-builds `.#vm-runner` from the same committed
+source, so they match; skew mainly appears when reusing a stale
+`--vm-runner <path>`.
+
 ## RunSpec (draft)
 
 ```go
