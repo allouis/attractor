@@ -81,3 +81,17 @@ host, and phoned home a full event stream + artifacts.
 port. A daemon on `127.0.0.1:PORT` is reachable this way (slirp forwards
 guest→10.0.2.2 to the host loopback).
 **Why:** No host networking/bridge setup; works with the default user-net.
+
+## D8 — App runtimes come from the image (baked), not on-demand `nix shell`
+**Context:** A pipeline in the VM needs the app's runtime (node/python/go…).
+Options: (a) bake runtimes into the image's systemPackages; (b) pipeline runs
+`nix shell nixpkgs#<rt> -c …` on demand; (c) app-provided `nix develop`.
+`nix shell` in the guest must evaluate nixpkgs (fetch the flake) even when the
+store path exists via the host-store 9p mount — slow/networked under TCG.
+**Decision:** Runtimes are part of the **image** (declared in nix/vm-runner.nix
+systemPackages). The base image ships Node + TypeScript now; other runtimes are
+added by editing that list (documented recipe, V16). `nix develop` against an
+app's own flake remains available for apps that ship one.
+**Why:** Deterministic, offline, fast per run (no per-run nixpkgs eval). Aligns
+with "prefilled base images" (V15): the runtime is prebaked. Different runtimes
+= different image variants, which the launcher can select later.

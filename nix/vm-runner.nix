@@ -14,6 +14,10 @@ let
     runtimeInputs = [ attractorPkg pkgs.jq pkgs.coreutils ];
     text = ''
       set -euo pipefail
+      # Make every image systemPackage (node/npm, tsc, git, per-runtime
+      # tools — decision D8) visible to the pipeline's tool commands, which
+      # attractor runs via `sh -c` inheriting this PATH.
+      export PATH="/run/current-system/sw/bin:$PATH"
       job=/mnt/job/job.json
       for _ in $(seq 1 60); do [ -f "$job" ] && break; sleep 1; done
       if [ ! -f "$job" ]; then
@@ -71,7 +75,18 @@ in
   networking.useDHCP = lib.mkForce true;
   networking.firewall.enable = false;
 
-  environment.systemPackages = [ attractorPkg pkgs.git pkgs.jq runnerScript ];
+  # Base tooling + app runtimes. Runtimes are baked into the image
+  # (decision D8); add languages here to support more app types (see
+  # docs/nix-vm-runner-spec.md V16). Node + TypeScript ship by default.
+  environment.systemPackages = [
+    attractorPkg
+    pkgs.git
+    pkgs.jq
+    pkgs.coreutils
+    runnerScript
+    pkgs.nodejs_22 # node + npm
+    pkgs.typescript # tsc
+  ];
 
   systemd.services.attractor-runner = {
     description = "Run this VM's attractor pipeline job";
