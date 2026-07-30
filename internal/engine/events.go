@@ -72,5 +72,6 @@ const (
 	EventCheckpointSaved   EventKind = "checkpoint_saved"
 	EventInterviewStarted  EventKind = "interview_started"
 	EventInterviewAnswered EventKind = "interview_answered"
+	EventInterviewTimeout  EventKind = "interview_timeout"
 	EventUsage             EventKind = "usage"
 )

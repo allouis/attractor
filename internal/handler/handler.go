@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/allouis/attractor/internal/backend"
 	"github.com/allouis/attractor/internal/engine"
@@ -276,6 +278,7 @@ func (h WaitHuman) Execute(env engine.HandlerEnv) engine.Outcome {
 		Type:    interviewer.QuestionMultipleChoice,
 		Options: options,
 		Stage:   env.Node.ID,
+		Timeout: parseGateTimeout(env.Node.Attrs["human.timeout_seconds"]),
 	}
 	if env.Emit != nil {
 		opts := make([]engine.InterviewOption, 0, len(options))
@@ -309,7 +312,7 @@ func (h WaitHuman) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 	switch answer.Value {
 	case interviewer.AnswerTimeout:
-		return engine.Outcome{Status: engine.StatusRetry, FailureReason: "wait.human: timeout"}
+		return h.onTimeout(env, question.ID, edges, options)
 	case interviewer.AnswerSkipped:
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: "wait.human: skipped"}
 	}
@@ -322,6 +325,68 @@ func (h WaitHuman) Execute(env engine.HandlerEnv) engine.Outcome {
 			"human.gate.label":    selected.Label,
 		},
 	}
+}
+
+// onTimeout resolves a wait.human timeout (spec §6.5): if the node sets
+// `human.default_choice` to one of the outgoing edges (by key, label, or
+// target), that edge is selected as if a human had chosen it; otherwise the
+// node retries. Emits an InterviewTimeout event either way (spec §9.6).
+func (h WaitHuman) onTimeout(env engine.HandlerEnv, questionID string, edges []*graph.Edge, options []interviewer.Option) engine.Outcome {
+	emit := func(msg string) {
+		if env.Emit != nil {
+			env.Emit(engine.Event{Kind: engine.EventInterviewTimeout, NodeID: env.Node.ID, QuestionID: questionID, Message: msg})
+		}
+	}
+	dc := env.Node.Attrs["human.default_choice"]
+	if dc != "" {
+		if opt, ok := defaultChoiceOption(dc, edges, options); ok {
+			emit("default_choice=" + dc)
+			return engine.Outcome{
+				Status:         engine.StatusSuccess,
+				PreferredLabel: opt.Label,
+				ContextUpdates: map[string]string{
+					"human.gate.selected": opt.Key,
+					"human.gate.label":    opt.Label,
+					"human.gate.timeout":  "true",
+				},
+			}
+		}
+	}
+	emit("no default_choice")
+	return engine.Outcome{Status: engine.StatusRetry, FailureReason: "wait.human: timeout, no default_choice"}
+}
+
+// parseGateTimeout reads a human-gate timeout from the node attribute,
+// accepting either a plain number of seconds (spec's timeout_seconds) or a
+// Go duration string ("30s", "5m"). Zero/blank means no timeout.
+func parseGateTimeout(s string) time.Duration {
+	if s == "" {
+		return 0
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		if f <= 0 {
+			return 0
+		}
+		return time.Duration(f * float64(time.Second))
+	}
+	if d, ok := graph.ParseDuration(s); ok {
+		return d
+	}
+	return 0
+}
+
+// defaultChoiceOption finds the option a `human.default_choice` names,
+// matching by accelerator key, label, or edge target.
+func defaultChoiceOption(dc string, edges []*graph.Edge, options []interviewer.Option) (interviewer.Option, bool) {
+	for i, e := range edges {
+		if i >= len(options) {
+			break
+		}
+		if dc == options[i].Key || dc == options[i].Label || dc == e.To {
+			return options[i], true
+		}
+	}
+	return interviewer.Option{}, false
 }
 
 func selectChoice(a interviewer.Answer, options []interviewer.Option) interviewer.Option {

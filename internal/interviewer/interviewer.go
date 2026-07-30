@@ -5,6 +5,7 @@ package interviewer
 import (
 	"errors"
 	"sync"
+	"time"
 )
 
 // QuestionType enumerates the supported question presentations.
@@ -31,6 +32,9 @@ type Question struct {
 	Options  []Option
 	Stage    string
 	Metadata map[string]string
+	// Timeout bounds how long an interviewer waits for an answer before
+	// returning AnswerTimeout (spec §6.5). Zero means wait indefinitely.
+	Timeout time.Duration
 }
 
 // AnswerValue is the enum used for non-text answers.
