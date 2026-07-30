@@ -307,7 +307,12 @@ func Serve(args []string) error {
 	authToken := fs.Bool("auth-token", false, "enable bearer-token auth (token at ~/.attractor/api-key, auto-generated on first use)")
 	insecure := fs.Bool("insecure", false, "allow non-loopback bind without auth (network layer is responsible)")
 	maxConcurrent := fs.Int("max-concurrent-runs", 4, "maximum runs executing at once; the rest queue FIFO")
+	runner := fs.String("runner", "direct", "where runs execute: direct (in-process) | local (subprocess, phone-home)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	launcher, err := resolveLauncher(*runner)
+	if err != nil {
 		return err
 	}
 	if !bindIsLoopback(*bind) && !*authToken && !*insecure {
@@ -351,12 +356,26 @@ func Serve(args []string) error {
 		AutomationsDir:    automationsDir(),
 		Sources:           sources,
 		Repos:             repos,
+		Launcher:          launcher,
 	})
 	if err := srv.Start(); err != nil {
 		return err
 	}
 	fmt.Println("attractor serving on", srv.URL())
 	select {}
+}
+
+// resolveLauncher maps the --runner choice to a server.Launcher. nil
+// (returned for "direct") leaves the server's in-process default.
+func resolveLauncher(choice string) (server.Launcher, error) {
+	switch choice {
+	case "", "direct":
+		return nil, nil
+	case "local":
+		return server.NewLocalLauncher(), nil
+	default:
+		return nil, fmt.Errorf("serve: unknown --runner %q (want direct | local)", choice)
+	}
 }
 
 // ServeHandlerFactory builds the server's handler factory from the

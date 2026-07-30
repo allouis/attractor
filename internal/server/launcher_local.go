@@ -22,6 +22,10 @@ type localLauncher struct {
 	logsBase string
 }
 
+// NewLocalLauncher returns a Launcher that runs each pipeline as a child
+// `attractor run --report-to` process spawned from the running executable.
+func NewLocalLauncher() Launcher { return localLauncher{} }
+
 func (l localLauncher) binary() (string, error) {
 	if l.bin != "" {
 		return l.bin, nil
