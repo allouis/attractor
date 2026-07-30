@@ -2,7 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/allouis/attractor/internal/engine"
 )
@@ -73,4 +77,41 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		Cancel:  run.IsCancelled(),
 		Answers: run.polledAnswers(),
 	})
+}
+
+// putArtifact stores an artifact uploaded by a phone-home child under the
+// run's logs root, so GET /artifacts and GET /stages serve it identically
+// to an in-process run's on-disk stage files. The path is confined to the
+// logs root (same guard as getArtifact).
+func (s *Server) putArtifact(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.registry.Get(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !runTokenValid(r, run) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	root := filepath.Clean(run.logsRoot)
+	full := filepath.Join(root, filepath.Clean("/"+r.PathValue("path")))
+	if full == root || !strings.HasPrefix(full, root+string(filepath.Separator)) {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		http.Error(w, "mkdir", http.StatusInternalServerError)
+		return
+	}
+	f, err := os.Create(full)
+	if err != nil {
+		http.Error(w, "create", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, r.Body); err != nil {
+		http.Error(w, "write", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

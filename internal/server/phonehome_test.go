@@ -88,6 +88,47 @@ func TestControlRejectsBadToken(t *testing.T) {
 	}
 }
 
+// A phone-home child uploads its stage artifacts; the daemon writes them
+// under the run's logs root so GET /artifacts and GET /stages serve them
+// exactly as for an in-process run.
+func TestUploadArtifactWritesUnderLogsRoot(t *testing.T) {
+	tmp := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/pipelines/"+run.ID+"/artifacts/plan/response.md", strings.NewReader("hello plan"))
+	req.Header.Set("Authorization", "Bearer "+run.Token())
+	rec := httptest.NewRecorder()
+	srv.httpsrv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+	data, err := os.ReadFile(filepath.Join(run.logsRoot, "plan", "response.md"))
+	if err != nil {
+		t.Fatalf("read uploaded file: %v", err)
+	}
+	if string(data) != "hello plan" {
+		t.Fatalf("content = %q", data)
+	}
+}
+
+func TestUploadArtifactRejectsTraversal(t *testing.T) {
+	tmp := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/pipelines/"+run.ID+"/artifacts/../../escape.txt", strings.NewReader("x"))
+	req.Header.Set("Authorization", "Bearer "+run.Token())
+	rec := httptest.NewRecorder()
+	srv.httpsrv.Handler.ServeHTTP(rec, req)
+	if rec.Code == http.StatusNoContent {
+		t.Fatalf("traversal upload accepted")
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "escape.txt")); err == nil {
+		t.Fatalf("traversal wrote outside logs root")
+	}
+}
+
 // The run token gates ingest: a wrong (or missing) token is rejected so a
 // stray process can't inject events into someone else's run.
 func TestIngestEventRejectsBadToken(t *testing.T) {
