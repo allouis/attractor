@@ -86,11 +86,20 @@
             mainProgram = "attractor";
           };
         };
+        # A NixOS VM that runs one attractor pipeline per boot and phones
+        # home (nix/vm-runner.nix). `nix build .#vm-runner` yields
+        # result/bin/run-nixos-vm, the boot script the `vm` launcher spawns.
+        vmRunnerSystem = nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { attractorPkg = attractor; };
+          modules = [ ./nix/vm-runner.nix ];
+        };
       in
       {
         packages = {
           default = attractor;
           attractor = attractor;
+          vm-runner = vmRunnerSystem.config.system.build.vm;
         };
 
         apps = {
@@ -150,6 +159,15 @@
           };
         };
       }) // {
+        # VM runner NixOS configuration (x86_64-linux). Buildable directly
+        # via `.#nixosConfigurations.attractor-vm-runner...`, though the
+        # per-system `packages.vm-runner` is the launcher's entry point.
+        nixosConfigurations.attractor-vm-runner = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = { attractorPkg = self.packages.x86_64-linux.attractor; };
+          modules = [ ./nix/vm-runner.nix ];
+        };
+
         # System service: `services.attractor.enable = true;` on NixOS.
         nixosModules.default = { config, lib, pkgs, ... }: {
           options.services.attractor = mkOptions {
