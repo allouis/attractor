@@ -146,9 +146,17 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 }
 
-// recordVM writes a marker the reaper uses to find and GC persisted VMs.
+// vmRecord marks a persisted VM so the reaper can find and GC it.
+type vmRecord struct {
+	RunID     string    `json:"run_id"`
+	Pid       int       `json:"pid"`
+	Dir       string    `json:"dir"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+// recordVM writes the marker the reaper uses to GC persisted VMs.
 func (l vmLauncher) recordVM(runID, runDir string, pid int) {
-	rec := map[string]any{"run_id": runID, "pid": pid, "dir": runDir}
+	rec := vmRecord{RunID: runID, Pid: pid, Dir: runDir, StartedAt: time.Now()}
 	data, _ := json.MarshalIndent(rec, "", "  ")
 	_ = os.WriteFile(filepath.Join(runDir, "vm.json"), data, 0o644)
 }
