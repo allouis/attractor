@@ -71,11 +71,14 @@ to its interviewer. No new question API on the daemon side.
   its stage dir on completion.
 - **V6 ✅** `attractor run --report-to URL --run-id ID --report-token T`: wires V3+V5.
 
-### Phase 2 — Launcher seam + `local`
-- **V7** `Launcher` interface + `RunSpec` value type.
-- **V8** `local.Launcher`: spawns `attractor run --report-to 127.0.0.1:PORT`.
-- **V9** `submit` routes through the configured launcher; `execute()` in-process
-  path retired. Default launcher `local`. **Dogfood:** a real run via subprocess.
+### Phase 2 — Launcher seam + `local` ✅
+- **V7 ✅** `Launcher` interface; dispatcher routes through it; runs self-complete
+  from the ingested terminal event. Default `direct` (in-process) kept (D5).
+- **V8 ✅** `localLauncher`: spawns `attractor run --report-to 127.0.0.1:PORT`,
+  blocks on exit, fails the run if the child dies without reporting completion.
+- **V9 ✅** `serve --runner direct|local`. **Dogfooded:** HTTP submit under
+  `--runner local` ran the tool in the working tree and streamed full lifecycle
+  events + uploaded stage artifacts back to the daemon.
 
 ### Phase 3 — `vm` launcher (the goal)
 - **V10** NixOS runner image built from the flake (attractor + git + coding-agent
