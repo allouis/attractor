@@ -316,11 +316,11 @@ func Serve(args []string) error {
 		return err
 	}
 	vmDirResolved := defaultString(*vmDir, filepath.Join(*logs, "vms"))
-	launcher, err := resolveLauncher(*runner, *vmRunner, vmDirResolved)
+	launcher, launchers, err := resolveLaunchers(*runner, *vmRunner, vmDirResolved)
 	if err != nil {
 		return err
 	}
-	if *runner == "vm" {
+	if _, hasVM := launchers["vm"]; hasVM {
 		server.StartVMReaper(vmDirResolved, *vmRetention)
 		fmt.Fprintf(os.Stderr, "attractor: VM reaper on — completed VMs GC'd after %s\n", *vmRetention)
 	}
@@ -366,6 +366,7 @@ func Serve(args []string) error {
 		Sources:           sources,
 		Repos:             repos,
 		Launcher:          launcher,
+		Launchers:         launchers,
 	})
 	if err := srv.Start(); err != nil {
 		return err
@@ -374,30 +375,34 @@ func Serve(args []string) error {
 	select {}
 }
 
-// resolveLauncher maps the --runner choice to a server.Launcher. nil
-// (returned for "direct") leaves the server's in-process default.
-func resolveLauncher(choice, vmRunner, vmDir string) (server.Launcher, error) {
-	switch choice {
-	case "", "direct":
-		return nil, nil
-	case "local":
-		return server.NewLocalLauncher(), nil
-	case "vm":
+// resolveLaunchers builds the named launcher registry and picks the
+// default per --runner. All built launchers are available for per-run
+// override via a submission's `runner` field (V18). `vm` is only built
+// when it's the default or --vm-runner was given, so serve doesn't force a
+// nix build unless VMs are actually wanted.
+func resolveLaunchers(choice, vmRunner, vmDir string) (def server.Launcher, all map[string]server.Launcher, err error) {
+	all = map[string]server.Launcher{
+		"direct": server.NewDirectLauncher(),
+		"local":  server.NewLocalLauncher(),
+	}
+	if choice == "vm" || vmRunner != "" {
 		script := vmRunner
 		if script == "" {
-			built, err := buildVMRunner()
+			script, err = buildVMRunner()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
-			script = built
 		}
-		if err := os.MkdirAll(vmDir, 0o755); err != nil {
-			return nil, err
+		if err = os.MkdirAll(vmDir, 0o755); err != nil {
+			return nil, nil, err
 		}
-		return server.NewVMLauncher(script, vmDir), nil
-	default:
-		return nil, fmt.Errorf("serve: unknown --runner %q (want direct | local | vm)", choice)
+		all["vm"] = server.NewVMLauncher(script, vmDir)
 	}
+	def, ok := all[choice]
+	if !ok {
+		return nil, nil, fmt.Errorf("serve: unknown --runner %q (want direct | local | vm)", choice)
+	}
+	return def, all, nil
 }
 
 // buildVMRunner builds the .#vm-runner flake output and returns the path to
