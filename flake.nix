@@ -69,6 +69,10 @@
       let
         pkgs = import nixpkgs { inherit system; };
         version = "0.1.0";
+        # Git revision stamped into the binary so the daemon can warn when a
+        # VM image bakes a stale attractor (build skew). Falls back to "dev"
+        # for a dirty tree, where self.rev is absent.
+        rev = self.rev or self.dirtyRev or "dev";
         runtimeDeps = [ pkgs.graphviz ];
         attractor = pkgs.buildGoModule {
           pname = "attractor";
@@ -76,6 +80,7 @@
           src = ./.;
           vendorHash = null;
           subPackages = [ "cmd/attractor" "hookshim" ];
+          ldflags = [ "-X github.com/allouis/attractor/internal/version.Revision=${rev}" ];
           nativeBuildInputs = [ pkgs.makeWrapper ];
           postInstall = ''
             wrapProgram $out/bin/attractor \

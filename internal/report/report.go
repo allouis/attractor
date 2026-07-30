@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/version"
 )
 
 // Client reports one run's activity to the daemon.
@@ -45,6 +46,9 @@ func (c *Client) url(suffix string) string {
 
 func (c *Client) do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	// Advertise the child's build so the daemon can warn on skew (e.g. a
+	// VM image baking a stale attractor).
+	req.Header.Set(version.RevisionHeader, version.Get())
 	return c.hc.Do(req)
 }
 

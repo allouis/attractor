@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/version"
 )
 
 const Version = "0.1.0"
@@ -17,7 +18,7 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "version", "--version", "-v":
-		fmt.Println(Version)
+		fmt.Printf("%s (rev %s)\n", Version, version.Get())
 	case "help", "--help", "-h":
 		printUsage()
 	case "validate":
