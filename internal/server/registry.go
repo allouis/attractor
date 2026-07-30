@@ -135,6 +135,7 @@ func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.Pre
 	logsRoot := filepath.Join(baseDir, id)
 	run := &Run{
 		ID:             id,
+		token:          newRunID(),
 		source:         source,
 		graph:          g,
 		prepared:       prepared,
@@ -215,6 +216,10 @@ type Run struct {
 	workflowName string
 	cwd          string
 	itemRef      string
+	// token authenticates phone-home reporting for this run: a launched
+	// child presents it on POST /events, GET /control, POST /artifacts so
+	// only the process the daemon started can drive the run.
+	token string
 	// initialContext seeds the run's context at start (Item vars + item.*
 	// metadata); nil for runs with no seed (router-spec deviation B).
 	initialContext map[string]string
@@ -483,23 +488,59 @@ func (r *Run) execute() {
 func (r *Run) fanOutEvents(src <-chan engine.Event, done chan<- struct{}) {
 	defer close(done)
 	for ev := range src {
-		r.mu.Lock()
-		r.history = append(r.history, ev)
-		if ev.Kind == engine.EventUsage && ev.Usage != nil {
-			r.usage.Add(*ev.Usage)
-		}
-		subs := make([]chan engine.Event, 0, len(r.subscribers))
-		for ch := range r.subscribers {
-			subs = append(subs, ch)
-		}
-		r.mu.Unlock()
-		for _, ch := range subs {
-			select {
-			case ch <- ev:
-			default:
-			}
+		r.deliver(ev)
+	}
+}
+
+// deliver records one event in the run's history + usage rollup and fans
+// it out to live SSE subscribers. Shared by the in-process engine loop
+// (fanOutEvents) and phone-home ingest (Ingest).
+func (r *Run) deliver(ev engine.Event) {
+	r.mu.Lock()
+	r.history = append(r.history, ev)
+	if ev.Kind == engine.EventUsage && ev.Usage != nil {
+		r.usage.Add(*ev.Usage)
+	}
+	subs := make([]chan engine.Event, 0, len(r.subscribers))
+	for ch := range r.subscribers {
+		subs = append(subs, ch)
+	}
+	r.mu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- ev:
+		default:
 		}
 	}
+}
+
+// Token returns the run's phone-home auth token.
+func (r *Run) Token() string { return r.token }
+
+// Ingest records an event reported by a phone-home child: it fans the
+// event out to subscribers and appends it to the daemon's own
+// events.jsonl (the child persists to its own FS, unreachable here).
+func (r *Run) Ingest(ev engine.Event) {
+	r.deliver(ev)
+	r.appendEvent(ev)
+}
+
+// appendEvent appends one event as a JSON line to the run's events.jsonl.
+func (r *Run) appendEvent(ev engine.Event) {
+	if r.logsRoot == "" {
+		return
+	}
+	_ = os.MkdirAll(r.logsRoot, 0o755)
+	f, err := os.OpenFile(filepath.Join(r.logsRoot, "events.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	line, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(line, '\n'))
 }
 
 // registerQuestion is used by RemoteInterviewer to enqueue a question
