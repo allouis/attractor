@@ -307,11 +307,13 @@ func Serve(args []string) error {
 	authToken := fs.Bool("auth-token", false, "enable bearer-token auth (token at ~/.attractor/api-key, auto-generated on first use)")
 	insecure := fs.Bool("insecure", false, "allow non-loopback bind without auth (network layer is responsible)")
 	maxConcurrent := fs.Int("max-concurrent-runs", 4, "maximum runs executing at once; the rest queue FIFO")
-	runner := fs.String("runner", "direct", "where runs execute: direct (in-process) | local (subprocess, phone-home)")
+	runner := fs.String("runner", "direct", "where runs execute: direct (in-process) | local (subprocess) | vm (nixos VM)")
+	vmRunner := fs.String("vm-runner", "", "path to the run-nixos-vm boot script for --runner vm (default: build .#vm-runner)")
+	vmDir := fs.String("vm-dir", "", "root for per-run VM disks + job dirs (--runner vm; default: <logs>/vms)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	launcher, err := resolveLauncher(*runner)
+	launcher, err := resolveLauncher(*runner, *vmRunner, defaultString(*vmDir, filepath.Join(*logs, "vms")))
 	if err != nil {
 		return err
 	}
@@ -367,15 +369,47 @@ func Serve(args []string) error {
 
 // resolveLauncher maps the --runner choice to a server.Launcher. nil
 // (returned for "direct") leaves the server's in-process default.
-func resolveLauncher(choice string) (server.Launcher, error) {
+func resolveLauncher(choice, vmRunner, vmDir string) (server.Launcher, error) {
 	switch choice {
 	case "", "direct":
 		return nil, nil
 	case "local":
 		return server.NewLocalLauncher(), nil
+	case "vm":
+		script := vmRunner
+		if script == "" {
+			built, err := buildVMRunner()
+			if err != nil {
+				return nil, err
+			}
+			script = built
+		}
+		if err := os.MkdirAll(vmDir, 0o755); err != nil {
+			return nil, err
+		}
+		return server.NewVMLauncher(script, vmDir), nil
 	default:
-		return nil, fmt.Errorf("serve: unknown --runner %q (want direct | local)", choice)
+		return nil, fmt.Errorf("serve: unknown --runner %q (want direct | local | vm)", choice)
 	}
+}
+
+// buildVMRunner builds the .#vm-runner flake output and returns the path to
+// its run-nixos-vm boot script.
+func buildVMRunner() (string, error) {
+	fmt.Fprintln(os.Stderr, "attractor: building .#vm-runner (first run may take a while)…")
+	out, err := exec.Command("nix", "build", "--no-link", "--print-out-paths", ".#vm-runner").Output()
+	if err != nil {
+		return "", fmt.Errorf("build .#vm-runner: %w", err)
+	}
+	return filepath.Join(strings.TrimSpace(string(out)), "bin", "run-nixos-vm"), nil
+}
+
+// defaultString returns v, or def when v is empty.
+func defaultString(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 // ServeHandlerFactory builds the server's handler factory from the
