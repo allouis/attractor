@@ -104,6 +104,8 @@ func Run(args []string) error {
 	reportTo := fs.String("report-to", "", "daemon base URL to phone home to (events + artifacts); enables report mode")
 	runID := fs.String("run-id", "", "run id the daemon assigned (report mode)")
 	reportToken := fs.String("report-token", "", "phone-home auth token for the run (report mode)")
+	baseDir := fs.String("base-dir", "", "directory @file prompts and child pipelines resolve against (default: the .dot file's directory)")
+	cwd := fs.String("cwd", "", "working tree the pipeline operates in (graph-level cwd default; report mode)")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	positional, err := parseFlexible(fs, args)
@@ -121,9 +123,14 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
+	base := *baseDir
+	if base == "" {
+		base = filepath.Dir(dotPath)
+	}
 	prepared, err := setup.Prepare(setup.Options{
 		Source:  string(src),
-		BaseDir: filepath.Dir(dotPath),
+		BaseDir: base,
+		Cwd:     *cwd,
 	})
 	if err != nil {
 		return err
