@@ -71,7 +71,11 @@ to its interviewer. No new question API on the daemon side.
   it on ingest (needs_human + existing /questions surface); the child's
   `report.PollInterviewer` blocks on GET /control for the answer. Report mode
   defaults to it (`--human approve` forces AutoApprove). Dogfooded in a VM —
-  Approve→ship, Fix→fix. Example: `examples/human-gate/`.
+  Approve→ship, Fix→fix. Example: `examples/human-gate/`. **§6.5 timeout:**
+  a gate may set `human.timeout_seconds` + `human.default_choice`; the poll
+  interviewer returns AnswerTimeout on deadline and the handler selects the
+  default edge (emitting `interview_timeout`). Dogfooded in a VM: unanswered
+  15s gate timed out → fix path.
 - **V5 ✅** Artifact upload: `POST /pipelines/{id}/artifacts/{path…}`; child uploads
   its stage dir on completion.
 - **V6 ✅** `attractor run --report-to URL --run-id ID --report-token T`: wires V3+V5.
