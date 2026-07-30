@@ -86,6 +86,7 @@ in
     runnerScript
     pkgs.nodejs_22 # node + npm
     pkgs.typescript # tsc
+    pkgs.python3 # python + stdlib (unittest, venv)
   ];
 
   systemd.services.attractor-runner = {

@@ -1,0 +1,19 @@
+// Compile, test, and run a dependency-free Python app inside an attractor
+// VM runner. python3 comes from the runner image (nix/vm-runner.nix,
+// decision D8); this example uses only the stdlib (unittest) so it needs
+// no pip install. Apps with deps would add a `deps` stage running
+// `python -m venv .venv && .venv/bin/pip install -r requirements.txt`.
+digraph python_app {
+  graph [goal="compile, test and run the python example"]
+
+  start [shape=Mdiamond]
+  compile [type="tool", tool_command="python -m py_compile calc.py app.py test_calc.py"]
+  test [type="tool", tool_command="python -m unittest discover -p 'test_*.py' -v"]
+  run [type="tool", tool_command="python app.py"]
+  done [shape=Msquare]
+
+  start -> compile
+  compile -> test
+  test -> run
+  run -> done
+}
