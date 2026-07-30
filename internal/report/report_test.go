@@ -2,8 +2,11 @@ package report
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -45,6 +48,56 @@ func TestClientEventPostsWithToken(t *testing.T) {
 	}
 	if gotID != "run123" {
 		t.Fatalf("id = %q", gotID)
+	}
+}
+
+func TestUploadDirUploadsFilesWithRelPaths(t *testing.T) {
+	var (
+		mu   sync.Mutex
+		got  = map[string]string{}
+		auth string
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /pipelines/{id}/artifacts/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		auth = r.Header.Get("Authorization")
+		got[r.PathValue("path")] = string(body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	root := t.TempDir()
+	must := func(p, c string) {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("plan/response.md", "R")
+	must("plan/status.json", "S")
+	must("events.jsonl", "E")
+
+	c := New(srv.URL, "run1", "tok")
+	skip := func(rel string) bool { return rel == "events.jsonl" }
+	if err := c.UploadDir(root, skip); err != nil {
+		t.Fatalf("UploadDir: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got["plan/response.md"] != "R" || got["plan/status.json"] != "S" {
+		t.Fatalf("uploaded = %v", got)
+	}
+	if _, ok := got["events.jsonl"]; ok {
+		t.Fatalf("events.jsonl should have been skipped")
+	}
+	if auth != "Bearer tok" {
+		t.Fatalf("auth = %q", auth)
 	}
 }
 

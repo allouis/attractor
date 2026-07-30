@@ -10,7 +10,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,6 +69,53 @@ func (c *Client) Event(ev engine.Event) error {
 		return fmt.Errorf("report event: %s", resp.Status)
 	}
 	return nil
+}
+
+// UploadArtifact stores one file's bytes under the run's logs root at the
+// given relative path (forward-slash separated).
+func (c *Client) UploadArtifact(rel string, data []byte) error {
+	req, err := http.NewRequest(http.MethodPost, c.url("/artifacts/"+rel), bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("upload %s: %s", rel, resp.Status)
+	}
+	return nil
+}
+
+// UploadDir walks root and uploads every regular file, keying each by its
+// path relative to root (forward slashes). skip, when non-nil, drops a
+// file whose rel path it returns true for — used to omit files the daemon
+// owns itself (events.jsonl, manifest.json, source.dot).
+func (c *Client) UploadDir(root string, skip func(rel string) bool) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if skip != nil && skip(rel) {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return c.UploadArtifact(rel, data)
+	})
 }
 
 // Forward drains an engine event channel, reporting each event. It
