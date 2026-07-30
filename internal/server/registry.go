@@ -572,9 +572,24 @@ func (r *Run) Token() string { return r.token }
 func (r *Run) Ingest(ev engine.Event) {
 	r.deliver(ev)
 	r.appendEvent(ev)
-	if ev.Kind == engine.EventPipelineCompleted || ev.Kind == engine.EventPipelineFailed {
+	switch ev.Kind {
+	case engine.EventPipelineStarted:
+		r.markRunning()
+	case engine.EventPipelineCompleted, engine.EventPipelineFailed:
 		r.finishFromEvent(ev)
 	}
+}
+
+// markRunning transitions a queued phone-home run to running when its child
+// reports pipeline_started (the daemon does not drive it in-process, so
+// nothing else flips the status). A run past queued is left untouched.
+func (r *Run) markRunning() {
+	r.mu.Lock()
+	if r.status == RunQueued {
+		r.status = RunRunning
+	}
+	r.mu.Unlock()
+	r.writeManifest()
 }
 
 // finishFromEvent transitions a phone-home run to its terminal state from

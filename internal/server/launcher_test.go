@@ -41,6 +41,21 @@ func TestIngestTerminalEventCompletesRun(t *testing.T) {
 	}
 }
 
+// A phone-home run transitions queued→running when its child reports
+// pipeline_started (nothing drives it in-process to flip the status).
+func TestIngestPipelineStartedMarksRunning(t *testing.T) {
+	tmp := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	if run.Status() != RunQueued {
+		t.Fatalf("initial status = %v, want queued", run.Status())
+	}
+	run.Ingest(engine.Event{Kind: engine.EventPipelineStarted, NodeID: "start"})
+	if run.Status() != RunRunning {
+		t.Fatalf("status = %v, want running", run.Status())
+	}
+}
+
 // reportURL derives a loopback base URL a local child can reach even when
 // the daemon binds a wildcard host.
 func TestReportURLLoopbackForWildcard(t *testing.T) {
