@@ -14,6 +14,10 @@ type dispatcher struct {
 	slots  chan struct{}
 	quit   chan struct{}
 	closed bool
+	// launch executes a dispatched run to completion (blocking so the slot
+	// is held for the run's duration). The server sets it to route through
+	// the configured Launcher; nil falls back to the in-process path.
+	launch func(*Run)
 }
 
 func newDispatcher(max int) *dispatcher {
@@ -59,6 +63,10 @@ func (d *dispatcher) run() {
 		}
 		go func(r *Run) {
 			defer func() { <-d.slots }()
+			if d.launch != nil {
+				d.launch(r)
+				return
+			}
 			r.execute()
 		}(next)
 	}

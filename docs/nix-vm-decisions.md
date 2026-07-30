@@ -37,3 +37,22 @@ human gates (enrich `interview_started` with options; child polls `/control`
 for the answer) are a Phase-4 milestone.
 **Why:** Unblocks the VM dogfooding goal fastest; human gates inside automated
 VM runs are uncommon; nothing here precludes adding the poll path later.
+
+## D5 — Keep in-process as the `direct` Launcher; add `local`/`vm` alongside
+**Context:** Two subagents debated retiring in-process execution entirely (all
+runs → subprocess phone-home) vs keeping it. Grounded findings:
+- Only 4 integration tests actually execute runs to completion in-process
+  (router_dispatch, run_action ×2, itemref) — all simulation, no binary.
+- A subprocess launcher needs the `attractor` binary built + on PATH and
+  provider-config discovery, neither of which `go test` provides — so
+  retiring now forces a TestMain-builds-binary or fake-launcher rewrite.
+- Both sides agree a `Launcher` seam is right, and that `deliver()` already
+  converges in-process fan-out and phone-home Ingest.
+**Decision:** Introduce a `Launcher` seam; route `submit`→dispatcher through it.
+Keep the in-process path as the `direct` launcher, which stays the **default**
+so every existing test stays green. Add `local` (subprocess) and `vm`
+launchers as opt-in. Do NOT retire `direct` yet — retire only once `local`+`vm`
+are proven, when it's a cheap deletion.
+**Why:** Captures the structural win (one seam; local and vm slot in cleanly)
+without paying the blast-radius cost now. Phone-home runs self-complete from
+the ingested terminal event so `direct` and `local`/`vm` share completion.

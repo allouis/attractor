@@ -541,6 +541,40 @@ func (r *Run) Token() string { return r.token }
 func (r *Run) Ingest(ev engine.Event) {
 	r.deliver(ev)
 	r.appendEvent(ev)
+	if ev.Kind == engine.EventPipelineCompleted || ev.Kind == engine.EventPipelineFailed {
+		r.finishFromEvent(ev)
+	}
+}
+
+// finishFromEvent transitions a phone-home run to its terminal state from
+// the ingested terminal pipeline event. It mirrors execute()'s terminal
+// block (status, outcome, completedAt, subscriber close) for runs the
+// daemon does not drive in-process. Idempotent: a run already terminal
+// (e.g. cancelled) is left untouched.
+func (r *Run) finishFromEvent(ev engine.Event) {
+	r.mu.Lock()
+	if r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled {
+		r.mu.Unlock()
+		return
+	}
+	r.completedAt = time.Now()
+	if ev.Kind == engine.EventPipelineCompleted {
+		r.status = RunCompleted
+		r.outcome = &engine.Outcome{Status: engine.ParseStatus(ev.Status), StatusString: ev.Status}
+	} else {
+		r.status = RunFailed
+		r.outcome = &engine.Outcome{Status: engine.StatusFail, StatusString: engine.StatusFail.String(), FailureReason: ev.Message}
+		r.failure = ev.Message
+	}
+	if r.cancelled {
+		r.status = RunCancelled
+	}
+	for ch := range r.subscribers {
+		close(ch)
+	}
+	r.subscribers = map[chan engine.Event]struct{}{}
+	r.mu.Unlock()
+	r.writeManifest()
 }
 
 // appendEvent appends one event as a JSON line to the run's events.jsonl.

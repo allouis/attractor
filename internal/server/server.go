@@ -48,6 +48,7 @@ type Server struct {
 	makeHandlers HandlerFactory
 	authToken    string
 	dispatcher   *dispatcher
+	launcher     Launcher
 	sources      map[string]source.Source
 	repos        items.Repos
 
@@ -91,6 +92,10 @@ type Config struct {
 	// `<name>/pipeline.dot` definitions (web-ui-spec W2). Empty defaults to
 	// ~/.attractor/pipelines.
 	WorkflowsDir string
+	// Launcher selects where runs execute. Nil defaults to the in-process
+	// `direct` launcher (decision D5); `local`/`vm` spawn phone-home
+	// subprocesses / VMs.
+	Launcher Launcher
 }
 
 // New constructs an unstarted server.
@@ -114,11 +119,16 @@ func New(cfg Config) *Server {
 		makeHandlers:   cfg.MakeHandlers,
 		authToken:      cfg.AuthToken,
 		dispatcher:     newDispatcher(cfg.MaxConcurrentRuns),
+		launcher:       cfg.Launcher,
 		automationsDir: cfg.AutomationsDir,
 		workflowsDir:   cfg.WorkflowsDir,
 		sources:        cfg.Sources,
 		repos:          cfg.Repos,
 	}
+	if s.launcher == nil {
+		s.launcher = directLauncher{}
+	}
+	s.dispatcher.launch = func(r *Run) { _ = s.launcher.Launch(r, s.reportURL()) }
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
 	mux.HandleFunc("GET /pipelines", s.listPipelines)
