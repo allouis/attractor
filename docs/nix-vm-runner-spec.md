@@ -101,6 +101,60 @@ to its interviewer. No new question API on the daemon side.
   ones. Config for retention.
 - **V18** Per-run placement override in the run modal / submit API.
 
+## Runtimes: how apps of different kinds run in a VM (V16)
+
+App runtimes live in the **image**, not in per-run setup (decision D8). A
+tool node's command runs in the guest with `/run/current-system/sw/bin` on
+PATH, so anything in `environment.systemPackages` (nix/vm-runner.nix) is
+available to pipelines. The default image ships **Node + TypeScript**
+(`nodejs_22`, `typescript`) and **Python** (`python3`).
+
+**Add a runtime:** append its nixpkgs package(s) to `systemPackages` in
+`nix/vm-runner.nix`, rebuild `.#vm-runner`, point the daemon at it. Examples:
+
+| Runtime | Add to systemPackages | Pipeline stages |
+|---|---|---|
+| Node/TS | `nodejs_22`, `typescript` | `npm install` → `tsc` → `node` → `node --test` |
+| Python | `python3` (+ `uv`/`poetry` for deps) | `py_compile` → `unittest`/`pytest` → `python app.py` |
+| Go | `go` | `go build ./...` → `go test ./...` |
+| Rust | `cargo`, `rustc` | `cargo build` → `cargo test` |
+
+Worked examples: `examples/node-ts/` (deps + tsc + tests) and
+`examples/python/` (stdlib unittest, no pip). Each has a `pipeline.dot`
+submitted with `cwd` = the app tree; the tool nodes run in the VM's
+`/mnt/workspace`.
+
+**Deps that need the network** (`npm install`, `pip install`) work over the
+VM's user-net. To make them fast/offline, pre-seed the base image (V15).
+
+**Slim / per-runtime images:** keep one image per runtime family by editing
+`systemPackages` and building a variant; the launcher points at whichever
+`run-nixos-vm` you built (`--vm-runner`). A future `runtime` field on the
+placement can select the variant automatically.
+
+## Base images with a prefilled filesystem (V15)
+
+Cold runs pay for dependency downloads (`npm install`, `pip install`) and
+first-boot work. Prefill to amortize it:
+
+- **Runtime + toolchain**: already baked via `systemPackages` (D8) — the
+  biggest win; node/tsc/python are in the image, not fetched per run.
+- **Nix store reuse**: the guest mounts the host `/nix/store` (9p,
+  `mountHostNixStore`), so anything the host has built is visible in the VM
+  without copying.
+- **Dependency caches**: bake a warm package cache into the image by adding
+  a derivation that populates e.g. `/var/cache/npm` (npm `cache` dir) or a
+  wheel cache, and pointing the tool env at it (`npm_config_cache`,
+  `PIP_CACHE_DIR`). Because it is in the read-only image, every run starts
+  warm.
+- **Prebuilt `node_modules`/venv**: for a fixed app, bake its installed deps
+  into the image (or a dedicated 9p `deps` share) so the `deps` stage is a
+  no-op.
+
+The mechanism is ordinary NixOS: add packages / `environment.etc` /
+`systemd.tmpfiles` rules to `nix/vm-runner.nix`. Nothing in the launcher or
+protocol changes — a prefilled image is just a different `run-nixos-vm`.
+
 ## RunSpec (draft)
 
 ```go
