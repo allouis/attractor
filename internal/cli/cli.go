@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/allouis/attractor/internal/backend"
 	acpbackend "github.com/allouis/attractor/internal/backend/acp"
@@ -310,12 +311,18 @@ func Serve(args []string) error {
 	runner := fs.String("runner", "direct", "where runs execute: direct (in-process) | local (subprocess) | vm (nixos VM)")
 	vmRunner := fs.String("vm-runner", "", "path to the run-nixos-vm boot script for --runner vm (default: build .#vm-runner)")
 	vmDir := fs.String("vm-dir", "", "root for per-run VM disks + job dirs (--runner vm; default: <logs>/vms)")
+	vmRetention := fs.Duration("vm-retention", 72*time.Hour, "how long a completed VM persists before the reaper GCs it (--runner vm)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	launcher, err := resolveLauncher(*runner, *vmRunner, defaultString(*vmDir, filepath.Join(*logs, "vms")))
+	vmDirResolved := defaultString(*vmDir, filepath.Join(*logs, "vms"))
+	launcher, err := resolveLauncher(*runner, *vmRunner, vmDirResolved)
 	if err != nil {
 		return err
+	}
+	if *runner == "vm" {
+		server.StartVMReaper(vmDirResolved, *vmRetention)
+		fmt.Fprintf(os.Stderr, "attractor: VM reaper on — completed VMs GC'd after %s\n", *vmRetention)
 	}
 	if !bindIsLoopback(*bind) && !*authToken && !*insecure {
 		return fmt.Errorf("serve: bind %q is not loopback; pass --auth-token (recommended) or --insecure", *bind)
