@@ -92,14 +92,15 @@ to its interviewer. No new question API on the daemon side.
 - **V14 ✅** Node/TS example (examples/node-ts) run end-to-end in a VM:
   npm install → tsc → node → node --test, all green.
 
-### Phase 4 — Fleshing out
-- **V15** Base images with prefilled FS: pre-seed the nix store / npm cache /
-  git so runs start fast. Documented recipe.
-- **V16** Multi-runtime examples: Node/TS, Python, Go — how to declare a
-  runtime's deps in the VM image.
-- **V17** VM lifecycle: VMs persist N days after completion; a reaper GCs old
-  ones. Config for retention.
-- **V18** Per-run placement override in the run modal / submit API.
+### Phase 4 — Fleshing out ✅
+- **V15 ✅** Base images with prefilled FS: baked toolchain (D8), host
+  nix-store reuse, dep caches, prebuilt node_modules/venv. Documented above.
+- **V16 ✅** Multi-runtime: Node/TS + Python baked; runtime→stages table +
+  add-a-runtime recipe above. examples/node-ts + examples/python dogfooded.
+- **V17 ✅** VM lifecycle: completed VMs persist; `vmReaper` GCs those older
+  than `serve --vm-retention` (default 72h).
+- **V18 ✅** Per-run placement: submission `runner` field selects a named
+  launcher; dogfooded (one daemon, a direct run + a vm run).
 
 ## Runtimes: how apps of different kinds run in a VM (V16)
 
