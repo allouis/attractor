@@ -358,6 +358,37 @@ func (r *Run) Cancel() {
 	r.writeManifest()
 }
 
+// isTerminal reports whether the run has reached a final state.
+func (r *Run) isTerminal() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled
+}
+
+// failCrashed marks a non-terminal run failed because the process driving
+// it (a launched subprocess/VM) exited without reporting a terminal event.
+// Idempotent: a run already terminal is left untouched.
+func (r *Run) failCrashed(reason string) {
+	r.mu.Lock()
+	if r.status == RunCompleted || r.status == RunFailed || r.status == RunCancelled {
+		r.mu.Unlock()
+		return
+	}
+	r.completedAt = time.Now()
+	r.status = RunFailed
+	r.failure = reason
+	r.outcome = &engine.Outcome{Status: engine.StatusFail, StatusString: engine.StatusFail.String(), FailureReason: reason}
+	if r.cancelled {
+		r.status = RunCancelled
+	}
+	for ch := range r.subscribers {
+		close(ch)
+	}
+	r.subscribers = map[chan engine.Event]struct{}{}
+	r.mu.Unlock()
+	r.writeManifest()
+}
+
 // Status returns the run's current lifecycle state under the lock.
 func (r *Run) Status() RunStatus {
 	r.mu.RLock()
