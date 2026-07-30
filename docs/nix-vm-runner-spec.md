@@ -80,15 +80,17 @@ to its interviewer. No new question API on the daemon side.
   `--runner local` ran the tool in the working tree and streamed full lifecycle
   events + uploaded stage artifacts back to the daemon.
 
-### Phase 3 — `vm` launcher (the goal)
-- **V10** NixOS runner image built from the flake (attractor + git + coding-agent
-  deps), headless serial console, autologin.
-- **V11** Workspace-in: 9p/virtiofs share of the host checkout at a known path.
-- **V12** Guest init runs `attractor run --report-to 10.0.2.2:PORT …` on the
-  shared workspace; qemu user-net port back to the daemon.
-- **V13** `vm.Launcher`: builds/reuses image, boots QEMU (accel auto), injects
-  run-id/token/URL, tracks the VM. **Dogfood:** a real pipeline in a real VM.
-- **V14** Node/TS example app + pipeline; run it end-to-end in a VM.
+### Phase 3 — `vm` launcher (the goal) ✅
+- **V10 ✅** NixOS runner image (nix/vm-runner.nix), headless serial, autologin.
+- **V11 ✅** Workspace-in: 9p `workspace` share (rw) of the host tree at
+  /mnt/workspace, `job` share (job.json + source.dot) at /mnt/job (D6).
+- **V12 ✅** Guest oneshot runs `attractor run --report-to 10.0.2.2:PORT …`
+  on the shared workspace over qemu user-net (D7).
+- **V13 ✅** `vmLauncher`: writes job, boots QEMU (accel auto via runner
+  script), waits for terminal via phone-home, leaves the VM running.
+  **Dogfooded:** real daemon `--runner vm` ran a pipeline in a real VM.
+- **V14 ✅** Node/TS example (examples/node-ts) run end-to-end in a VM:
+  npm install → tsc → node → node --test, all green.
 
 ### Phase 4 — Fleshing out
 - **V15** Base images with prefilled FS: pre-seed the nix store / npm cache /
