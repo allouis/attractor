@@ -43,6 +43,51 @@ func TestIngestEventAppendsHistoryAndPersists(t *testing.T) {
 	}
 }
 
+// The child polls GET /control to learn whether it should abort. After
+// Cancel, the poll reports cancel=true so the child can stop its engine.
+func TestControlReportsCancel(t *testing.T) {
+	tmp := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+
+	poll := func() controlResponse {
+		req := httptest.NewRequest(http.MethodGet, "/pipelines/"+run.ID+"/control", nil)
+		req.Header.Set("Authorization", "Bearer "+run.Token())
+		rec := httptest.NewRecorder()
+		srv.httpsrv.Handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("control status = %d, want 200", rec.Code)
+		}
+		var got controlResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode control: %v", err)
+		}
+		return got
+	}
+
+	if poll().Cancel {
+		t.Fatalf("cancel true before Cancel()")
+	}
+	run.Cancel()
+	if !poll().Cancel {
+		t.Fatalf("cancel false after Cancel()")
+	}
+}
+
+// Control is token-gated like ingest.
+func TestControlRejectsBadToken(t *testing.T) {
+	tmp := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	req := httptest.NewRequest(http.MethodGet, "/pipelines/"+run.ID+"/control", nil)
+	req.Header.Set("Authorization", "Bearer nope")
+	rec := httptest.NewRecorder()
+	srv.httpsrv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
 // The run token gates ingest: a wrong (or missing) token is rejected so a
 // stray process can't inject events into someone else's run.
 func TestIngestEventRejectsBadToken(t *testing.T) {

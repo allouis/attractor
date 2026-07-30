@@ -238,6 +238,24 @@ type Run struct {
 	subscribers map[chan engine.Event]struct{}
 
 	questions map[string]*pendingQuestion
+	// answers holds resolved human-gate answers awaiting collection by a
+	// polling phone-home child (keyed by question id). In-process runs
+	// deliver answers over pendingQuestion.answer instead.
+	answers map[string]controlAnswer
+}
+
+// polledAnswers returns a copy of the answers awaiting a polling child.
+func (r *Run) polledAnswers() map[string]controlAnswer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.answers) == 0 {
+		return nil
+	}
+	out := make(map[string]controlAnswer, len(r.answers))
+	for k, v := range r.answers {
+		out[k] = v
+	}
+	return out
 }
 
 type pendingQuestion struct {
