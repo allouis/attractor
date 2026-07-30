@@ -69,6 +69,10 @@ func NewPollInterviewer(c *Client, interval time.Duration) *PollInterviewer {
 // cancel resolves as SKIPPED so the run unwinds (the launcher also kills
 // the VM on cancel).
 func (p *PollInterviewer) Ask(q interviewer.Question) (interviewer.Answer, error) {
+	var deadline time.Time
+	if q.Timeout > 0 {
+		deadline = time.Now().Add(q.Timeout)
+	}
 	for {
 		ctrl, err := p.client.Control()
 		if err == nil {
@@ -78,6 +82,10 @@ func (p *PollInterviewer) Ask(q interviewer.Question) (interviewer.Answer, error
 			if ctrl.Cancel {
 				return interviewer.Answer{Value: interviewer.AnswerSkipped}, nil
 			}
+		}
+		if !deadline.IsZero() && time.Now().After(deadline) {
+			// The handler resolves the timeout (spec §6.5 default_choice).
+			return interviewer.Answer{Value: interviewer.AnswerTimeout}, nil
 		}
 		time.Sleep(p.interval)
 	}

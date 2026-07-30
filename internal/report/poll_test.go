@@ -42,6 +42,27 @@ func TestPollInterviewerReturnsAnswerWhenAvailable(t *testing.T) {
 	}
 }
 
+// A question with a Timeout returns AnswerTimeout when no answer arrives in
+// time, so the handler can apply human.default_choice (spec §6.5).
+func TestPollInterviewerHonorsTimeout(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /pipelines/{id}/control", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"cancel":false}`) // never answered
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	iv := NewPollInterviewer(New(srv.URL, "run1", "tok"), 5*time.Millisecond)
+	ans, err := iv.Ask(interviewer.Question{ID: "gate-1", Timeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if ans.Value != interviewer.AnswerTimeout {
+		t.Fatalf("answer = %+v, want timeout", ans)
+	}
+}
+
 // A cancel resolves the gate as SKIPPED so the run unwinds.
 func TestPollInterviewerCancelSkips(t *testing.T) {
 	mux := http.NewServeMux()

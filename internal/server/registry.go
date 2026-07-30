@@ -596,7 +596,7 @@ func (r *Run) Ingest(ev engine.Event) {
 		r.markRunning()
 	case engine.EventInterviewStarted:
 		r.registerPhoneHomeQuestion(ev)
-	case engine.EventInterviewAnswered:
+	case engine.EventInterviewAnswered, engine.EventInterviewTimeout:
 		r.clearQuestion(ev.QuestionID)
 	case engine.EventPipelineCompleted, engine.EventPipelineFailed:
 		r.finishFromEvent(ev)
