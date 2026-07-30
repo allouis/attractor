@@ -223,6 +223,8 @@ type Run struct {
 	// placement names the launcher this run requested (V18); "" uses the
 	// daemon's default launcher.
 	placement string
+	// revWarned guards the one-shot build-skew warning per run.
+	revWarned bool
 	// initialContext seeds the run's context at start (Item vars + item.*
 	// metadata); nil for runs with no seed (router-spec deviation B).
 	initialContext map[string]string

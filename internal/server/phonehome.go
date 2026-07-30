@@ -3,12 +3,14 @@ package server
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/version"
 )
 
 // runTokenValid reports whether the request carries the run's phone-home
@@ -37,6 +39,7 @@ func (s *Server) ingestEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	run.warnRevSkew(r.Header.Get(version.RevisionHeader))
 	var ev engine.Event
 	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
 		http.Error(w, "bad event", http.StatusBadRequest)
@@ -44,6 +47,25 @@ func (s *Server) ingestEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	run.Ingest(ev)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// warnRevSkew logs once per run when a phone-home child advertises a build
+// (git revision) different from the daemon's — the signature of a stale VM
+// image or subprocess (rebuild .#vm-runner). Skips when either side's
+// revision is unknown (nothing to compare).
+func (r *Run) warnRevSkew(childRev string) {
+	daemon := version.Get()
+	if childRev == "" || childRev == "unknown" || daemon == "unknown" || childRev == daemon {
+		return
+	}
+	r.mu.Lock()
+	if r.revWarned {
+		r.mu.Unlock()
+		return
+	}
+	r.revWarned = true
+	r.mu.Unlock()
+	log.Printf("attractor: run %s: child build %s != daemon %s — the VM/subprocess runs a different attractor; rebuild the VM image (nix build .#vm-runner)", r.ID, childRev, daemon)
 }
 
 // controlAnswer is one human-gate answer delivered to a polling child.
