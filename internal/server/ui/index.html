@@ -1860,13 +1860,13 @@ function renderDock(questions) {
       q.options.forEach(o => {
         const b = document.createElement('button');
         b.textContent = o.label;
-        b.addEventListener('click', () => answer(q.id, { key: o.key, label: o.label }));
+        b.addEventListener('click', () => answer(q.id, gateAnswer(o)));
         box.appendChild(b); box.appendChild(document.createTextNode(' '));
       });
     } else {
       const input = document.createElement('input'); input.placeholder = 'answer';
       const send = document.createElement('button'); send.textContent = 'send';
-      send.addEventListener('click', () => answer(q.id, { text: input.value }));
+      send.addEventListener('click', () => answer(q.id, gateAnswer(null, input.value)));
       box.appendChild(input); box.appendChild(document.createTextNode(' ')); box.appendChild(send);
     }
     dock.appendChild(box);
@@ -1889,6 +1889,15 @@ function putJSON(url, body) {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+// gateAnswer builds the answer POST body (server AnswerPayload). A chosen
+// option carries key+label (→ AnswerChoice); free text carries text only
+// (→ AnswerText). Values ride as plain data, never interpolated into markup —
+// the reason renderDock builds the dock via DOM rather than an HTML string.
+function gateAnswer(option, text) {
+  if (option) return { key: option.key, label: option.label };
+  return { text: text || '' };
 }
 
 async function answer(qid, body) {
