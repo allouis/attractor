@@ -162,8 +162,11 @@
 .workflow-expand { display: inline-block; margin: 0 0 var(--space-3); color: var(--text-muted); font-size: .9em; cursor: pointer; }
   .graph-pane svg { max-width: 100%; height: auto; }
   #graph g.node { cursor: pointer; }
-  #node-pane { border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3);
-               min-height: 120px; background: var(--surface-1); }
+  /* Card primitive (web-ui-v2-spec U1): a bordered, padded surface for a
+     grouped chunk of content — the node inspector and each config panel. */
+  .card { border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3);
+          background: var(--surface-1); }
+  #node-pane { min-height: 120px; }
   #node-pane h3 { margin: 0 0 var(--space-2); }
   #node-links a { margin-right: var(--space-3); }
   #node-log { white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
@@ -197,7 +200,7 @@
   /* Config view (config-screen-spec C4): hand-built panels over the whole
      config doc. Panels share the table/banner/button primitives; inputs
      consume tokens like the toolbar controls. */
-  .config-panel { margin-bottom: var(--space-5); }
+  .config-panel { margin-bottom: var(--space-4); }
   .config-panel h3 { margin: 0 0 var(--space-1); }
   .config-panel .muted { margin-top: 0; }
   .config-panel input, .config-panel select { font: inherit; width: 100%;
@@ -272,7 +275,7 @@
     <div class="layout">
       <div id="graph" class="graph-pane"></div>
       <div>
-        <div id="node-pane"><p class="muted">Click a node to inspect it.</p></div>
+        <div id="node-pane" class="card"><p class="muted">Click a node to inspect it.</p></div>
         <div id="human-dock"></div>
       </div>
     </div>
@@ -1081,7 +1084,7 @@ function reposPanelHtml(repos, warnings, vmImages) {
   const rows = names.length
     ? names.map(name => repoRowHtml(name, repos[name] || {}, repoWarning(name, warnings), vmImages)).join('')
     : `<tr data-empty-hint><td class="muted" colspan="${cols}">No repos registered — add one.</td></tr>`;
-  return `<section class="config-panel" id="config-repos">
+  return `<section class="config-panel card" id="config-repos">
     <h3>Repos</h3>
     <p class="muted">Registered repos and their check commands — the run-form dropdown and the check backbone read these.</p>
     <table>
@@ -1172,7 +1175,7 @@ function repoWarning(name, warnings) {
 function linearPanelHtml(linear, armedClear) {
   const set = !!(linear && linear.api_key_set);
   const armed = set && !!armedClear;
-  return `<section class="config-panel" id="config-linear">
+  return `<section class="config-panel card" id="config-linear">
     <h3>Linear</h3>
     <p class="muted">API key for the Linear item source — status <strong>${set ? 'set' : 'unset'}</strong>. The stored key is never shown.</p>
     <label>API key <input type="password" id="config-linear-key"${armed ? ' disabled' : ''} placeholder="${
@@ -1197,7 +1200,7 @@ function providersPanelHtml(doc) {
   const rows = names.length
     ? names.map(n => providerRowHtml(n, providers[n] || {})).join('')
     : `<tr data-empty-hint><td class="muted" colspan="5">No providers configured — add one.</td></tr>`;
-  return `<section class="config-panel" id="config-providers">
+  return `<section class="config-panel card" id="config-providers">
     <h3>Providers</h3>
     <p class="muted">Agent backends the router dispatches to.</p>
     <p class="config-note">Editing providers takes effect only after a daemon restart.</p>
