@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,65 @@ func TestLoadDocumentMalformedErrors(t *testing.T) {
 	writeConfigJSON(t, home, `{ not json`)
 	if _, err := LoadDocument(home); err == nil {
 		t.Fatal("expected error on malformed config.json, got nil")
+	}
+}
+
+// TestLoadDocumentParsesRepoRunnerAndImage: a repo may declare its dev
+// environment — a named runner and, for a VM, a named image — and both
+// round-trip through the JSON schema (per-repo VM config, VM2).
+func TestLoadDocumentParsesRepoRunnerAndImage(t *testing.T) {
+	home := t.TempDir()
+	writeConfigJSON(t, home, `{
+	  "repos": {"TryGhost/Ghost": {"path": "/home/agent/Ghost", "runner": "vm", "vm": {"image": "node-ts"}}}
+	}`)
+
+	doc, err := LoadDocument(home)
+	if err != nil {
+		t.Fatalf("LoadDocument: %v", err)
+	}
+	repo := doc.Repos["TryGhost/Ghost"]
+	if repo.Runner != "vm" {
+		t.Errorf("Runner = %q, want vm", repo.Runner)
+	}
+	if repo.VM == nil || repo.VM.Image != "node-ts" {
+		t.Errorf("VM = %#v, want image node-ts", repo.VM)
+	}
+}
+
+// TestSaveOmitsUnsetRunnerAndVM: a repo declaring neither runner nor image
+// serializes without those keys, so existing config files stay byte-
+// unchanged (matches the vm_images omitempty precedent, VM2).
+func TestSaveOmitsUnsetRunnerAndVM(t *testing.T) {
+	home := t.TempDir()
+	doc := Document{Repos: map[string]RepoConfig{"a/b": {Path: "/p", Checks: map[string]string{"lint": "golint"}}}}
+	if err := doc.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".attractor", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(data); strings.Contains(s, "\"runner\"") || strings.Contains(s, "\"vm\"") {
+		t.Errorf("unset runner/vm leaked into serialized config:\n%s", s)
+	}
+}
+
+// TestSaveThenLoadRoundtripsRunnerImage: a declared runner + vm image
+// survive Save then LoadDocument unchanged.
+func TestSaveThenLoadRoundtripsRunnerImage(t *testing.T) {
+	home := t.TempDir()
+	want := Document{Repos: map[string]RepoConfig{
+		"a/b": {Path: "/p", Runner: "vm", VM: &VMConfig{Image: "node-ts"}},
+	}}
+	if err := want.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := LoadDocument(home)
+	if err != nil {
+		t.Fatalf("LoadDocument: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("round-trip mismatch:\n got %#v\nwant %#v", got, want)
 	}
 }
 

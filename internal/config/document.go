@@ -95,6 +95,22 @@ type LinearConfig struct {
 type RepoConfig struct {
 	Path   string            `json:"path"`
 	Checks map[string]string `json:"checks"`
+	// Runner is the repo's declared launcher placement (direct | local | vm):
+	// the dev environment every dispatch against this repo lands in, still
+	// overridable per run (per-repo VM config, VM2). Empty leaves the daemon
+	// --runner default. omitempty so repos that declare none stay unchanged.
+	Runner string `json:"runner,omitempty"`
+	// VM carries the repo's VM settings, only meaningful when Runner=="vm".
+	// A pointer so an undeclared VM omits the key entirely, keeping existing
+	// config files byte-unchanged (mirrors the vm_images omitempty precedent).
+	VM *VMConfig `json:"vm,omitempty"`
+}
+
+// VMConfig is a repo's VM-launcher settings: the named vm_images entry its
+// runs boot from. Empty Image resolves to the daemon's "default" image at
+// dispatch (per-repo VM config, VM2).
+type VMConfig struct {
+	Image string `json:"image,omitempty"`
 }
 
 // configPath is the daemon-owned config file under a home directory.
