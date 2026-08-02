@@ -153,6 +153,8 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
 	mux.HandleFunc("GET /pipelines/{id}/context", s.getContext)
 	httpapi.Register(mux, itemsDeps{s})
+	mux.HandleFunc("GET /config", s.getConfig)
+	mux.HandleFunc("PUT /config", s.putConfig)
 	mux.HandleFunc("GET /workflows", s.listWorkflows)
 	mux.HandleFunc("GET /workflows/{name}/graph", s.getWorkflowGraph)
 	mux.HandleFunc("GET /automations", s.listAutomations)
