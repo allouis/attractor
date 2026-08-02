@@ -17,6 +17,15 @@ type Launcher interface {
 	Launch(run *Run, reportURL string) error
 }
 
+// ImageValidator is implemented by launchers that resolve a run's VM image
+// name from a registry. Dispatch uses it to reject an unknown image name at
+// submit (a clear rejection listing the registered names) rather than
+// letting the run fail at boot (per-repo VM config, VM3).
+type ImageValidator interface {
+	HasImage(name string) bool
+	ImageNames() []string
+}
+
 // launcherFor returns the launcher for a run's placement: the named
 // launcher when the run requested one that exists, else the default. This
 // lets a single daemon run most pipelines one way while a submission can

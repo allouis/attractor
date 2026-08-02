@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,24 @@ func TestVMLauncherRejectsUnknownImage(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q missing %q", err, want)
 		}
+	}
+}
+
+// The vm launcher reports its registered image names so dispatch can reject
+// an unknown image at submit rather than at boot (VM3).
+func TestVMLauncherImageValidator(t *testing.T) {
+	var l ImageValidator = vmLauncher{
+		images:       map[string]string{"default": "/a", "node-ts": "/b"},
+		defaultImage: "default",
+	}
+	if !l.HasImage("node-ts") {
+		t.Error("HasImage(node-ts) = false, want true")
+	}
+	if l.HasImage("bogus") {
+		t.Error("HasImage(bogus) = true, want false")
+	}
+	if got := l.ImageNames(); !slices.Equal(got, []string{"default", "node-ts"}) {
+		t.Errorf("ImageNames() = %v, want [default node-ts] (sorted)", got)
 	}
 }
 

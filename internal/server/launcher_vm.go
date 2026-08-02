@@ -57,12 +57,24 @@ func (l vmLauncher) script(imageName string) (string, error) {
 	if s, ok := l.images[imageName]; ok {
 		return s, nil
 	}
+	return "", fmt.Errorf("vm launcher: unknown image %q (registered: %s)", imageName, strings.Join(l.ImageNames(), ", "))
+}
+
+// HasImage reports whether name is a registered image (ImageValidator).
+func (l vmLauncher) HasImage(name string) bool {
+	_, ok := l.images[name]
+	return ok
+}
+
+// ImageNames returns the registered image names, sorted, for diagnosable
+// rejection messages (ImageValidator).
+func (l vmLauncher) ImageNames() []string {
 	names := make([]string, 0, len(l.images))
 	for name := range l.images {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	return "", fmt.Errorf("vm launcher: unknown image %q (registered: %s)", imageName, strings.Join(names, ", "))
+	return names
 }
 
 // vmJob is the per-run job the guest reads off the 9p job share.
