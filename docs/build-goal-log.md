@@ -12,7 +12,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
-| `web-ui-v2-spec.md` | drafted | **U1 done**; U2–U7 todo |
+| `web-ui-v2-spec.md` | drafted | **U1–U2 done**; U3–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
 U1/U2/U3 are independent of the config work and can interleave.
@@ -145,6 +145,11 @@ config-screen spec commit; advancing it is deferred to the end.
   design-system pass — emptyState/loadingState/errorState helpers, a
   `.card` primitive, reusable `.modal`, responsive layout + spacing. No
   behaviour change. `lovptqkq`…`kyqzqqtu`.
+
+- **U2 — done** (`~/.attractor/runs/ui-U2`). 5 atomic commits, gate green:
+  stage inspector — clicking a node loads its prompt/response/tool-calls/
+  status/timing from `GET …/stages/{node}` (`fmtDuration`, `toolCallHtml`,
+  `stageDetailHtml`, `selectNode`). The first real SSH-replacement view.
 
 ## Interventions
 
