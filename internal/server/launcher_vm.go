@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -16,22 +18,51 @@ import (
 // phone-home — then returns leaving the VM running so it persists for
 // post-run inspection (a reaper GCs old ones). See docs/nix-vm-runner-spec.md.
 type vmLauncher struct {
-	runnerScript string        // path to the run-nixos-vm boot script (.#vm-runner)
-	vmDir        string        // root for per-run qcow2 + job dirs
-	guestHost    string        // host as seen from the guest (default 10.0.2.2)
-	pollInterval time.Duration // how often to check run terminal/cancel
+	images       map[string]string // image name -> run-nixos-vm boot script (.#vm-runner)
+	defaultImage string            // image used when a run names none
+	vmDir        string            // root for per-run qcow2 + job dirs
+	guestHost    string            // host as seen from the guest (default 10.0.2.2)
+	pollInterval time.Duration     // how often to check run terminal/cancel
 }
 
-// NewVMLauncher returns a Launcher that boots nix/vm-runner.nix VMs.
-// runnerScript is the run-nixos-vm path (from `nix build .#vm-runner`);
-// vmDir roots each run's qcow2 + job dir.
+// NewVMLauncher returns a Launcher that boots nix/vm-runner.nix VMs from a
+// single script, registered as the "default" image. runnerScript is the
+// run-nixos-vm path (from `nix build .#vm-runner`); vmDir roots each run's
+// qcow2 + job dir. For a multi-image registry use NewVMLauncherWithImages.
 func NewVMLauncher(runnerScript, vmDir string) Launcher {
+	return NewVMLauncherWithImages(map[string]string{"default": runnerScript}, "default", vmDir)
+}
+
+// NewVMLauncherWithImages returns a Launcher that resolves each run's boot
+// script from a name -> script registry (per-repo VM config, VM1). A run's
+// requested image name selects the script; an empty request uses
+// defaultImage.
+func NewVMLauncherWithImages(images map[string]string, defaultImage, vmDir string) Launcher {
 	return vmLauncher{
-		runnerScript: runnerScript,
+		images:       images,
+		defaultImage: defaultImage,
 		vmDir:        vmDir,
 		guestHost:    "10.0.2.2",
 		pollInterval: 500 * time.Millisecond,
 	}
+}
+
+// script resolves a run's requested image name to its boot script. An empty
+// name falls back to the default image; an unknown name is an error listing
+// the registered names so a misconfiguration is diagnosable.
+func (l vmLauncher) script(imageName string) (string, error) {
+	if imageName == "" {
+		imageName = l.defaultImage
+	}
+	if s, ok := l.images[imageName]; ok {
+		return s, nil
+	}
+	names := make([]string, 0, len(l.images))
+	for name := range l.images {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return "", fmt.Errorf("vm launcher: unknown image %q (registered: %s)", imageName, strings.Join(names, ", "))
 }
 
 // vmJob is the per-run job the guest reads off the 9p job share.
@@ -92,6 +123,11 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		run.failCrashed("vm launcher: run has no cwd (working tree) to share")
 		return fmt.Errorf("vm launcher: empty cwd")
 	}
+	runnerScript, err := l.script(run.image)
+	if err != nil {
+		run.failCrashed(err.Error())
+		return err
+	}
 	runDir := filepath.Join(l.vmDir, run.ID)
 	jobDir, err := l.writeJob(run, reportURL)
 	if err != nil {
@@ -99,7 +135,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		return err
 	}
 
-	cmd := exec.Command(l.runnerScript)
+	cmd := exec.Command(runnerScript)
 	cmd.Env = append(os.Environ(),
 		"NIX_DISK_IMAGE="+filepath.Join(runDir, "vm.qcow2"),
 		"ATTRACTOR_JOB_DIR="+jobDir,

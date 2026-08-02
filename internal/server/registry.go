@@ -223,6 +223,10 @@ type Run struct {
 	// placement names the launcher this run requested (V18); "" uses the
 	// daemon's default launcher.
 	placement string
+	// image names the VM boot image this run requested (per-repo VM config,
+	// VM1); "" uses the vm launcher's default image. Only meaningful when the
+	// resolved placement is "vm". Populated by dispatch resolution in VM3.
+	image string
 	// revWarned guards the one-shot build-skew warning per run.
 	revWarned bool
 	// initialContext seeds the run's context at start (Item vars + item.*

@@ -4,9 +4,47 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestVMLauncherResolvesImagePerRun(t *testing.T) {
+	l := vmLauncher{
+		images:       map[string]string{"default": "/a", "python": "/b"},
+		defaultImage: "default",
+	}
+	cases := map[string]string{
+		"python":  "/b",
+		"default": "/a",
+		"":        "/a", // empty request falls back to the default image
+	}
+	for name, want := range cases {
+		got, err := l.script(name)
+		if err != nil {
+			t.Fatalf("script(%q): %v", name, err)
+		}
+		if got != want {
+			t.Errorf("script(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestVMLauncherRejectsUnknownImage(t *testing.T) {
+	l := vmLauncher{
+		images:       map[string]string{"default": "/a", "python": "/b"},
+		defaultImage: "default",
+	}
+	_, err := l.script("bogus")
+	if err == nil {
+		t.Fatal("expected error for unknown image")
+	}
+	for _, want := range []string{"bogus", "default", "python"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+}
 
 func TestGuestReportURL(t *testing.T) {
 	cases := map[string]string{
@@ -69,7 +107,7 @@ func TestVMLauncherRequiresCwd(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
 	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
-	l := vmLauncher{runnerScript: "/nonexistent", vmDir: t.TempDir(), guestHost: "10.0.2.2", pollInterval: time.Millisecond}
+	l := vmLauncher{images: map[string]string{"default": "/nonexistent"}, defaultImage: "default", vmDir: t.TempDir(), guestHost: "10.0.2.2", pollInterval: time.Millisecond}
 	if err := l.Launch(run, "http://127.0.0.1:0"); err == nil {
 		t.Fatal("expected error for empty cwd")
 	}
