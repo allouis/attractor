@@ -1079,6 +1079,15 @@ function toolCallHtml(raw) {
          `<pre>${escapeHtml(body)}</pre></details>`;
 }
 
+// failureBannerHtml renders the run header's failure reason prominently
+// (web-ui-v2-spec U3): the reason is why the run failed and is the first thing
+// a debugger needs. An empty reason renders nothing — a healthy run shows no
+// banner. The reason is attacker-controlled and escaped.
+function failureBannerHtml(reason) {
+  if (!reason) return '';
+  return `<p class="banner error run-failure">${escapeHtml(reason)}</p>`;
+}
+
 // timelineRowHtml renders one run event as a timeline row (web-ui-v2-spec U3):
 // relative timestamp (full ISO on hover, via fmtDate), a kind badge, the node
 // id when the event has one, and the message. Every field is attacker-
