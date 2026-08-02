@@ -1211,6 +1211,26 @@ function timelineRowHtml(kind, ev) {
     node + msg + `</div>`;
 }
 
+// diffHtml renders a unified diff (U4) line-by-line: added lines get a
+// diff-add class, removed lines diff-del, hunk headers (@@) diff-hunk, and
+// context lines render plain. File-header lines (+++/---) are treated as hunk
+// chrome, not source add/remove, so they don't paint green/red. Every line is
+// escaped — a diff body is arbitrary source and thus attacker-controlled. Empty
+// input renders nothing, so a run that produced no diff shows a clean empty
+// state rather than a stray box.
+function diffHtml(text) {
+  const lines = String(text || '').replace(/\n$/, '').split('\n');
+  if (lines.length === 1 && lines[0] === '') return '';
+  return lines.map(line => {
+    let cls = 'diff-ctx';
+    if (line.startsWith('@@')) cls = 'diff-hunk';
+    else if (line.startsWith('+++') || line.startsWith('---')) cls = 'diff-file';
+    else if (line.startsWith('+')) cls = 'diff-add';
+    else if (line.startsWith('-')) cls = 'diff-del';
+    return `<span class="diff-line ${cls}">${escapeHtml(line)}</span>`;
+  }).join('');
+}
+
 // stageDetailHtml builds the U2 inspector panel from a stage's detail
 // (GET …/stages/{node}) and its timing (start/end from the event stream).
 // It surfaces status, elapsed time, prompt, response and each tool call, then
