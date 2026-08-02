@@ -352,6 +352,7 @@ func (r *Run) Cancel() {
 	queued := r.status == RunQueued
 	if r.status == RunQueued || r.status == RunRunning {
 		r.status = RunCancelled
+		r.clearQuestions()
 	}
 	// A queued run never reaches execute(), so nothing else would ever
 	// close its subscribers. Terminate them here, in the same critical
@@ -365,6 +366,17 @@ func (r *Run) Cancel() {
 	}
 	r.mu.Unlock()
 	r.writeManifest()
+}
+
+// clearQuestions drops all pending wait.human questions. Callers hold r.mu.
+// A terminal run answers nothing, so clearing at the transition keeps every
+// /questions consumer in agreement — the fleet's needs_human flag, the
+// run-detail dock and its loud banner all go quiet the moment the run finishes
+// (web-ui-v2-spec U5), and a stale SubmitAnswer is refused as not-pending.
+func (r *Run) clearQuestions() {
+	if len(r.questions) > 0 {
+		r.questions = map[string]*pendingQuestion{}
+	}
 }
 
 // isTerminal reports whether the run has reached a final state.
@@ -390,6 +402,7 @@ func (r *Run) failCrashed(reason string) {
 	if r.cancelled {
 		r.status = RunCancelled
 	}
+	r.clearQuestions()
 	for ch := range r.subscribers {
 		close(ch)
 	}
@@ -546,6 +559,7 @@ func (r *Run) execute() {
 	if r.cancelled {
 		r.status = RunCancelled
 	}
+	r.clearQuestions()
 	for ch := range r.subscribers {
 		close(ch)
 	}
@@ -695,6 +709,7 @@ func (r *Run) finishFromEvent(ev engine.Event) {
 	if r.cancelled {
 		r.status = RunCancelled
 	}
+	r.clearQuestions()
 	for ch := range r.subscribers {
 		close(ch)
 	}
