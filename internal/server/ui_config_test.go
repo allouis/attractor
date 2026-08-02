@@ -323,19 +323,25 @@ func TestConfigBuildPutBody(t *testing.T) {
 }
 
 // TestConfigBuildPutBodyRunnerImage: a repo's declared runner + image ride
-// into the PUT body (runner as a field, image nested under vm), and the
-// vm_images registry round-trips unchanged — the UI references it but never
-// edits it, so a save must not drop it (per-repo VM config, VM4).
+// into the PUT body (runner as a field, image nested under vm). The UI does
+// NOT send vm_images — that registry is server-owned (the server preserves it
+// across a PUT that omits it), and echoing a stale snapshot would open a
+// lost-update race with a concurrent nix/CLI edit (per-repo VM config, VM4).
 func TestConfigBuildPutBodyRunnerImage(t *testing.T) {
+	// Even handed a registry (a stale GET snapshot), buildPutBody must not
+	// echo it — the server owns and preserves it.
 	body := evalUI(t, `JSON.stringify(buildPutBody({`+
 		`defaultProvider:"",providers:[],linearKey:"",linearClear:false,`+
 		`vmImages:{default:".#vm-runner","node-ts":".#vm-runner"},`+
 		`repos:[{name:"a/b",path:"/p",checks:{},runner:"vm",image:"node-ts"}]}))`)
 
-	for _, want := range []string{`"runner":"vm"`, `"vm":{"image":"node-ts"}`, `"vm_images":{`, `".#vm-runner"`} {
+	for _, want := range []string{`"runner":"vm"`, `"vm":{"image":"node-ts"}`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("PUT body missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "vm_images") {
+		t.Errorf("UI must not send the server-owned vm_images registry:\n%s", body)
 	}
 }
 

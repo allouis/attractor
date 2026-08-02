@@ -1302,10 +1302,6 @@ function collectConfig() {
   return {
     defaultProvider: $('config-default-provider').value,
     providers, repos,
-    // vm_images is CLI/nix-managed and read-only in the UI — round-trip the
-    // loaded registry so a whole-doc save never drops it (per-repo VM config,
-    // VM4).
-    vmImages: (configLoaded && configLoaded.vm_images) || undefined,
     linearKey: $('config-linear-key').value,
     linearClear,
   };
@@ -1338,9 +1334,11 @@ function buildPutBody(form) {
   }
   const linear = { api_key: form.linearKey || '' };
   if (form.linearClear) linear.api_key_clear = true;
-  const body = { default_provider: form.defaultProvider || '', providers, repos, linear };
-  if (form.vmImages) body.vm_images = form.vmImages;
-  return body;
+  // vm_images is deliberately not sent: it is server-owned (nix/CLI-managed),
+  // the server preserves it across a PUT that omits it, and echoing a stale
+  // GET snapshot would revert a concurrent registry edit (per-repo VM config,
+  // VM4).
+  return { default_provider: form.defaultProvider || '', providers, repos, linear };
 }
 
 // saveMessage classifies the PUT /config response into a banner: a 422 is a
