@@ -1079,6 +1079,19 @@ function toolCallHtml(raw) {
          `<pre>${escapeHtml(body)}</pre></details>`;
 }
 
+// timelineRowHtml renders one run event as a timeline row (web-ui-v2-spec U3):
+// relative timestamp (full ISO on hover, via fmtDate), a kind badge, the node
+// id when the event has one, and the message. Every field is attacker-
+// controlled — kind, node and message are all escaped inert.
+function timelineRowHtml(kind, ev) {
+  const node = ev.node_id ? `<span class="tl-node">${escapeHtml(ev.node_id)}</span>` : '';
+  const msg = ev.message ? `<span class="tl-msg">${escapeHtml(ev.message)}</span>` : '';
+  return `<div class="tl-row">` +
+    `<span class="tl-time">${fmtDate(ev.ts)}</span>` +
+    `<span class="badge tl-kind">${escapeHtml(kind)}</span>` +
+    node + msg + `</div>`;
+}
+
 // stageDetailHtml builds the U2 inspector panel from a stage's detail
 // (GET …/stages/{node}) and its timing (start/end from the event stream).
 // It surfaces status, elapsed time, prompt, response and each tool call, then
