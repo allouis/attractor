@@ -1021,7 +1021,8 @@ async function showConfig() {
 // name→HTML function so it is unit-testable via the node vm harness.
 function renderConfig(doc) {
   linearClear = false;
-  $('config-body').innerHTML = reposPanelHtml(doc.repos) + linearPanelHtml(doc.linear);
+  $('config-body').innerHTML =
+    reposPanelHtml(doc.repos) + linearPanelHtml(doc.linear) + providersPanelHtml(doc);
 }
 
 // setConfigStatus shows a save result above the panels: an error (structural
@@ -1083,17 +1084,61 @@ function linearPanelHtml(linear) {
   </section>`;
 }
 
-// onConfigClick handles the Repos panel's delegated add/remove — the rows
-// are innerHTML so a single listener on the view drives every row's control
-// (matching the items/run-list convention).
+// providersPanelHtml renders the Providers panel: the default-provider
+// choice plus an editable row per provider (backend / command / model_env).
+// Providers are startup-built, so a restart note flags that edits apply
+// only after the daemon restarts (config-screen-spec effect timing).
+function providersPanelHtml(doc) {
+  const providers = (doc && doc.providers) || {};
+  const def = (doc && doc.default_provider) || '';
+  const names = Object.keys(providers).sort();
+  const options = names.map(n =>
+    `<option value="${escapeHtml(n)}"${n === def ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  const rows = names.map(n => providerRowHtml(n, providers[n] || {})).join('');
+  return `<section class="config-panel" id="config-providers">
+    <h3>Providers</h3>
+    <p class="muted">Agent backends the router dispatches to.</p>
+    <p class="config-note">Editing providers takes effect only after a daemon restart.</p>
+    <label>default provider
+      <select id="config-default-provider"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>
+    </label>
+    <table>
+      <thead><tr><th>provider</th><th>backend</th><th>command</th><th>model_env</th><th></th></tr></thead>
+      <tbody id="config-providers-rows">${rows}</tbody>
+    </table>
+    <p><button type="button" data-provider-add>add provider</button></p>
+  </section>`;
+}
+
+// providerRowHtml renders one provider row; a blank name is the add case.
+function providerRowHtml(name, p) {
+  return `<tr data-provider-row>
+    <td><input data-provider-name value="${escapeHtml(name)}" placeholder="name"></td>
+    <td><input data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation"></td>
+    <td><input data-provider-command value="${escapeHtml(p.command || '')}"></td>
+    <td><input data-provider-model-env value="${escapeHtml(p.model_env || '')}"></td>
+    <td><button type="button" data-provider-remove title="remove provider">&times;</button></td>
+  </tr>`;
+}
+
+// onConfigClick handles every panel's delegated add/remove/clear — the
+// panels are innerHTML so a single listener on the view drives each row's
+// control (matching the items/run-list convention).
 function onConfigClick(e) {
   if (e.target.closest('button[data-repo-add]')) {
     const rows = $('config-repos-rows');
     if (rows) rows.insertAdjacentHTML('beforeend', repoRowHtml('', {}));
     return;
   }
-  const rm = e.target.closest('button[data-repo-remove]');
-  if (rm) { rm.closest('tr[data-repo-row]').remove(); return; }
+  const rmRepo = e.target.closest('button[data-repo-remove]');
+  if (rmRepo) { rmRepo.closest('tr[data-repo-row]').remove(); return; }
+  if (e.target.closest('button[data-provider-add]')) {
+    const rows = $('config-providers-rows');
+    if (rows) rows.insertAdjacentHTML('beforeend', providerRowHtml('', {}));
+    return;
+  }
+  const rmProv = e.target.closest('button[data-provider-remove]');
+  if (rmProv) { rmProv.closest('tr[data-provider-row]').remove(); return; }
   if (e.target.closest('button[data-linear-clear]')) {
     linearClear = true;
     const key = $('config-linear-key');

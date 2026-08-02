@@ -86,6 +86,33 @@ func TestConfigLinearPanelUnset(t *testing.T) {
 	}
 }
 
+// TestConfigProvidersPanel: the Providers panel renders the default-provider
+// choice, each provider's backend/command/model_env, and the restart note
+// (providers are startup-built — config-screen-spec effect timing).
+func TestConfigProvidersPanel(t *testing.T) {
+	html := evalUI(t, `providersPanelHtml({default_provider:"anthropic",providers:{anthropic:{backend:"acp",command:"claude-agent-acp",model_env:"ANTHROPIC_MODEL"}}})`)
+
+	for _, want := range []string{"anthropic", "acp", "claude-agent-acp", "ANTHROPIC_MODEL"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("providers panel missing %q:\n%s", want, html)
+		}
+	}
+	if !strings.Contains(strings.ToLower(html), "restart") {
+		t.Errorf("providers panel missing the restart-to-apply note:\n%s", html)
+	}
+	if !strings.Contains(html, `id="config-default-provider"`) {
+		t.Errorf("providers panel missing the default-provider control:\n%s", html)
+	}
+}
+
+// TestConfigProvidersPanelEscapes: a malicious provider name is inert.
+func TestConfigProvidersPanelEscapes(t *testing.T) {
+	html := evalUI(t, `providersPanelHtml({default_provider:"",providers:{"<img src=x onerror=alert(1)>":{backend:"acp"}}})`)
+	if strings.Contains(html, "<img src=x onerror=") {
+		t.Errorf("provider name rendered as live markup:\n%s", html)
+	}
+}
+
 // TestConfigReposPanelEscapes guards against a malicious repo name/path
 // being rendered as live markup (the doc is daemon-owned but the panel must
 // not become an injection sink).
