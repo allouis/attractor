@@ -6,6 +6,48 @@ import (
 	"path/filepath"
 )
 
+// ProviderConfig projects the document onto the legacy config.Config the
+// router and Linear source consume: default provider, providers, and the
+// Linear key. LINEAR_API_KEY fills the key when the document sets none
+// (the document wins when both are present), mirroring the retired
+// config.toml env fallback (items-spec I2).
+func (d Document) ProviderConfig() Config {
+	cfg := Config{
+		DefaultProvider: d.DefaultProvider,
+		Providers:       d.Providers,
+		LinearAPIKey:    d.Linear.APIKey,
+	}
+	if cfg.Providers == nil {
+		cfg.Providers = map[string]Provider{}
+	}
+	if cfg.LinearAPIKey == "" {
+		cfg.LinearAPIKey = os.Getenv("LINEAR_API_KEY")
+	}
+	return cfg
+}
+
+// ReposMap projects the registered repos onto an owner/name → path map,
+// backing the daemon's repo → cwd resolution (items-spec I3).
+func (d Document) ReposMap() map[string]string {
+	repos := make(map[string]string, len(d.Repos))
+	for name, rc := range d.Repos {
+		repos[name] = rc.Path
+	}
+	return repos
+}
+
+// ChecksForPath returns the static-check commands of the repo whose local
+// path matches cwd, or nil when no registered repo lives there. C1 keys
+// checks by cwd via this reverse match; C3 re-keys by the run's repo ref.
+func (d Document) ChecksForPath(cwd string) map[string]string {
+	for _, rc := range d.Repos {
+		if rc.Path == cwd {
+			return rc.Checks
+		}
+	}
+	return nil
+}
+
 // Document is the whole daemon-owned config (config-screen-spec): one
 // ~/.attractor/config.json the daemon reads and writes. The legacy
 // config.Config and items.Repos are projections of this single document.
