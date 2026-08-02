@@ -507,7 +507,9 @@ function route() {
   teardownRun();
   const wf = location.hash.match(/^#workflow\/(.+)$/);
   if (wf) { openWorkflow(decodeURIComponent(wf[1])); return; }
-  const hash = location.hash.replace(/^#/, '');
+  // Strip a query suffix (#runs?status=…) before the tab lookup: the Runs
+  // view carries its filter state in the hash (web-ui-v2-spec U7 deep links).
+  const hash = location.hash.replace(/^#/, '').replace(/\?.*$/, '');
   const name = TABS[hash] ? hash : 'items';
   const tab = TABS[name];
   highlightNav(name);
@@ -897,9 +899,15 @@ let runsRendered = false;
 // runsCache holds the last-fetched fleet so a toolbar change re-renders
 // (filter, group) without a refetch — the items view's cache pattern.
 let runsCache = [];
+// runsToolbarSeeded gates the one-shot deep-link seed: on view entry the
+// toolbar is filled from the hash once (after its dynamic options exist),
+// then user edits and polls take over.
+let runsToolbarSeeded = false;
 
-// showRuns fetches immediately then polls until the view is left.
+// showRuns fetches immediately then polls until the view is left. Entry
+// re-arms the deep-link seed so a shared #runs?…​ hash fills the toolbar.
 function showRuns() {
+  runsToolbarSeeded = false;
   fetchRuns();
   runsTimer = setInterval(fetchRuns, 2500);
 }
@@ -936,6 +944,9 @@ function renderFleet() {
   const all = runsCache;
   renderRunCounts(all);
   populateRunFilters(all);
+  // Deep-link seed: once per view entry, after the dynamic options exist so a
+  // shared repo/workflow value sticks (web-ui-v2-spec U7).
+  if (!runsToolbarSeeded) { seedRunsToolbar(runsFilterFromHash(location.hash)); runsToolbarSeeded = true; }
   if (!all.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
   const runs = applyRunFilters(all);
   if (!runs.length) { $('run-list').innerHTML = emptyState('no runs match the filter'); return; }
@@ -968,6 +979,57 @@ function applyRunFilters(list) {
 function populateRunFilters(runs) {
   fillOptions('runs-filter-workflow', distinct(runs.map(p => p.workflow_name || '')));
   fillOptions('runs-filter-repo', distinct(runs.map(runRepo)));
+}
+
+// runsFilterFromHash / runsFilterToHash make a narrowed fleet deep-linkable
+// (web-ui-v2-spec U7): the filter lives in the Runs hash query so the view is
+// shareable and bookmarkable. text rides on `q`; keys serialise in a fixed
+// order and omit empties, so from→to is stable (the round-trip reproduces the
+// hash). Hand-rolled on encodeURIComponent — no URLSearchParams dependency.
+const RUNS_HASH_KEYS = [['status', 'status'], ['workflow', 'workflow'], ['repo', 'repo'], ['origin', 'origin'], ['q', 'text']];
+
+function runsFilterFromHash(hash) {
+  const out = { status: '', workflow: '', repo: '', origin: '', text: '' };
+  const qi = hash.indexOf('?');
+  if (qi < 0) return out;
+  for (const pair of hash.slice(qi + 1).split('&')) {
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    const key = eq < 0 ? pair : pair.slice(0, eq);
+    const val = eq < 0 ? '' : decodeURIComponent(pair.slice(eq + 1));
+    const entry = RUNS_HASH_KEYS.find(e => e[0] === key);
+    if (entry) out[entry[1]] = val;
+  }
+  return out;
+}
+
+function runsFilterToHash(filter) {
+  const parts = [];
+  for (const [key, field] of RUNS_HASH_KEYS) {
+    const v = filter[field];
+    if (v) parts.push(`${key}=${encodeURIComponent(v)}`);
+  }
+  return parts.length ? `runs?${parts.join('&')}` : 'runs';
+}
+
+// seedRunsToolbar writes a parsed filter into the toolbar controls. Dynamic
+// selects (workflow/repo) must be populated first for a value to stick, so
+// renderFleet seeds once per view entry after populateRunFilters.
+function seedRunsToolbar(f) {
+  const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  set('runs-filter-status', f.status);
+  set('runs-filter-workflow', f.workflow);
+  set('runs-filter-repo', f.repo);
+  set('runs-filter-origin', f.origin);
+  set('runs-filter-text', f.text);
+}
+
+// onRunsFilterChange reflects the current toolbar into the address bar (so the
+// narrowed fleet is shareable) then re-renders. replaceState fires no
+// hashchange, so it updates the URL without a re-route/refetch.
+function onRunsFilterChange() {
+  history.replaceState(null, '', '#' + runsFilterToHash(runsFilter()));
+  renderFleet();
 }
 
 // renderRunCounts fills the counts bar with the four fleet states
@@ -2076,12 +2138,13 @@ window.addEventListener('load', () => {
     $(id)?.addEventListener('change', renderItems);
   }
   $('items-filter-text')?.addEventListener('input', renderItems);
-  // Fleet filter toolbar (web-ui-v2-spec U7): re-render the cached fleet on
-  // any control change — no refetch, matching the items toolbar.
+  // Fleet filter toolbar (web-ui-v2-spec U7): reflect the toolbar into the
+  // hash (shareable) and re-render the cached fleet — no refetch, matching the
+  // items toolbar.
   for (const id of ['runs-filter-status', 'runs-filter-workflow', 'runs-filter-repo', 'runs-filter-origin']) {
-    $(id)?.addEventListener('change', renderFleet);
+    $(id)?.addEventListener('change', onRunsFilterChange);
   }
-  $('runs-filter-text')?.addEventListener('input', renderFleet);
+  $('runs-filter-text')?.addEventListener('input', onRunsFilterChange);
   $('workflow-expand')?.addEventListener('change', renderWorkflowGraph);
   // Event-timeline filters (web-ui-v2-spec U3): seed the kind dropdown from the
   // known kinds, then re-render on either control changing.
