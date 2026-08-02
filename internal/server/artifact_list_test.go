@@ -91,6 +91,37 @@ func TestListArtifactsWalksLogsRoot(t *testing.T) {
 	}
 }
 
+// TestListArtifactsEmptyLogsRootIsEmpty guards the info leak where an empty
+// logsRoot cleans to "." and WalkDir would walk the daemon's working tree,
+// returning the whole CWD as a run's "artifacts". A run with no logs root must
+// list nothing.
+func TestListArtifactsEmptyLogsRootIsEmpty(t *testing.T) {
+	srv, _ := newStageTestServer(t)
+	addRun(srv, "empty", "")
+
+	resp, err := http.Get(srv.URL() + "/pipelines/empty/artifacts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	var got struct {
+		Entries []struct {
+			Path string `json:"path"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Entries) != 0 {
+		t.Fatalf("empty logs root leaked %d entries (first %q); want none",
+			len(got.Entries), got.Entries[0].Path)
+	}
+}
+
 // TestListArtifactsUnknownRun 404s rather than leaking a listing for a run the
 // registry does not know.
 func TestListArtifactsUnknownRun(t *testing.T) {

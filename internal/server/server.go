@@ -573,6 +573,10 @@ func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if run.logsRoot == "" {
+		http.NotFound(w, r) // empty root cleans to "." — never serve from CWD
+		return
+	}
 	root := filepath.Clean(run.logsRoot)
 	// Leading slash makes Clean collapse any leading ".." segments.
 	full := filepath.Join(root, filepath.Clean("/"+r.PathValue("path")))
@@ -602,8 +606,14 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	root := filepath.Clean(run.logsRoot)
 	entries := []artifactEntry{}
+	// An empty logsRoot cleans to "." — walking that would return the daemon's
+	// whole working tree as this run's artifacts. Serve nothing instead.
+	if run.logsRoot == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+		return
+	}
+	root := filepath.Clean(run.logsRoot)
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || path == root {
 			return nil
