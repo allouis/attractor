@@ -468,6 +468,9 @@ func (r *Run) Summary() map[string]any {
 	if r.workflowName != "" {
 		resp["workflow_name"] = r.workflowName
 	}
+	if r.repo != "" {
+		resp["repo"] = r.repo
+	}
 	return resp
 }
 
