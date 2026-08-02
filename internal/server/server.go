@@ -584,6 +584,17 @@ func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// The prefix check above is textual — it does not follow symlinks. Now that
+	// the listing puts every file one click away, an artifact that is a symlink
+	// to a host file must not be served: resolve links and confirm the real
+	// target still lives under the (also resolved) logs root.
+	if resolved, err := filepath.EvalSymlinks(full); err == nil {
+		realRoot, err := filepath.EvalSymlinks(root)
+		if err != nil || (resolved != realRoot && !strings.HasPrefix(resolved, realRoot+string(filepath.Separator))) {
+			http.NotFound(w, r)
+			return
+		}
+	}
 	http.ServeFile(w, r, full)
 }
 
@@ -616,6 +627,12 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	root := filepath.Clean(run.logsRoot)
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || path == root {
+			return nil
+		}
+		// Don't advertise symlinks: getArtifact refuses to follow them, so a
+		// listed link would only ever 404 — and listing it hints at a target
+		// outside the run. WalkDir never descends a symlinked dir either.
+		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)

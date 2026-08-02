@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -119,6 +120,62 @@ func TestListArtifactsEmptyLogsRootIsEmpty(t *testing.T) {
 	if len(got.Entries) != 0 {
 		t.Fatalf("empty logs root leaked %d entries (first %q); want none",
 			len(got.Entries), got.Entries[0].Path)
+	}
+}
+
+// TestArtifactSymlinkNotServedOrListed guards the one-click host-file read: a
+// symlink inside the logs root pointing at a file outside it must neither be
+// served by getArtifact (the textual prefix check doesn't follow links) nor
+// appear in the listing (so it isn't discoverable in the first place).
+func TestArtifactSymlinkNotServedOrListed(t *testing.T) {
+	srv, tmp := newStageTestServer(t)
+	logsRoot := filepath.Join(tmp, "r1")
+	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	addRun(srv, "r1", logsRoot)
+
+	secret := filepath.Join(tmp, "secret.txt")
+	if err := os.WriteFile(secret, []byte("host-only secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(logsRoot, "leak")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+
+	// getArtifact must not follow the link to the outside file.
+	resp, err := http.Get(srv.URL() + "/pipelines/r1/artifacts/leak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("symlink served: status=%d body=%q, want 404", resp.StatusCode, body)
+	}
+	if strings.Contains(string(body), "host-only secret") {
+		t.Errorf("symlink leaked host file: %q", body)
+	}
+
+	// The listing must not advertise the symlink.
+	lr, err := http.Get(srv.URL() + "/pipelines/r1/artifacts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lr.Body.Close()
+	var got struct {
+		Entries []struct {
+			Path string `json:"path"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(lr.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range got.Entries {
+		if e.Path == "leak" {
+			t.Errorf("symlink appeared in listing: %q", e.Path)
+		}
 	}
 }
 
