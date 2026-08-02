@@ -168,7 +168,6 @@
           background: var(--surface-1); }
   #node-pane { min-height: 120px; }
   #node-pane h3 { margin: 0 0 var(--space-2); }
-  #node-links a { margin-right: var(--space-3); }
   #node-log { white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
               margin-top: var(--space-2); max-height: 320px; overflow: auto; }
   #node-pane h4 { margin: var(--space-3) 0 var(--space-1); font-size: var(--font-sm); }
@@ -307,6 +306,7 @@ let currentRun = null;         // run id being viewed
 let selectedNode = null;       // node id in the pane
 const nodeLog = {};            // node id -> accumulated log html chunks
 const nodeState = {};          // node id -> status class
+const nodeTiming = {};         // node id -> {start, end} ISO ts from the stream
 let dockTimer = null;
 let runsTimer = null;          // fleet-list poll while the Runs view is open
 let configLoaded = null;       // last GET /config doc (redacted) the view rendered
@@ -956,6 +956,7 @@ async function openRun(id) {
   selectedNode = null;
   for (const k in nodeLog) delete nodeLog[k];
   for (const k in nodeState) delete nodeState[k];
+  for (const k in nodeTiming) delete nodeTiming[k];
   highlightNav('runs');
   showView('run-view');
   $('run-title').textContent = id;
@@ -1012,9 +1013,12 @@ function attachStream(id) {
     applied = pos;
     fn(JSON.parse(e.data));
   });
-  on('stage_started',   ev => paintNode(ev.node_id, 'running'));
-  on('stage_completed', ev => paintNode(ev.node_id, 'completed'));
-  on('stage_failed',    ev => paintNode(ev.node_id, 'failed'));
+  // Record each stage's start/end from the stream so the inspector can show
+  // elapsed time without a timing field on GET …/stages/{node}.
+  const timing = (id) => (nodeTiming[id] = nodeTiming[id] || {});
+  on('stage_started',   ev => { timing(ev.node_id).start = ev.ts; paintNode(ev.node_id, 'running'); });
+  on('stage_completed', ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'completed'); });
+  on('stage_failed',    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); });
   on('stage_retrying',  ev => paintNode(ev.node_id, 'retrying'));
   on('stage_progress',  ev => appendProgress(ev));
   // On a terminal event, close the stream. The server ends the SSE
@@ -1080,17 +1084,26 @@ function stageDetailHtml(id, detail, timing, logHtml) {
     <div id="node-log">${logHtml || ''}</div>`;
 }
 
-function selectNode(id) {
+// selectNode opens the U2 inspector for a node: fetch its stage detail
+// (GET …/stages/{node}) and render it. selectedNode guards the race where a
+// later click resolves before an earlier one, so a slow fetch never overwrites
+// a newer selection. The live tail keeps flowing into #node-log via
+// appendProgress once the panel is in place.
+async function selectNode(id) {
   selectedNode = id;
-  const base = `/pipelines/${currentRun}/artifacts/${id}`;
-  $('node-pane').innerHTML = `
-    <h3>${escapeHtml(id)}</h3>
-    <div id="node-links">
-      <a href="${base}/prompt.md" target="_blank">prompt.md</a>
-      <a href="${base}/response.md" target="_blank">response.md</a>
-      <a href="${base}/tool_calls/" target="_blank">tool_calls/</a>
-    </div>
-    <div id="node-log">${(nodeLog[id] || []).join('')}</div>`;
+  const pane = $('node-pane');
+  if (pane) pane.innerHTML = loadingState();
+  let detail;
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/stages/${id}`);
+    if (!r.ok) throw new Error(String(r.status));
+    detail = await r.json();
+  } catch (e) {
+    if (selectedNode === id && pane) pane.innerHTML = errorState('stage detail unavailable');
+    return;
+  }
+  if (selectedNode !== id) return;          // a later click won the race
+  if (pane) pane.innerHTML = stageDetailHtml(id, detail, nodeTiming[id] || {}, (nodeLog[id] || []).join(''));
   const log = $('node-log'); if (log) log.scrollTop = log.scrollHeight;
 }
 
