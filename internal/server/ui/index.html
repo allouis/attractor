@@ -172,6 +172,11 @@
   #node-log { white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
               margin-top: var(--space-2); max-height: 320px; overflow: auto; }
   .tool { color: var(--text-muted); }
+  .tool-call summary { cursor: pointer; color: var(--text-muted); }
+  .tool-call pre { margin: var(--space-1) 0 0; padding: var(--space-2);
+                   background: var(--surface-2); border-radius: 6px;
+                   font: var(--font-sm)/1.45 ui-monospace, monospace;
+                   white-space: pre-wrap; overflow: auto; }
   #human-dock { margin-top: var(--space-4); }
   #human-dock .q { border: 1px solid var(--state-needs-human); border-radius: 6px;
                    padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
@@ -1033,6 +1038,17 @@ function appendProgress(ev) {
     const log = $('node-log');
     if (log) { log.innerHTML += html; log.scrollTop = log.scrollHeight; }
   }
+}
+
+// toolCallHtml renders one persisted tool_calls/*.json payload (web-ui-v2-spec
+// U2): the tool name as a collapsible summary over the pretty-printed payload.
+// Every field is attacker-controlled, so both label and body are escaped.
+function toolCallHtml(raw) {
+  const name = raw.tool_name || raw.tool || raw.hook_name || 'tool';
+  let body;
+  try { body = JSON.stringify(raw, null, 2); } catch (e) { body = String(raw); }
+  return `<details class="tool-call"><summary>${escapeHtml(name)}</summary>` +
+         `<pre>${escapeHtml(body)}</pre></details>`;
 }
 
 function selectNode(id) {
