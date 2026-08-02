@@ -12,7 +12,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
-| `web-ui-v2-spec.md` | drafted | **U1–U3 done**; U4–U7 todo |
+| `web-ui-v2-spec.md` | drafted | **U1–U4 done**; U5–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
 U1/U2/U3 are independent of the config work and can interleave.
@@ -156,6 +156,13 @@ config-screen spec commit; advancing it is deferred to the end.
   `timelineRowHtml`, filterable via `eventMatchesFilter`) + a prominent
   `failureBannerHtml` in the run header; fixes to bound the timeline
   array/DOM and keep the per-token `stage_progress` flood out. `lkvzrpqp`…`ospkqxrw`.
+
+- **U4 — done** (`~/.attractor/runs/ui-U4`). 11 atomic commits, gate green:
+  run-detail **diff** (unified-diff render) + **artifacts browser**
+  (`GET …/artifacts` JSON list, `diffHtml`, `artifactListHtml`, `fmtBytes`).
+  The dogfood added its own security hardening: server refuses symlinked
+  artifacts + guards an empty logs root; UI URL-encodes fetch paths, caps
+  inline render size, guards against run switches. `qkxxxrmx`…`vzoktxvx`.
 
 ## Interventions
 
