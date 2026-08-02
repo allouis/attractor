@@ -993,9 +993,14 @@ async function openRun(id) {
   for (const k in nodeLog) delete nodeLog[k];
   for (const k in nodeState) delete nodeState[k];
   for (const k in nodeTiming) delete nodeTiming[k];
+  timeline.length = 0;
   highlightNav('runs');
   showView('run-view');
   $('run-title').textContent = id;
+  $('run-failure').innerHTML = '';
+  if ($('tl-text')) $('tl-text').value = '';
+  if ($('tl-kind')) $('tl-kind').value = '';
+  renderTimeline();
   $('node-pane').innerHTML = '<p class="muted">Click a node to inspect it.</p>';
   await loadGraph(id);
   attachStream(id);
@@ -1068,9 +1073,14 @@ function attachStream(id) {
     stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
     stage_progress:  ev => appendProgress(ev),
     pipeline_completed: done,
-    pipeline_failed:    done,
+    pipeline_failed:    ev => { $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); },
   };
-  for (const kind of EVENT_KINDS) on(kind, HANDLERS[kind] || (() => {}));
+  // Every event both lands in the U3 timeline and runs its kind's side-effect
+  // (if any). One dispatch keeps the applied/pos cursor authoritative for both.
+  for (const kind of EVENT_KINDS) {
+    const fn = HANDLERS[kind];
+    on(kind, ev => { recordTimelineEvent(kind, ev); if (fn) fn(ev); });
+  }
   es.onerror = () => { /* transient; EventSource retries on its own */ };
 }
 
@@ -1090,6 +1100,34 @@ function appendProgress(ev) {
     const log = $('node-log');
     if (log) { log.innerHTML += html; log.scrollTop = log.scrollHeight; }
   }
+}
+
+// recordTimelineEvent appends one streamed event to the run's event log and
+// re-renders the timeline (web-ui-v2-spec U3). It runs on every kind via the
+// attachStream dispatch, so the log is the complete run history.
+function recordTimelineEvent(kind, ev) {
+  timeline.push({ kind, ev });
+  renderTimeline();
+}
+
+// timelineFilter reads the active kind + text filter from the controls.
+function timelineFilter() {
+  return { kind: $('tl-kind')?.value || '', text: $('tl-text')?.value || '' };
+}
+
+// renderTimeline rebuilds #tl-rows from the recorded timeline through the
+// active filter. Full rebuild (n is small) so a filter change and a new event
+// take the same path. An empty result distinguishes "no events yet" from
+// "filtered everything out".
+function renderTimeline() {
+  const rows = $('tl-rows');
+  if (!rows) return;
+  const f = timelineFilter();
+  const html = timeline
+    .filter(e => eventMatchesFilter(e.kind, e.ev, f))
+    .map(e => timelineRowHtml(e.kind, e.ev))
+    .join('');
+  rows.innerHTML = html || emptyState(timeline.length ? 'no events match the filter' : 'no events yet');
 }
 
 // toolCallHtml renders one persisted tool_calls/*.json payload (web-ui-v2-spec
@@ -1645,6 +1683,12 @@ window.addEventListener('load', () => {
   }
   $('items-filter-text')?.addEventListener('input', renderItems);
   $('workflow-expand')?.addEventListener('change', renderWorkflowGraph);
+  // Event-timeline filters (web-ui-v2-spec U3): seed the kind dropdown from the
+  // known kinds, then re-render on either control changing.
+  const kindSel = $('tl-kind');
+  if (kindSel) for (const k of EVENT_KINDS) kindSel.insertAdjacentHTML('beforeend', `<option value="${k}">${k}</option>`);
+  $('tl-kind')?.addEventListener('change', renderTimeline);
+  $('tl-text')?.addEventListener('input', renderTimeline);
   // Delegated run trigger: item rows are innerHTML, so a single listener on
   // the list opens the picker for whichever row's run button was clicked.
   $('items-list')?.addEventListener('click', e => {

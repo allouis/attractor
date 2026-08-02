@@ -1,0 +1,97 @@
+package server
+
+import (
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestAttachStreamBuildsTimeline drives the real attachStream from the embedded
+// index.html (web-ui-v2-spec U3): every streamed event lands in the #tl-rows
+// timeline in arrival order, a pipeline_failed event surfaces its reason in the
+// #run-failure banner, and a reconnect (full replay from seq 0) does not
+// duplicate the rows — the applied/pos cursor holds. Uses node's vm sandbox
+// with a fake EventSource/fetch/document, mirroring stage_select_test.go.
+func TestAttachStreamBuildsTimeline(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available; skipping UI timeline test")
+	}
+	uiPath, err := filepath.Abs("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	harness := `
+const fs = require('fs');
+const vm = require('vm');
+const html = fs.readFileSync(process.argv[1], 'utf8');
+const m = html.match(/<script>([\s\S]*?)<\/script>/);
+if (!m) { console.error('no <script> found'); process.exit(2); }
+
+const listeners = {};
+let onopenCb = null;
+class FakeES {
+  constructor(url) { this.url = url; }
+  addEventListener(kind, fn) { (listeners[kind] = listeners[kind] || []).push(fn); }
+  set onopen(fn) { onopenCb = fn; }
+  set onerror(fn) {}
+  close() {}
+}
+
+const els = {};
+const el = () => ({ innerHTML: '', value: '', textContent: '', scrollTop: 0, scrollHeight: 0,
+  querySelectorAll: () => [], querySelector: () => null,
+  classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {} });
+const document = { getElementById: (id) => (els[id] = els[id] || el()) };
+
+const fetch = (url) => Promise.resolve({ ok: true, status: 200,
+  json: () => Promise.resolve({}) });
+
+const sandbox = { window: { addEventListener() {} }, document, location: {},
+  console, EventSource: FakeES, fetch };
+vm.createContext(sandbox);
+vm.runInContext(m[1] + '\nglobalThis.__setRun = (r) => { currentRun = r; };', sandbox);
+
+const fire = (kind, ev) => (listeners[kind] || []).forEach(fn => fn({ data: JSON.stringify(ev) }));
+const feed = () => {
+  fire('pipeline_started', { ts: '2026-08-02T10:00:00Z' });
+  fire('stage_started',    { node_id: 'plan', ts: '2026-08-02T10:00:01Z' });
+  fire('stage_failed',     { node_id: 'plan', message: 'lint blew up', ts: '2026-08-02T10:00:02Z' });
+  fire('pipeline_failed',  { message: 'boom the run died', ts: '2026-08-02T10:00:03Z' });
+};
+
+sandbox.__setRun('run1');
+sandbox.attachStream('run1');
+if (onopenCb) onopenCb();
+feed();
+// Reconnect: the server replays the whole history from seq 0. onopen resets the
+// per-connection position; the applied cursor must suppress the re-delivery.
+if (onopenCb) onopenCb();
+feed();
+
+process.stdout.write(JSON.stringify({
+  rows: els['tl-rows'].innerHTML,
+  failure: els['run-failure'].innerHTML,
+}));
+`
+	out, err := exec.Command("node", "-e", harness, uiPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node harness failed: %v\n%s", err, out)
+	}
+	result := string(out)
+
+	for _, want := range []string{"pipeline_started", "stage_started", "plan", "stage_failed", "lint blew up", "pipeline_failed"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("timeline missing %q:\n%s", want, result)
+		}
+	}
+	if !strings.Contains(result, "boom the run died") {
+		t.Errorf("failure banner missing the reason:\n%s", result)
+	}
+	// Reconnect replayed every event a second time; the cursor must dedup, so
+	// each kind appears exactly once.
+	if n := strings.Count(result, "pipeline_started"); n != 1 {
+		t.Errorf("reconnect duplicated the timeline: pipeline_started x%d\n%s", n, result)
+	}
+}
