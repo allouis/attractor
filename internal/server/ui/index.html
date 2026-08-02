@@ -1364,19 +1364,23 @@ function artifactURL(path) {
 // reads clean, not broken. Wiring the click handler here (not at boot) keeps it
 // bound to the freshly-rendered list.
 async function loadArtifacts() {
+  if (!currentRun) return;
+  const run = currentRun;                 // guard: a run switch mid-fetch must
+  const stale = () => currentRun !== run; // not paint this run into the shared DOM
   const listEl = $('run-artifacts-list');
   const diffEl = $('run-diff-body');
   if (listEl) listEl.innerHTML = loadingState();
   if (diffEl) diffEl.innerHTML = '';
   let entries;
   try {
-    const r = await fetch(`/pipelines/${currentRun}/artifacts`);
+    const r = await fetch(`/pipelines/${run}/artifacts`);
     if (!r.ok) throw new Error(String(r.status));
     entries = (await r.json()).entries || [];
   } catch (e) {
-    if (listEl) listEl.innerHTML = errorState('artifacts unavailable');
+    if (listEl && !stale()) listEl.innerHTML = errorState('artifacts unavailable');
     return;
   }
+  if (stale()) return;
   if (listEl) {
     listEl.innerHTML = artifactListHtml(entries);
     listEl.onclick = e => {
@@ -1388,11 +1392,12 @@ async function loadArtifacts() {
   if (!diffEl) return;
   if (!diff) { diffEl.innerHTML = emptyState('This run produced no diff.'); return; }
   try {
-    const r = await fetch(`/pipelines/${currentRun}/artifacts/${artifactURL(diff.path)}`);
+    const r = await fetch(`/pipelines/${run}/artifacts/${artifactURL(diff.path)}`);
     if (!r.ok) throw new Error(String(r.status));
-    diffEl.innerHTML = diffHtml(await r.text());
+    const text = await r.text();
+    if (!stale()) diffEl.innerHTML = diffHtml(text);
   } catch (e) {
-    diffEl.innerHTML = errorState('diff unavailable');
+    if (!stale()) diffEl.innerHTML = errorState('diff unavailable');
   }
 }
 
@@ -1400,18 +1405,21 @@ async function loadArtifacts() {
 // file renders coloured, anything else as escaped text. The body is
 // attacker-controlled, so it is never inserted raw.
 async function viewArtifact(path) {
+  if (!currentRun) return;
+  const run = currentRun;
   const view = $('run-artifact-view');
   if (!view) return;
   view.innerHTML = loadingState();
   let body;
   try {
-    const r = await fetch(`/pipelines/${currentRun}/artifacts/${artifactURL(path)}`);
+    const r = await fetch(`/pipelines/${run}/artifacts/${artifactURL(path)}`);
     if (!r.ok) throw new Error(String(r.status));
     body = await r.text();
   } catch (e) {
-    view.innerHTML = errorState('could not load ' + escapeHtml(path));
+    if (currentRun === run) view.innerHTML = errorState('could not load ' + escapeHtml(path));
     return;
   }
+  if (currentRun !== run) return;         // a run switch won the race
   const inner = isDiffPath(path)
     ? `<div class="diff">${diffHtml(body)}</div>`
     : `<pre class="stage-text">${escapeHtml(body)}</pre>`;
