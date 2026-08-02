@@ -150,6 +150,10 @@
   .banner.error { color: var(--state-failed); border-color: var(--state-failed); }
   .banner.ok { color: var(--state-success); border-color: var(--state-success); }
   .banner.warn { color: var(--state-needs-human); border-color: var(--state-needs-human); }
+  /* A blocked run is the loudest header state: it needs a human right now, so
+     it fills (amber) rather than tints (web-ui-v2-spec U5). */
+  .banner.blocked { background: var(--state-needs-human); color: var(--attention-ink);
+                    border-color: var(--state-needs-human); font-weight: 600; }
   /* Item badges: a linked-run pill (status-tinted, links to #run/<id>) and
      the deliberately loud in-progress chip. */
   .badge { display: inline-block; font-size: var(--font-sm); font-weight: 600;
@@ -331,6 +335,7 @@
   <section id="run-view">
     <p><a href="#runs">&larr; all runs</a></p>
     <h2 id="run-title"></h2>
+    <div id="run-blocked"></div>
     <div id="run-failure"></div>
     <div class="layout">
       <div id="graph" class="graph-pane"></div>
@@ -1045,6 +1050,7 @@ async function openRun(id) {
   showView('run-view');
   $('run-title').textContent = id;
   $('run-failure').innerHTML = '';
+  $('run-blocked').innerHTML = '';
   if ($('tl-text')) $('tl-text').value = '';
   if ($('tl-kind')) $('tl-kind').value = '';
   renderTimeline();
@@ -1233,6 +1239,19 @@ function eventMatchesFilter(kind, ev, filter) {
 function failureBannerHtml(reason) {
   if (!reason) return '';
   return `<p class="banner error run-failure">${escapeHtml(reason)}</p>`;
+}
+
+// blockedBannerHtml renders the loud run-header banner for a run waiting on a
+// human (web-ui-v2-spec U5). Distinct from the failure banner: a blocked run
+// is not failed, it needs an answer. No open questions → no banner. The count
+// tells the teammate how many gates are open; question text is not inlined
+// here (it lives in the dock), so nothing attacker-controlled reaches the DOM,
+// but the count is escaped for symmetry with the other banners.
+function blockedBannerHtml(questions) {
+  const n = (questions || []).length;
+  if (!n) return '';
+  const noun = n === 1 ? 'answer' : 'answers';
+  return `<p class="banner blocked" role="alert">Waiting on you — ${escapeHtml(String(n))} open ${noun}.</p>`;
 }
 
 // timelineRowHtml renders one run event as a timeline row (web-ui-v2-spec U3):
@@ -1822,6 +1841,9 @@ async function refreshDock() {
 // contain quotes that would otherwise break an inline onclick attribute.
 function renderDock(questions) {
   const dock = $('human-dock');
+  // The loud header banner and the sidebar dock render from the same list, so
+  // they can never disagree about whether a run is blocked (U5).
+  $('run-blocked').innerHTML = blockedBannerHtml(questions);
   dock.textContent = '';
   if (!questions.length) return;
   const h = document.createElement('h3'); h.textContent = 'open questions';
