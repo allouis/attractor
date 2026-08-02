@@ -1,28 +1,25 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/allouis/attractor/internal/config"
 )
 
-// TestServeReposLoadsCwdConfig checks serve wires repos.toml through
-// items.LoadRepos: an owner/name → path entry under cwd/.attractor is
-// picked up, backing POST /items/run's repo → cwd resolution (items-spec
+// TestServeReposLoadsConfig checks serve wires the central config.json
+// through to items.Repos: an owner/name → path entry is projected and
+// looked up, backing POST /items/run's repo → cwd resolution (items-spec
 // I3/I4).
-func TestServeReposLoadsCwdConfig(t *testing.T) {
+func TestServeReposLoadsConfig(t *testing.T) {
 	home := t.TempDir()
-	cwd := t.TempDir()
-	dir := filepath.Join(cwd, ".attractor")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	toml := "[repos]\n\"allouis/attractor\" = \"/home/agent/attractor\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "repos.toml"), []byte(toml), 0o644); err != nil {
-		t.Fatal(err)
+	doc := config.Document{Repos: map[string]config.RepoConfig{
+		"allouis/attractor": {Path: "/home/agent/attractor"},
+	}}
+	if err := doc.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
 	}
 
-	repos, err := serveRepos(home, cwd)
+	repos, err := serveRepos(home)
 	if err != nil {
 		t.Fatalf("serveRepos: %v", err)
 	}

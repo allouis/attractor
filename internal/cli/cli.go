@@ -355,11 +355,7 @@ func Serve(args []string) error {
 	if err != nil {
 		home = ""
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "."
-	}
-	repos, err := serveRepos(home, cwd)
+	repos, err := serveRepos(home)
 	if err != nil {
 		return err
 	}
@@ -458,11 +454,15 @@ func serveSources() (map[string]source.Source, error) {
 	return sources, nil
 }
 
-// serveRepos loads the daemon's repo→path map from ~/.attractor and cwd
-// repos.toml (items-spec I3), backing POST /items/run's repo → cwd
-// resolution. A missing repos.toml is not an error: an empty map.
-func serveRepos(home, cwd string) (items.Repos, error) {
-	return items.LoadRepos(home, cwd)
+// serveRepos projects the daemon-owned config.json onto the repo→path map
+// (items-spec I3), backing POST /items/run's repo → cwd resolution. A
+// missing config.json is not an error: the fresh default's empty map.
+func serveRepos(home string) (items.Repos, error) {
+	doc, err := config.LoadDocument(home)
+	if err != nil {
+		return nil, err
+	}
+	return items.Repos(doc.ReposMap()), nil
 }
 
 // bindIsLoopback returns true for 127.0.0.1, ::1, or localhost bind
