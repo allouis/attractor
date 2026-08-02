@@ -410,7 +410,7 @@ function showItems() {
 async function fetchItems() {
   const gen = ++itemsGen;
   const listEl = $('items-list');
-  if (!itemsRendered) listEl.innerHTML = '<p class="muted">loading…</p>';
+  if (!itemsRendered) listEl.innerHTML = loadingState();
   let sources;
   try {
     const r = await fetch('/items/sources');
@@ -518,7 +518,7 @@ function applyFilters(list) {
 
 function renderItems() {
   const list = applyFilters(itemsCache);
-  if (!list.length) { $('items-list').innerHTML = '<p class="muted">no items</p>'; return; }
+  if (!list.length) { $('items-list').innerHTML = emptyState('no items'); return; }
   const groupBy = $('items-group').value;
   const key = { repo: itemRepo, source: itemSource }[groupBy];
   if (!key) { $('items-list').innerHTML = itemsTable(list); return; }
@@ -706,15 +706,15 @@ async function submitRun() {
 // showWorkflows lists the catalog; each name links to #workflow/<name>.
 async function showWorkflows() {
   const listEl = $('workflows-list');
-  listEl.innerHTML = '<p class="muted">loading…</p>';
+  listEl.innerHTML = loadingState();
   let wfs;
   try {
     wfs = await fetchWorkflows();   // reuses the run-picker's catalog cache
   } catch (e) {
-    listEl.innerHTML = '<p class="banner error">could not load workflows</p>';
+    listEl.innerHTML = errorState('could not load workflows');
     return;
   }
-  if (!wfs.length) { listEl.innerHTML = '<p class="muted">no workflows</p>'; return; }
+  if (!wfs.length) { listEl.innerHTML = emptyState('no workflows'); return; }
   listEl.innerHTML = `<table>
     <thead><tr><th>workflow</th></tr></thead>
     <tbody>${wfs.map(w =>
@@ -742,12 +742,12 @@ async function openWorkflow(name) {
 async function renderWorkflowGraph() {
   if (!currentWorkflow) return;
   const pane = $('workflow-graph');
-  pane.innerHTML = '<p class="muted">loading…</p>';
+  pane.innerHTML = loadingState();
   const expand = $('workflow-expand') && $('workflow-expand').checked ? '?expand=1' : '';
   try {
     const r = await fetch(`/workflows/${encodeURIComponent(currentWorkflow)}/graph${expand}`);
-    pane.innerHTML = r.ok ? await r.text() : '<p class="muted">graph unavailable</p>';
-  } catch (e) { pane.innerHTML = '<p class="muted">graph unavailable</p>'; }
+    pane.innerHTML = r.ok ? await r.text() : errorState('graph unavailable');
+  } catch (e) { pane.innerHTML = errorState('graph unavailable'); }
 }
 
 // ---- runs fleet view ---------------------------------------------------
@@ -779,12 +779,12 @@ async function renderRuns() {
   } catch (e) {
     // A poll blip keeps the last-rendered fleet; only a first load with
     // nothing to keep surfaces the error.
-    if (!runsRendered) $('run-list').innerHTML = '<p class="muted">server unreachable</p>';
+    if (!runsRendered) $('run-list').innerHTML = errorState('server unreachable');
     return;
   }
   runsRendered = true;
   renderRunCounts(runs);
-  if (!runs.length) { $('run-list').innerHTML = '<p class="muted">no runs yet</p>'; return; }
+  if (!runs.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
   const rows = runs.map(runRowHtml).join('');
   $('run-list').innerHTML = `<table>
     <thead><tr><th>run</th><th>workflow</th><th>item</th><th>status</th><th>started</th><th></th></tr></thead>
@@ -933,8 +933,8 @@ async function openRun(id) {
 async function loadGraph(id) {
   try {
     const r = await fetch(`/pipelines/${id}/graph`);
-    $('graph').innerHTML = r.ok ? await r.text() : '<p class="muted">graph unavailable</p>';
-  } catch (e) { $('graph').innerHTML = '<p class="muted">graph unavailable</p>'; return; }
+    $('graph').innerHTML = r.ok ? await r.text() : errorState('graph unavailable');
+  } catch (e) { $('graph').innerHTML = errorState('graph unavailable'); return; }
   // Make each graphviz node clickable; its DOT id lives in <title>.
   $('graph').querySelectorAll('g.node').forEach(g => {
     const id = g.querySelector('title')?.textContent;
@@ -1030,7 +1030,7 @@ function selectNode(id) {
 // the true redaction state always show.
 async function showConfig(warnings) {
   const body = $('config-body');
-  body.innerHTML = '<p class="muted">loading…</p>';
+  body.innerHTML = loadingState();
   setConfigStatus('');
   let doc;
   try {
@@ -1038,7 +1038,7 @@ async function showConfig(warnings) {
     if (!r.ok) throw new Error('status ' + r.status);
     doc = await r.json();
   } catch (e) {
-    body.innerHTML = '<p class="banner error">could not load config</p>';
+    body.innerHTML = errorState('could not load config');
     return;
   }
   configLoaded = doc;
