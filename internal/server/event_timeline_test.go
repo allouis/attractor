@@ -52,3 +52,28 @@ func TestFailureBannerHtml(t *testing.T) {
 		t.Errorf("failure banner rendered attacker markup live:\n%s", esc)
 	}
 }
+
+// TestEventMatchesFilter drives the U3 timeline filter predicate: an empty
+// filter keeps everything; a kind filter keeps only that kind; a text filter
+// matches case-insensitively against message and node id; the two combine
+// (both must hold).
+func TestEventMatchesFilter(t *testing.T) {
+	cases := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{"empty keeps all", `eventMatchesFilter('stage_failed', {node_id:'plan', message:'boom'}, {kind:'', text:''})`, "true"},
+		{"kind match", `eventMatchesFilter('stage_failed', {message:'boom'}, {kind:'stage_failed', text:''})`, "true"},
+		{"kind mismatch", `eventMatchesFilter('stage_started', {message:'boom'}, {kind:'stage_failed', text:''})`, "false"},
+		{"text matches message case-insensitively", `eventMatchesFilter('stage_failed', {message:'Boom happened'}, {kind:'', text:'boom'})`, "true"},
+		{"text matches node id", `eventMatchesFilter('stage_failed', {node_id:'plan', message:'x'}, {kind:'', text:'pla'})`, "true"},
+		{"text miss", `eventMatchesFilter('stage_failed', {message:'boom'}, {kind:'', text:'zzz'})`, "false"},
+		{"kind and text both required", `eventMatchesFilter('stage_failed', {message:'boom'}, {kind:'stage_started', text:'boom'})`, "false"},
+	}
+	for _, c := range cases {
+		if got := evalUI(t, c.expr); got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
+	}
+}

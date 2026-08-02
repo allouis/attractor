@@ -1079,6 +1079,18 @@ function toolCallHtml(raw) {
          `<pre>${escapeHtml(body)}</pre></details>`;
 }
 
+// eventMatchesFilter is the U3 timeline filter predicate. An empty kind keeps
+// any kind; a kind keeps only that kind. An empty text keeps any event; text
+// matches case-insensitively against the message and node id. Both conditions
+// must hold, so kind + text narrow together.
+function eventMatchesFilter(kind, ev, filter) {
+  if (filter.kind && kind !== filter.kind) return false;
+  const q = (filter.text || '').toLowerCase();
+  if (!q) return true;
+  const hay = `${ev.message || ''} ${ev.node_id || ''}`.toLowerCase();
+  return hay.includes(q);
+}
+
 // failureBannerHtml renders the run header's failure reason prominently
 // (web-ui-v2-spec U3): the reason is why the run failed and is the first thing
 // a debugger needs. An empty reason renders nothing — a healthy run shows no
