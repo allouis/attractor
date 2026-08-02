@@ -356,14 +356,7 @@ func Serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Config vm_images are the base registry; a --vm-runner flag of the same
-	// name overrides it, so an operator can point an image elsewhere without
-	// editing the config file.
-	vmImages := configImages
-	for name, script := range cliImages {
-		vmImages[name] = script
-	}
-	launcher, launchers, err := resolveLaunchers(*runner, vmImages, vmDirResolved)
+	launcher, launchers, err := resolveLaunchers(*runner, cliImages, configImages, vmDirResolved)
 	if err != nil {
 		return err
 	}
@@ -448,19 +441,25 @@ func parseVMImages(flags []string) (map[string]string, error) {
 
 // resolveLaunchers builds the named launcher registry and picks the
 // default per --runner. All built launchers are available for per-run
-// override via a submission's `runner` field (V18). `vm` is only built
-// when it's the default or a --vm-runner image was given, so serve doesn't
-// force a nix build unless VMs are actually wanted. The vm launcher
-// resolves each run's boot script from vmImages; a missing "default" image
-// is filled by building .#vm-runner (VM1).
-func resolveLaunchers(choice string, vmImages map[string]string, vmDir string) (def server.Launcher, all map[string]server.Launcher, err error) {
+// override via a submission's `runner` field (V18). Activation of the vm
+// launcher is gated on *explicit* intent — `--runner vm` or a --vm-runner
+// flag (cliImages) — never on mere config presence: a config.json vm_images
+// edit must not silently start the reaper, create vmDir, or trigger a
+// blocking `nix build .#vm-runner` at startup (which would break serve when
+// nix is absent). When VMs are enabled, configImages supply the registry
+// and cliImages override by name; a missing "default" is filled by building
+// .#vm-runner (VM1).
+func resolveLaunchers(choice string, cliImages, configImages map[string]string, vmDir string) (def server.Launcher, all map[string]server.Launcher, err error) {
 	all = map[string]server.Launcher{
 		"direct": server.NewDirectLauncher(),
 		"local":  server.NewLocalLauncher(),
 	}
-	if choice == "vm" || len(vmImages) > 0 {
-		images := make(map[string]string, len(vmImages)+1)
-		for name, script := range vmImages {
+	if choice == "vm" || len(cliImages) > 0 {
+		images := make(map[string]string, len(configImages)+len(cliImages)+1)
+		for name, script := range configImages {
+			images[name] = script
+		}
+		for name, script := range cliImages {
 			images[name] = script
 		}
 		if images["default"] == "" {
