@@ -1211,6 +1211,41 @@ function timelineRowHtml(kind, ev) {
     node + msg + `</div>`;
 }
 
+// isDiffPath reports whether an artifact path looks like a produced diff (U4):
+// a .diff/.patch suffix or a file literally named "diff". Used to auto-render
+// the run's change without a fixed server-side diff artifact.
+function isDiffPath(path) {
+  const name = String(path).split('/').pop();
+  return /\.(diff|patch)$/.test(name) || name === 'diff';
+}
+
+// fmtBytes renders a byte count as a short human-readable size.
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return n + ' B';
+  const units = ['KB', 'MB', 'GB'];
+  let u = -1;
+  do { n /= 1024; u++; } while (n >= 1024 && u < units.length - 1);
+  return n.toFixed(1) + ' ' + units[u];
+}
+
+// artifactListHtml renders the U4 artifact browser: one clickable row per file,
+// carrying its logs-root-relative path (data-path, read by the click handler)
+// and a human size. Directories are structural — shown as headers, not
+// clickable rows. Paths are attacker-controlled (a run writes arbitrary names)
+// and escaped. An empty listing renders an empty state.
+function artifactListHtml(entries) {
+  entries = entries || [];
+  if (!entries.length) return emptyState('No artifacts produced yet.');
+  return entries.map(e => {
+    const path = escapeHtml(e.path);
+    if (e.is_dir) return `<div class="artifact-dir">${path}/</div>`;
+    return `<button class="artifact-row" data-path="${path}">` +
+      `<span class="artifact-name">${path}</span>` +
+      `<span class="artifact-size muted">${escapeHtml(fmtBytes(e.size))}</span></button>`;
+  }).join('');
+}
+
 // diffHtml renders a unified diff (U4) line-by-line: added lines get a
 // diff-add class, removed lines diff-del, hunk headers (@@) diff-hunk, and
 // context lines render plain. File-header lines (+++/---) are treated as hunk
