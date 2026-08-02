@@ -14,16 +14,16 @@ import (
 	"github.com/allouis/attractor/internal/graph"
 )
 
-// Provider is one entry in the [providers.<name>] table.
+// Provider is one entry in the config's providers map.
 type Provider struct {
 	// Backend selects the mechanism: acp | claudecode | simulation.
-	Backend string
+	Backend string `json:"backend"`
 	// Command is the agent command line (used by acp backends). Node and
 	// graph acp_command attributes still take precedence over this.
-	Command string
+	Command string `json:"command"`
 	// ModelEnv is the environment variable the agent reads its model
 	// from; the router injects llm_model through it.
-	ModelEnv string
+	ModelEnv string `json:"model_env"`
 }
 
 // Config is the parsed provider routing config.
