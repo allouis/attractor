@@ -1116,7 +1116,14 @@ function attachStream(id) {
   // connection for finished runs, so leaving it open lets EventSource
   // reconnect every few seconds and replay the whole history again,
   // duplicating node-log chunks each time.
-  const done = () => { if (es) es.close(); renderDock([]); refreshDock(); };
+  // On a terminal event, stop the dock poll too: the server clears a finished
+  // run's questions, so one final refreshDock reconciles to empty and the
+  // interval would otherwise poll a dead run forever in an open tab.
+  const done = () => {
+    if (es) es.close();
+    if (dockTimer) { clearInterval(dockTimer); dockTimer = null; }
+    renderDock([]); refreshDock();
+  };
   // Every kind is registered through one table so a single dispatch point
   // handles the run (kinds with no side-effect map to null). Registering all
   // of them keeps the applied/pos replay cursor authoritative for the whole
