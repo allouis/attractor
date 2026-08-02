@@ -187,6 +187,21 @@ func TestConfigReposPanelImageEmptyRegistry(t *testing.T) {
 	}
 }
 
+// TestConfigReposPanelImageEnablement: the image select is editable unless the
+// runner is an explicit non-vm placement. An unset runner inherits the daemon
+// default (which may be vm), so its pin stays editable; an explicit local
+// runner disables the select (per-repo VM config, VM4).
+func TestConfigReposPanelImageEnablement(t *testing.T) {
+	inherited := evalUI(t, `reposPanelHtml({"a/b":{path:"/h",checks:{},runner:"",vm:{image:"node-ts"}}},[],{"node-ts":".#x"})`)
+	if strings.Contains(inherited, `data-repo-image disabled`) {
+		t.Errorf("an inherited runner should keep the image select editable:\n%s", inherited)
+	}
+	local := evalUI(t, `reposPanelHtml({"a/b":{path:"/h",checks:{},runner:"local"}},[],{"node-ts":".#x"})`)
+	if !strings.Contains(local, `data-repo-image disabled`) {
+		t.Errorf("an explicit non-vm runner should disable the image select:\n%s", local)
+	}
+}
+
 // TestConfigReposPanelImageEscapes: a registry image name is external and is
 // escaped in both the option value and its label.
 func TestConfigReposPanelImageEscapes(t *testing.T) {
@@ -338,10 +353,11 @@ func TestConfigBuildPutBodyOmitsEmptyRunner(t *testing.T) {
 	}
 }
 
-// TestConfigBuildPutBodyImageOnlyWhenVM: a non-vm runner drops the image —
-// vm.image is only meaningful under a vm runner (dispatch resolution §2), so
-// a stale image left from an earlier vm selection is not persisted.
-func TestConfigBuildPutBodyImageOnlyWhenVM(t *testing.T) {
+// TestConfigBuildPutBodyDropsImageOnExplicitNonVM: an EXPLICIT non-vm
+// placement (direct|local) drops the image — vm.image is meaningless under a
+// non-vm runner, so a stale image left from an earlier vm selection is not
+// persisted.
+func TestConfigBuildPutBodyDropsImageOnExplicitNonVM(t *testing.T) {
 	body := evalUI(t, `JSON.stringify(buildPutBody({`+
 		`defaultProvider:"",providers:[],linearKey:"",linearClear:false,`+
 		`repos:[{name:"a/b",path:"/p",checks:{},runner:"local",image:"node-ts"}]}))`)
@@ -349,7 +365,26 @@ func TestConfigBuildPutBodyImageOnlyWhenVM(t *testing.T) {
 		t.Errorf("PUT body should carry the local runner:\n%s", body)
 	}
 	if strings.Contains(body, `"vm"`) || strings.Contains(body, `node-ts`) {
-		t.Errorf("PUT body should drop the image off a non-vm runner:\n%s", body)
+		t.Errorf("PUT body should drop the image off an explicit non-vm runner:\n%s", body)
+	}
+}
+
+// TestConfigBuildPutBodyKeepsImageOnInheritedRunner: an UNSET runner means
+// "inherit the daemon default", which may be vm — so a pinned vm.image is a
+// legitimate value there (RepoImage returns it regardless of Runner; dispatch
+// resolves the image whenever the effective runner is vm — spec §Dispatch
+// resolution). The image must NOT be dropped just because the per-repo runner
+// string is blank, else the pin is silently wiped on any save (per-repo VM
+// config, VM4).
+func TestConfigBuildPutBodyKeepsImageOnInheritedRunner(t *testing.T) {
+	body := evalUI(t, `JSON.stringify(buildPutBody({`+
+		`defaultProvider:"",providers:[],linearKey:"",linearClear:false,`+
+		`repos:[{name:"a/b",path:"/p",checks:{},runner:"",image:"node-ts"}]}))`)
+	if !strings.Contains(body, `"vm":{"image":"node-ts"}`) {
+		t.Errorf("an inherited runner should keep the pinned image:\n%s", body)
+	}
+	if strings.Contains(body, `"runner"`) {
+		t.Errorf("an unset runner should still emit no runner field:\n%s", body)
 	}
 }
 

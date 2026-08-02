@@ -1125,6 +1125,13 @@ function runnerSelectHtml(runner) {
 // image plus each registered vm_images name, the declared one selected. It is
 // only meaningful when the runner is vm, so it is disabled otherwise (the save
 // collector likewise drops the image off-vm). Names are external → escaped.
+// isNonVMPlacement reports an EXPLICIT non-vm runner (direct|local), where a
+// vm.image is meaningless. An unset runner is not one — it inherits the
+// daemon default, which may be vm (per-repo VM config, VM4).
+function isNonVMPlacement(runner) {
+  return runner === 'direct' || runner === 'local';
+}
+
 function imageSelectHtml(image, runner, vmImages) {
   const names = Object.keys(vmImages || {}).sort();
   // The registry is nix/CLI-managed and drifts independently of the config, so
@@ -1135,7 +1142,9 @@ function imageSelectHtml(image, runner, vmImages) {
   if (image && !names.includes(image)) names.push(image);
   const opts = [''].concat(names).map(v =>
     `<option value="${escapeHtml(v)}"${v === image ? ' selected' : ''}>${v ? escapeHtml(v) : '(default)'}</option>`).join('');
-  const dis = runner === 'vm' ? '' : ' disabled';
+  // Editable unless an explicit non-vm placement — an unset runner inherits
+  // the daemon default (which may be vm), so a pin is meaningful there too.
+  const dis = isNonVMPlacement(runner) ? ' disabled' : '';
   return `<select data-repo-image${dis}>${opts}</select>`;
 }
 
@@ -1254,7 +1263,7 @@ function onConfigChange(e) {
   const runnerSel = e.target.closest('select[data-repo-runner]');
   if (!runnerSel) return;
   const img = runnerSel.closest('tr[data-repo-row]')?.querySelector('select[data-repo-image]');
-  if (img) img.disabled = runnerSel.value !== 'vm';
+  if (img) img.disabled = isNonVMPlacement(runnerSel.value);
 }
 
 // setConfigDirty tracks unsaved edits so the user sees the view has pending
@@ -1316,11 +1325,15 @@ function buildPutBody(form) {
   for (const r of form.repos) {
     if (!r.name) continue;
     const rc = { path: r.path, checks: r.checks || {} };
-    // A declared runner rides as a field; the vm.image only nests under a vm
-    // runner (it is meaningless otherwise — dispatch resolution §2). An unset
-    // runner emits neither key, keeping an untouched config byte-unchanged.
+    // A declared runner rides as a field; an unset runner emits no key,
+    // keeping an untouched config byte-unchanged. The vm.image pin is kept
+    // unless the runner is an EXPLICIT non-vm placement — an unset runner
+    // inherits the daemon default, which may be vm, so the pin stays a valid
+    // value there (dispatch resolves the image on the effective runner —
+    // spec §Dispatch resolution). Dropping it on a blank runner would wipe a
+    // legitimate pin.
     if (r.runner) rc.runner = r.runner;
-    if (r.runner === 'vm' && r.image) rc.vm = { image: r.image };
+    if (r.image && r.runner !== 'direct' && r.runner !== 'local') rc.vm = { image: r.image };
     repos[r.name] = rc;
   }
   const linear = { api_key: form.linearKey || '' };
