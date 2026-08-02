@@ -1350,6 +1350,12 @@ async function selectNode(id) {
   const log = $('node-log'); if (log) log.scrollTop = log.scrollHeight;
 }
 
+// ARTIFACT_RENDER_CAP bounds how much artifact text the run detail renders
+// inline (U4). A multi-megabyte diff or log would freeze the tab, so anything
+// larger is skipped (diff) or truncated (inline view) — the raw file is still
+// downloadable via GET …/artifacts/{path}.
+const ARTIFACT_RENDER_CAP = 512 * 1024;
+
 // artifactURL percent-encodes each path segment (U4) so a file whose name
 // holds #, ?, %, or a space stays reachable, while the / separators between
 // segments survive for the server's {path...} match.
@@ -1391,6 +1397,11 @@ async function loadArtifacts() {
   const diff = entries.find(e => !e.is_dir && isDiffPath(e.path));
   if (!diffEl) return;
   if (!diff) { diffEl.innerHTML = emptyState('This run produced no diff.'); return; }
+  if (diff.size > ARTIFACT_RENDER_CAP) {
+    diffEl.innerHTML = emptyState(`Diff too large to render inline (${fmtBytes(diff.size)}). ` +
+      `Open it from Artifacts below.`);
+    return;
+  }
   try {
     const r = await fetch(`/pipelines/${run}/artifacts/${artifactURL(diff.path)}`);
     if (!r.ok) throw new Error(String(r.status));
@@ -1420,10 +1431,16 @@ async function viewArtifact(path) {
     return;
   }
   if (currentRun !== run) return;         // a run switch won the race
+  let note = '';
+  if (body.length > ARTIFACT_RENDER_CAP) {
+    note = `<p class="muted">Showing the first ${fmtBytes(ARTIFACT_RENDER_CAP)} of ` +
+      `${fmtBytes(body.length)} — truncated.</p>`;
+    body = body.slice(0, ARTIFACT_RENDER_CAP);
+  }
   const inner = isDiffPath(path)
     ? `<div class="diff">${diffHtml(body)}</div>`
     : `<pre class="stage-text">${escapeHtml(body)}</pre>`;
-  view.innerHTML = `<h4>${escapeHtml(path)}</h4>${inner}`;
+  view.innerHTML = `<h4>${escapeHtml(path)}</h4>${note}${inner}`;
 }
 
 // ---- config view -------------------------------------------------------
