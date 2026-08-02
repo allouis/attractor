@@ -10,8 +10,8 @@ loop → record). Small atomic commits; every intervention recorded here.
 
 | Spec | Status | Build |
 |---|---|---|
-| `config-screen-spec.md` | decisions locked | **C1–C4 done**; C5 todo |
-| `repo-vm-config-spec.md` | drafted | VM1–VM4 todo (after config-screen C1) |
+| `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
+| `repo-vm-config-spec.md` | drafted | VM1–VM4 todo (config C1 done → unblocked) |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
@@ -95,6 +95,21 @@ config-screen spec commit; advancing it is deferred to the end.
   event raced the daemon reading them) and fixed it properly — upload inside
   the forwarding goroutine before the terminal event, post-loop fallback.
   Now 20/20 deterministic under `-race`.
+
+- **config-screen C5 — done** (dogfood run, `~/.attractor/runs/config-C5`).
+  6 atomic commits, gate green, no intervention:
+  - `skpklrkv` refactor(ui): render the Linear clear-arm from a panel param
+  - `myypvuuk` feat(ui): empty states for the Repos and Providers panels
+  - `wtktvnoq` feat(ui): surface soft save-warnings inline on the offending repo row
+  - `rpotzowu` feat(ui): make the Linear key clear reversible
+  - `rowymzqw` feat(ui): guard unsaved Config edits on navigation and unload
+  - `qvvrqnwp` docs: mark C5 done
+
+- **✅ config-screen-spec fully built** — C1–C5, 31 atomic commits, gate
+  green throughout, zero human interventions, one real `-race` bug fixed en
+  route. The daemon now owns `~/.attractor/config.json`; TOML load is gone;
+  `GET`/`PUT /config` + `GET /repos` are live; a Config tab edits
+  repos+checks / Linear / providers. Next: per-repo VM config (VM1–VM4).
 
 ## Interventions
 
