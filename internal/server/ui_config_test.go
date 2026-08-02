@@ -113,6 +113,64 @@ func TestConfigProvidersPanelEscapes(t *testing.T) {
 	}
 }
 
+// TestConfigBuildPutBody: the collected form reshapes into the PUT /config
+// Document — provider/repo rows to maps (blank-name rows dropped), and the
+// Linear secret handled by secret-merge rules: an empty key omits the field
+// (preserve), a value replaces, an armed clear sets api_key_clear.
+func TestConfigBuildPutBody(t *testing.T) {
+	body := evalUI(t, `JSON.stringify(buildPutBody({`+
+		`defaultProvider:"anthropic",`+
+		`providers:[{name:"anthropic",backend:"acp",command:"claude-agent-acp",model_env:"ANTHROPIC_MODEL"},{name:"",backend:"drop"}],`+
+		`repos:[{name:"a/b",path:"/p",checks:{deps:"pnpm i"}},{name:"",path:"/drop",checks:{}}],`+
+		`linearKey:"",linearClear:false}))`)
+
+	for _, want := range []string{`"default_provider":"anthropic"`, `"anthropic":{`, `"backend":"acp"`, `"a/b":{`, `"/p"`, `"deps":"pnpm i"`, `"api_key":""`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("PUT body missing %q:\n%s", want, body)
+		}
+	}
+	// Blank-name rows are dropped, not sent as "" keys.
+	for _, unwanted := range []string{`"drop"`, `"/drop"`, `api_key_clear`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("PUT body should not contain %q:\n%s", unwanted, body)
+		}
+	}
+}
+
+// TestConfigBuildPutBodySecrets: a typed key replaces; an armed clear sets
+// the clear signal.
+func TestConfigBuildPutBodySecrets(t *testing.T) {
+	set := evalUI(t, `JSON.stringify(buildPutBody({defaultProvider:"",providers:[],repos:[],linearKey:"lin_new",linearClear:false}))`)
+	if !strings.Contains(set, `"api_key":"lin_new"`) {
+		t.Errorf("typed key should be sent:\n%s", set)
+	}
+	cleared := evalUI(t, `JSON.stringify(buildPutBody({defaultProvider:"",providers:[],repos:[],linearKey:"",linearClear:true}))`)
+	if !strings.Contains(cleared, `"api_key_clear":true`) {
+		t.Errorf("armed clear should set api_key_clear:\n%s", cleared)
+	}
+}
+
+// TestConfigSaveMessage: the save-result classifier maps the PUT response to
+// a banner — structural 422 error (nothing saved), soft-warning 200 (saved),
+// clean 200 (saved), or a generic failure.
+func TestConfigSaveMessage(t *testing.T) {
+	cases := []struct{ expr, kind, textPart string }{
+		{`JSON.stringify(saveMessage(200,{warnings:[]}))`, "ok", "aved"},
+		{`JSON.stringify(saveMessage(200,{warnings:["repo x: path does not resolve"]}))`, "warn", "path does not resolve"},
+		{`JSON.stringify(saveMessage(422,{error:"unknown backend bogus"}))`, "error", "unknown backend bogus"},
+		{`JSON.stringify(saveMessage(500,{}))`, "error", ""},
+	}
+	for _, c := range cases {
+		got := evalUI(t, c.expr)
+		if !strings.Contains(got, `"kind":"`+c.kind+`"`) {
+			t.Errorf("%s → want kind %q, got %s", c.expr, c.kind, got)
+		}
+		if c.textPart != "" && !strings.Contains(got, c.textPart) {
+			t.Errorf("%s → want text containing %q, got %s", c.expr, c.textPart, got)
+		}
+	}
+}
+
 // TestConfigReposPanelEscapes guards against a malicious repo name/path
 // being rendered as live markup (the doc is daemon-owned but the panel must
 // not become an injection sink).

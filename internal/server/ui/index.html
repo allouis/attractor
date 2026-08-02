@@ -148,6 +148,8 @@
   .banner { padding: var(--space-2) var(--space-3); border-radius: 6px; margin-bottom: var(--space-3);
             border: 1px solid var(--border); background: var(--surface-1); }
   .banner.error { color: var(--state-failed); border-color: var(--state-failed); }
+  .banner.ok { color: var(--state-success); border-color: var(--state-success); }
+  .banner.warn { color: var(--state-needs-human); border-color: var(--state-needs-human); }
   /* Item badges: a linked-run pill (status-tinted, links to #run/<id>) and
      the deliberately loud in-progress chip. */
   .badge { display: inline-block; font-size: var(--font-sm); font-weight: 600;
@@ -247,6 +249,10 @@
   <section id="config-view">
     <div id="config-status" role="alert"></div>
     <div id="config-body"></div>
+    <div class="config-actions">
+      <button type="button" id="config-save">save</button>
+      <span id="config-dirty" class="muted"></span>
+    </div>
   </section>
   <section id="workflow-view">
     <p><a href="#workflows">&larr; all workflows</a></p>
@@ -1023,6 +1029,7 @@ function renderConfig(doc) {
   linearClear = false;
   $('config-body').innerHTML =
     reposPanelHtml(doc.repos) + linearPanelHtml(doc.linear) + providersPanelHtml(doc);
+  setConfigDirty(false);
 }
 
 // setConfigStatus shows a save result above the panels: an error (structural
@@ -1141,10 +1148,107 @@ function onConfigClick(e) {
   if (rmProv) { rmProv.closest('tr[data-provider-row]').remove(); return; }
   if (e.target.closest('button[data-linear-clear]')) {
     linearClear = true;
+    setConfigDirty(true);
     const key = $('config-linear-key');
     if (key) { key.value = ''; key.disabled = true; }
     const note = $('config-linear-note');
     if (note) note.textContent = 'key will be cleared on save';
+  }
+}
+
+// setConfigDirty tracks unsaved edits so the user sees the view has pending
+// changes; a successful save (or a fresh render) clears it.
+function setConfigDirty(dirty) {
+  const el = $('config-dirty');
+  if (el) el.textContent = dirty ? 'unsaved changes' : '';
+}
+
+// collectConfig scrapes the panels' inputs into a plain form object. Non-
+// standard checks a repo may carry (e.g. e2e) are not shown as columns, so
+// they are seeded from the loaded doc keyed by the row's current name and
+// preserved on save — only the four standard checks are edited here.
+function collectConfig() {
+  const loaded = (configLoaded && configLoaded.repos) || {};
+  const repos = [...document.querySelectorAll('#config-repos-rows tr[data-repo-row]')].map(tr => {
+    const name = tr.querySelector('[data-repo-name]').value.trim();
+    const checks = { ...((loaded[name] && loaded[name].checks) || {}) };
+    tr.querySelectorAll('input[data-check]').forEach(inp => {
+      const v = inp.value.trim();
+      if (v) checks[inp.dataset.check] = v; else delete checks[inp.dataset.check];
+    });
+    return { name, path: tr.querySelector('[data-repo-path]').value.trim(), checks };
+  });
+  const providers = [...document.querySelectorAll('#config-providers-rows tr[data-provider-row]')].map(tr => ({
+    name: tr.querySelector('[data-provider-name]').value.trim(),
+    backend: tr.querySelector('[data-provider-backend]').value.trim(),
+    command: tr.querySelector('[data-provider-command]').value.trim(),
+    model_env: tr.querySelector('[data-provider-model-env]').value.trim(),
+  }));
+  return {
+    defaultProvider: $('config-default-provider').value,
+    providers, repos,
+    linearKey: $('config-linear-key').value,
+    linearClear,
+  };
+}
+
+// buildPutBody reshapes the collected form into the PUT /config Document:
+// provider/repo rows become maps (blank-name rows dropped), and the Linear
+// secret follows secret-merge — an empty key is sent empty (preserve), a
+// value replaces, an armed clear sets api_key_clear (the distinct clear).
+function buildPutBody(form) {
+  const providers = {};
+  for (const p of form.providers) {
+    if (!p.name) continue;
+    providers[p.name] = { backend: p.backend, command: p.command, model_env: p.model_env };
+  }
+  const repos = {};
+  for (const r of form.repos) {
+    if (!r.name) continue;
+    repos[r.name] = { path: r.path, checks: r.checks || {} };
+  }
+  const linear = { api_key: form.linearKey || '' };
+  if (form.linearClear) linear.api_key_clear = true;
+  return { default_provider: form.defaultProvider || '', providers, repos, linear };
+}
+
+// saveMessage classifies the PUT /config response into a banner: a 422 is a
+// structural rejection (nothing saved), a 200 with warnings saved softly, a
+// clean 200 saved, anything else a generic failure.
+function saveMessage(status, body) {
+  if (status === 200) {
+    const warnings = (body && body.warnings) || [];
+    if (warnings.length) return { kind: 'warn', text: 'Saved with warnings: ' + warnings.join('; ') };
+    return { kind: 'ok', text: 'Saved.' };
+  }
+  if (status === 422 && body && body.error) return { kind: 'error', text: body.error };
+  return { kind: 'error', text: `Save failed (${status}).` };
+}
+
+// saveConfig PUTs the whole doc. A structural rejection (422) keeps the
+// user's edits on screen — nothing was saved, so re-reading would discard
+// them. A success re-reads from the server (reflecting redaction and
+// clearing the pending-clear/dirty state) before showing the result.
+let configSaving = false;
+async function saveConfig() {
+  if (!configLoaded || configSaving) return;   // no save before a successful load
+  configSaving = true;
+  const btn = $('config-save');
+  if (btn) btn.disabled = true;
+  setConfigStatus('saving…', '');
+  try {
+    let r;
+    try {
+      r = await putJSON('/config', buildPutBody(collectConfig()));
+    } catch (e) { setConfigStatus('could not reach the daemon', 'error'); return; }
+    let body = {};
+    try { body = await r.json(); } catch (e) { /* an error body may not be JSON */ }
+    const msg = saveMessage(r.status, body);
+    if (r.status === 200) await showConfig();   // re-render from server truth
+    setConfigStatus(msg.text, msg.kind);
+  } finally {
+    configSaving = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1200,6 +1304,15 @@ function postJSON(url, body) {
   });
 }
 
+// putJSON PUTs a JSON body and returns the raw Response (the Config view's
+// whole-doc save), leaving status handling to the caller.
+function putJSON(url, body) {
+  return fetch(url, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 async function answer(qid, body) {
   await postJSON(`/pipelines/${currentRun}/questions/${qid}/answer`, body);
   refreshDock();
@@ -1234,8 +1347,11 @@ window.addEventListener('load', () => {
     if (btn) cancelRun(btn.dataset.cancelId);
   });
   // Delegated Config controls: panels are innerHTML, so one listener on the
-  // view handles add/remove-repo (and, once wired, save) for every row.
+  // view handles add/remove/clear for every row; a second marks the view
+  // dirty on any field edit.
   $('config-view')?.addEventListener('click', onConfigClick);
+  $('config-view')?.addEventListener('input', () => setConfigDirty(true));
+  $('config-save')?.addEventListener('click', saveConfig);
   $('run-picker-cancel')?.addEventListener('click', () => $('run-picker').close());
   $('run-picker-run')?.addEventListener('click', submitRun);
   window.addEventListener('hashchange', route);
