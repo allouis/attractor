@@ -175,6 +175,10 @@
   .pulse { animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
   .muted { color: var(--text-muted); }
+  /* Shared empty/loading/error placeholder (web-ui-v2-spec U1). Centred,
+     padded, and colour-coded so a failure never reads like an empty list. */
+  .state { color: var(--text-muted); text-align: center; padding: var(--space-5) 0; }
+  .state-error { color: var(--state-failed); }
   button { font: inherit; padding: var(--space-1) var(--space-3); cursor: pointer;
            background: var(--surface-1); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
   button:hover { background: var(--surface-2); }
@@ -1447,6 +1451,21 @@ function putJSON(url, body) {
 async function answer(qid, body) {
   await postJSON(`/pipelines/${currentRun}/questions/${qid}/answer`, body);
   refreshDock();
+}
+
+// ---- shared placeholders -----------------------------------------------
+// One visual language for the three non-content states every list/pane can
+// land in (web-ui-v2-spec U1): an empty result, an in-flight load, and a
+// failure — each reads differently. Pure helpers returning inert markup; the
+// message is escaped because some carry backend/error text.
+function emptyState(msg) {
+  return `<p class="state state-empty">${escapeHtml(msg)}</p>`;
+}
+function loadingState(msg) {
+  return `<p class="state state-loading pulse" aria-busy="true">${escapeHtml(msg || 'loading…')}</p>`;
+}
+function errorState(msg) {
+  return `<p class="state state-error" role="alert">${escapeHtml(msg)}</p>`;
 }
 
 function escapeHtml(s) {
