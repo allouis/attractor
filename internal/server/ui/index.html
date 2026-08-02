@@ -1350,6 +1350,13 @@ async function selectNode(id) {
   const log = $('node-log'); if (log) log.scrollTop = log.scrollHeight;
 }
 
+// artifactURL percent-encodes each path segment (U4) so a file whose name
+// holds #, ?, %, or a space stays reachable, while the / separators between
+// segments survive for the server's {path...} match.
+function artifactURL(path) {
+  return String(path).split('/').map(encodeURIComponent).join('/');
+}
+
 // loadArtifacts fills the U4 Diff + Artifacts regions for the current run. It
 // lists the run's logs tree (GET …/artifacts), renders the browser, then
 // auto-fetches the first diff-looking file and paints it in the Diff region.
@@ -1381,7 +1388,7 @@ async function loadArtifacts() {
   if (!diffEl) return;
   if (!diff) { diffEl.innerHTML = emptyState('This run produced no diff.'); return; }
   try {
-    const r = await fetch(`/pipelines/${currentRun}/artifacts/${diff.path}`);
+    const r = await fetch(`/pipelines/${currentRun}/artifacts/${artifactURL(diff.path)}`);
     if (!r.ok) throw new Error(String(r.status));
     diffEl.innerHTML = diffHtml(await r.text());
   } catch (e) {
@@ -1398,7 +1405,7 @@ async function viewArtifact(path) {
   view.innerHTML = loadingState();
   let body;
   try {
-    const r = await fetch(`/pipelines/${currentRun}/artifacts/${path}`);
+    const r = await fetch(`/pipelines/${currentRun}/artifacts/${artifactURL(path)}`);
     if (!r.ok) throw new Error(String(r.status));
     body = await r.text();
   } catch (e) {

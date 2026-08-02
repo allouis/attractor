@@ -38,11 +38,13 @@ const document = { getElementById: (id) => (els[id] = els[id] || el()) };
 
 const list = { entries: [
   { path: 'artifacts', size: 0, is_dir: true },
-  { path: 'artifacts/changes.diff', size: 40, is_dir: false },
+  { path: 'artifacts/my changes.diff', size: 40, is_dir: false },
   { path: 'events.jsonl', size: 12, is_dir: false },
 ] };
+// Bodies are keyed by the *encoded* URL: the space in the diff name must be
+// percent-encoded by the fetch or these lookups miss and nothing renders.
 const bodies = {
-  '/pipelines/run1/artifacts/artifacts/changes.diff': '@@ -1 +1 @@\n-old\n+new\n',
+  '/pipelines/run1/artifacts/artifacts/my%20changes.diff': '@@ -1 +1 @@\n-old\n+new\n',
   '/pipelines/run1/artifacts/events.jsonl': 'hello events',
 };
 const fetch = (url) => {
@@ -74,7 +76,7 @@ sandbox.loadArtifacts().then(() => sandbox.viewArtifact('events.jsonl')).then(()
 	got := string(out)
 
 	// The browser lists the files.
-	for _, want := range []string{"changes.diff", "events.jsonl", `data-path=`} {
+	for _, want := range []string{"my changes.diff", "events.jsonl", `data-path=`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("artifact browser missing %q:\n%s", want, got)
 		}
