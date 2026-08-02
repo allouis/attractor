@@ -82,7 +82,7 @@ reject-structural validation.
 | VM1 | Named-image registry: VM launcher resolves the boot script **per run** from a name→script map (default = today's single script); `vm_images` config + repeatable `--vm-runner name=path`; tests | nix-vm work | done |
 | VM2 | `repos.<name>` gains `runner` + `vm.image` in the central config schema (part of the config-screen document); projection into dispatch; tests | config-screen C1 | done |
 | VM3 | Dispatch resolves runner+image with precedence (submission > repo > default) and rejects unknown names; wired through submit; tests | VM1, VM2 | done |
-| VM4 | Config Repos panel: per-repo **runner** select + **image** select (from registered `vm_images`); save via `PUT /config` | VM3, config-screen C4 | todo |
+| VM4 | Config Repos panel: per-repo **runner** select + **image** select (from registered `vm_images`); save via `PUT /config` | VM3, config-screen C4 | done |
 
 ## Non-goals (v1)
 
