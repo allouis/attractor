@@ -171,6 +171,11 @@
   #node-links a { margin-right: var(--space-3); }
   #node-log { white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
               margin-top: var(--space-2); max-height: 320px; overflow: auto; }
+  #node-pane h4 { margin: var(--space-3) 0 var(--space-1); font-size: var(--font-sm); }
+  .stage-meta { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .stage-text { margin: 0; padding: var(--space-2); background: var(--surface-2); border-radius: 6px;
+                white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
+                max-height: 320px; overflow: auto; }
   .tool { color: var(--text-muted); }
   .tool-call summary { cursor: pointer; color: var(--text-muted); }
   .tool-call pre { margin: var(--space-1) 0 0; padding: var(--space-2);
@@ -1049,6 +1054,30 @@ function toolCallHtml(raw) {
   try { body = JSON.stringify(raw, null, 2); } catch (e) { body = String(raw); }
   return `<details class="tool-call"><summary>${escapeHtml(name)}</summary>` +
          `<pre>${escapeHtml(body)}</pre></details>`;
+}
+
+// stageDetailHtml builds the U2 inspector panel from a stage's detail
+// (GET …/stages/{node}) and its timing (start/end from the event stream).
+// It surfaces status, elapsed time, prompt, response and each tool call, then
+// the live-tail #node-log container seeded with any chunks already streamed.
+// Every stage field is attacker-controlled and escaped. An empty status.json
+// (stage still running) reads as "running", not blank.
+function stageDetailHtml(id, detail, timing, logHtml) {
+  const status = detail.status || 'running';
+  const calls = (detail.tool_calls || []).map(toolCallHtml).join('');
+  const section = (title, body) => body
+    ? `<h4>${title}</h4><pre class="stage-text">${escapeHtml(body)}</pre>` : '';
+  return `
+    <h3>${escapeHtml(id)}</h3>
+    <div class="stage-meta">
+      <span class="badge status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+      <span class="muted">${fmtDuration(timing.start, timing.end)}</span>
+    </div>
+    ${section('Prompt', detail.prompt)}
+    ${section('Response', detail.response)}
+    ${calls ? `<h4>Tool calls</h4>${calls}` : ''}
+    <h4>Output</h4>
+    <div id="node-log">${logHtml || ''}</div>`;
 }
 
 function selectNode(id) {
