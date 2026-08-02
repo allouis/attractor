@@ -1127,6 +1127,12 @@ function runnerSelectHtml(runner) {
 // collector likewise drops the image off-vm). Names are external → escaped.
 function imageSelectHtml(image, runner, vmImages) {
   const names = Object.keys(vmImages || {}).sort();
+  // The registry is nix/CLI-managed and drifts independently of the config, so
+  // a repo may be pinned to an image no longer registered — still a valid
+  // persisted ref (dispatch falls back to default). Union it in so the select
+  // represents and round-trips the stored value instead of collapsing it to
+  // (default) and wiping the pin on save (per-repo VM config, VM4).
+  if (image && !names.includes(image)) names.push(image);
   const opts = [''].concat(names).map(v =>
     `<option value="${escapeHtml(v)}"${v === image ? ' selected' : ''}>${v ? escapeHtml(v) : '(default)'}</option>`).join('');
   const dis = runner === 'vm' ? '' : ' disabled';

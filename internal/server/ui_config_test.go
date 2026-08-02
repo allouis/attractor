@@ -163,6 +163,30 @@ func TestConfigReposPanelImageOptionsFromRegistry(t *testing.T) {
 	}
 }
 
+// TestConfigReposPanelImageAbsentFromRegistry: a repo pinned to an image that
+// is NOT in the live registry (the registry is nix/CLI-managed and drifts
+// independently; the stored ref stays valid — dispatch falls back to default)
+// must still offer and select that image, so the select faithfully represents
+// the persisted value and round-trips it on save rather than silently
+// collapsing to (default) and wiping the pin (per-repo VM config, VM4).
+func TestConfigReposPanelImageAbsentFromRegistry(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({"a/b":{path:"/h",checks:{},runner:"vm",vm:{image:"legacy"}}},[],`+
+		`{default:".#vm-runner"})`)
+	if !strings.Contains(html, `value="legacy" selected`) {
+		t.Errorf("out-of-registry declared image should be offered and selected:\n%s", html)
+	}
+}
+
+// TestConfigReposPanelImageEmptyRegistry: even with no registry at all, a
+// repo's declared image survives — the worst-case drift (empty registry) must
+// not strip a pinned image on save.
+func TestConfigReposPanelImageEmptyRegistry(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({"a/b":{path:"/h",checks:{},runner:"vm",vm:{image:"legacy"}}},[],{})`)
+	if !strings.Contains(html, `value="legacy" selected`) {
+		t.Errorf("declared image should survive an empty registry:\n%s", html)
+	}
+}
+
 // TestConfigReposPanelImageEscapes: a registry image name is external and is
 // escaped in both the option value and its label.
 func TestConfigReposPanelImageEscapes(t *testing.T) {
