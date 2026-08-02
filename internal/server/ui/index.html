@@ -182,17 +182,18 @@
   button { font: inherit; padding: var(--space-1) var(--space-3); cursor: pointer;
            background: var(--surface-1); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
   button:hover { background: var(--surface-2); }
-  /* Run-action picker: a token-styled modal over the Items view. */
-  #run-picker { color: var(--text); background: var(--surface-0);
+  /* Reusable modal (web-ui-v2-spec U1): a token-styled <dialog>. The
+     run-action picker is the first user; new dialogs get the look for free. */
+  .modal { color: var(--text); background: var(--surface-0);
                 border: 1px solid var(--border); border-radius: 8px;
-                padding: var(--space-4); min-width: 320px; }
-  #run-picker::backdrop { background: rgba(0, 0, 0, .4); }
-  #run-picker h3 { margin: 0 0 var(--space-3); }
-  #run-picker label { display: block; margin-bottom: var(--space-3); color: var(--text-muted); }
-  #run-picker select, #run-picker input { font: inherit; width: 100%; margin-top: var(--space-1);
+                padding: var(--space-4); min-width: 320px; max-width: min(560px, 92vw); }
+  .modal::backdrop { background: rgba(0, 0, 0, .4); }
+  .modal h3 { margin: 0 0 var(--space-3); }
+  .modal label { display: block; margin-bottom: var(--space-3); color: var(--text-muted); }
+  .modal select, .modal input { font: inherit; width: 100%; margin-top: var(--space-1);
                 color: var(--text); background: var(--surface-1);
                 border: 1px solid var(--border); border-radius: 6px; padding: var(--space-1) var(--space-2); }
-  .picker-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
   /* Config view (config-screen-spec C4): hand-built panels over the whole
      config doc. Panels share the table/banner/button primitives; inputs
      consume tokens like the toolbar controls. */
@@ -233,13 +234,13 @@
     </div>
     <div id="items-warning" role="alert"></div>
     <div id="items-list"></div>
-    <dialog id="run-picker">
+    <dialog id="run-picker" class="modal">
       <h3>run item</h3>
       <label>workflow <select id="run-picker-workflow"></select></label>
       <label>repo <input id="run-picker-repo" list="run-picker-repos" placeholder="owner/name"></label>
       <datalist id="run-picker-repos"></datalist>
       <p id="run-picker-error" class="banner error" hidden></p>
-      <div class="picker-actions">
+      <div class="modal-actions">
         <button type="button" id="run-picker-cancel">cancel</button>
         <button type="button" id="run-picker-run">run</button>
       </div>
