@@ -11,7 +11,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 | Spec | Status | Build |
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
-| `repo-vm-config-spec.md` | drafted | VM1–VM4 todo (config C1 done → unblocked) |
+| `repo-vm-config-spec.md` | drafted | **VM1 done**; VM2–VM4 todo |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
@@ -110,6 +110,13 @@ config-screen spec commit; advancing it is deferred to the end.
   route. The daemon now owns `~/.attractor/config.json`; TOML load is gone;
   `GET`/`PUT /config` + `GET /repos` are live; a Config tab edits
   repos+checks / Linear / providers. Next: per-repo VM config (VM1–VM4).
+
+- **VM1 — done** (`~/.attractor/runs/vm-VM1`). 7 atomic commits, gate green,
+  no intervention: VM launcher resolves the boot script per-run from a
+  `vm_images` name→script registry; repeatable `--vm-runner name=path` (bare
+  = default); per-run image carried from the submission; plus defensive
+  fixes (gate VM activation on explicit intent, reject empty boot paths).
+  Key commits `pxznzqyt`, `rtkmuytn`, `nqkoxluk`, `nsyymxqw`, `tlrumspn`.
 
 ## Interventions
 
