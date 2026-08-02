@@ -73,9 +73,10 @@ func (s *Server) fireAutomation(a automation.Automation) (string, error) {
 		return "", fmt.Errorf("automation %q: read pipeline: %w", a.Name, err)
 	}
 	// baseDir = the pipeline's dir so its @prompts / child_dotfile resolve
-	// relative to itself, not the automation's work cwd. An automation opts
-	// into a repo's per-repo checks by setting the `repo` var, the same way
-	// items carry it (config-screen-spec C3).
+	// relative to itself, not the automation's work cwd. The `repo` var names
+	// the run's repo (the same way items carry it, config-screen-spec C3),
+	// keying its per-repo checks; an automation without one still backfills
+	// its repo from a cwd that is a registered checkout (seedChecks).
 	return s.submit(string(src), a.Vars, a.Cwd, a.Vars["repo"], "", "", filepath.Dir(path), "")
 }
 

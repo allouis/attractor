@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -275,8 +276,9 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	if itemRef != nil {
 		tag = itemRef.String()
 	}
-	// A raw dot submission carries no catalog path, so no workflow_name,
-	// and no repo identity, so its checks fall to the no-op defaults.
+	// A raw dot submission carries no catalog path, so no workflow_name, and
+	// no repo ref — seedChecks backfills one from cwd when it is a registered
+	// checkout, else the checks fall to the no-op defaults.
 	id, err := s.submit(source, vars, cwd, "", tag, "", "", placement)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
@@ -355,7 +357,7 @@ func (s *Server) submit(source string, vars map[string]string, cwd, repo, itemRe
 	if err != nil {
 		return "", err
 	}
-	seed := seedChecks(seedContext(vars, itemRef), repo)
+	seed := seedChecks(seedContext(vars, itemRef), repo, cwd)
 	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seed)
 	run.placement = placement
 	s.dispatcher.enqueue(run)
@@ -375,18 +377,31 @@ var checkNames = []string{"deps", "typecheck", "lint", "test"}
 // seedChecks adds $context.check.<name> for every static check, taking the
 // command from the central config.json entry of the run's repo (keyed by
 // its owner/name ref), and falling back to a no-op (echo … ; success) when
-// the run names no repo or that repo configures none, so a work pipeline
-// can reference them unconditionally (config-screen-spec C3).
-func seedChecks(seed map[string]string, repo string) map[string]string {
+// the run resolves to no registered repo or that repo configures none, so a
+// work pipeline can reference them unconditionally (config-screen-spec C3).
+//
+// A cwd-only dispatch — an automation or a raw-dot run, neither of which
+// carries a repo ref — backfills its identity by reverse-matching cwd
+// against the registered checkouts, so it keeps the gating checks it ran
+// before C3 re-keyed by ref. A non-empty repo that names no registered
+// entry is logged: its checks silently no-op, which for a gate is a
+// misconfiguration worth a signal (the items dispatch path already 422s an
+// unmapped ref; automations do not).
+func seedChecks(seed map[string]string, repo, cwd string) map[string]string {
 	if seed == nil {
 		seed = map[string]string{}
 	}
 	var configured map[string]string
-	if repo != "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			if doc, err := config.LoadDocument(home); err == nil {
-				configured = doc.ChecksForRepo(repo)
+	if home, err := os.UserHomeDir(); err == nil {
+		if doc, err := config.LoadDocument(home); err == nil {
+			if repo != "" {
+				if _, ok := doc.Repos[repo]; !ok {
+					log.Printf("seedChecks: run names unregistered repo %q; static checks fall to no-op defaults", repo)
+				}
+			} else if r, ok := doc.RepoForPath(cwd); ok {
+				repo = r
 			}
+			configured = doc.ChecksForRepo(repo)
 		}
 	}
 	for _, name := range checkNames {
