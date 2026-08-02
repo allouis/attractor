@@ -10,7 +10,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 
 | Spec | Status | Build |
 |---|---|---|
-| `config-screen-spec.md` | decisions locked | C1–C5 todo |
+| `config-screen-spec.md` | decisions locked | **C1 done**; C2–C5 todo |
 | `repo-vm-config-spec.md` | drafted | VM1–VM4 todo (after config-screen C1) |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
@@ -44,6 +44,22 @@ config-screen spec commit; advancing it is deferred to the end.
   - `web-ui-v2-spec.md` drafted — gap analysis vs the shipped 3-tab SPA;
     the debug/gate endpoints already exist server-side and are simply
     unwired; U1–U7 close the "UI-only teammate can work" gap.
+
+- **config-screen C1 — done** (dogfood run `39dd2753d9f1`, `~/.attractor/runs/config-C1`).
+  6 atomic commits, gate green (`go test ./... -race` + `nix build .#attractor`):
+  - `oyxvzlst` feat(config): Document type with JSON load/save and fresh default
+  - `lxununml` feat(config): projections to Config, repos map, per-path checks
+  - `tzxksxyt` refactor(cli): read provider config from central config.json
+  - `tlrwwmxw` refactor(server): seedChecks reads checks from central config.json
+  - `mzxquqkr` refactor(cli): serveRepos projects repos from config.json
+  - `rslyzxlq` docs: mark C1 done
+
+  The 5-lens review-core loop ran inline and its synth flagged real issues
+  the fix loop addressed before record (map-aliasing on projections, config
+  loaded/parsed multiple times in `serve()`, test over-coupling). No human
+  intervention needed. Follow-ups the synth left non-blocking: legacy-config
+  warning when an old `config.toml` is present; revisit `DefaultDocument`'s
+  seeded provider once C4 lands.
 
 ## Interventions
 
