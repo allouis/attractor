@@ -37,22 +37,11 @@ func (d Document) ReposMap() map[string]string {
 }
 
 // ChecksForRepo returns the static-check commands of the repo named by the
-// run's ref (owner/name), or nil when the ref is empty or unregistered. C3
-// keys checks by repo identity, replacing C1's cwd reverse match.
+// run's ref (owner/name), or nil when the ref is empty or unregistered.
+// Checks are keyed by repo identity, not the run's cwd (config-screen-spec
+// C3).
 func (d Document) ChecksForRepo(repo string) map[string]string {
 	return d.Repos[repo].Checks
-}
-
-// ChecksForPath returns the static-check commands of the repo whose local
-// path matches cwd, or nil when no registered repo lives there. C1 keys
-// checks by cwd via this reverse match; C3 re-keys by the run's repo ref.
-func (d Document) ChecksForPath(cwd string) map[string]string {
-	for _, rc := range d.Repos {
-		if rc.Path == cwd {
-			return rc.Checks
-		}
-	}
-	return nil
 }
 
 // Document is the whole daemon-owned config (config-screen-spec): one

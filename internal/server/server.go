@@ -355,7 +355,7 @@ func (s *Server) submit(source string, vars map[string]string, cwd, repo, itemRe
 	if err != nil {
 		return "", err
 	}
-	seed := seedChecks(seedContext(vars, itemRef), cwd)
+	seed := seedChecks(seedContext(vars, itemRef), repo)
 	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seed)
 	run.placement = placement
 	s.dispatcher.enqueue(run)
@@ -373,19 +373,19 @@ func (s *Server) submit(source string, vars map[string]string, cwd, repo, itemRe
 var checkNames = []string{"deps", "typecheck", "lint", "test"}
 
 // seedChecks adds $context.check.<name> for every static check, taking the
-// command from the central config.json entry of the repo whose checkout is
-// the run's cwd, and falling back to a no-op (echo … ; success) when no
-// registered repo configures one, so a work pipeline can reference them
-// unconditionally.
-func seedChecks(seed map[string]string, cwd string) map[string]string {
+// command from the central config.json entry of the run's repo (keyed by
+// its owner/name ref), and falling back to a no-op (echo … ; success) when
+// the run names no repo or that repo configures none, so a work pipeline
+// can reference them unconditionally (config-screen-spec C3).
+func seedChecks(seed map[string]string, repo string) map[string]string {
 	if seed == nil {
 		seed = map[string]string{}
 	}
 	var configured map[string]string
-	if cwd != "" {
+	if repo != "" {
 		if home, err := os.UserHomeDir(); err == nil {
 			if doc, err := config.LoadDocument(home); err == nil {
-				configured = doc.ChecksForPath(cwd)
+				configured = doc.ChecksForRepo(repo)
 			}
 		}
 	}

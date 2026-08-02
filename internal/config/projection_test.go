@@ -77,23 +77,3 @@ func TestChecksForRepoMiss(t *testing.T) {
 		t.Errorf("ChecksForRepo(empty) = %#v, want nil", got)
 	}
 }
-
-// TestChecksForPathMatch: the checks of the repo whose path matches the
-// run's cwd (C1 keys by cwd via reverse match; C3 re-keys by repo ref).
-func TestChecksForPathMatch(t *testing.T) {
-	doc := Document{Repos: map[string]RepoConfig{
-		"a/b": {Path: "/home/agent/Ghost", Checks: map[string]string{"deps": "pnpm install"}},
-	}}
-	got := doc.ChecksForPath("/home/agent/Ghost")
-	if got["deps"] != "pnpm install" {
-		t.Errorf("ChecksForPath = %#v", got)
-	}
-}
-
-// TestChecksForPathMiss: an unregistered cwd yields nil.
-func TestChecksForPathMiss(t *testing.T) {
-	doc := Document{Repos: map[string]RepoConfig{"a/b": {Path: "/p"}}}
-	if got := doc.ChecksForPath("/other"); got != nil {
-		t.Errorf("ChecksForPath(miss) = %#v, want nil", got)
-	}
-}

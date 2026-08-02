@@ -15,10 +15,10 @@ func mustNil(t *testing.T, err error) {
 }
 
 // TestSeedChecks verifies each check is seeded — from the central
-// config.json when the run's cwd matches a registered repo, and a no-op
-// default otherwise (config-screen-spec C1).
+// config.json keyed by the run's repo ref, and a no-op default otherwise
+// (config-screen-spec C3).
 func TestSeedChecks(t *testing.T) {
-	// No cwd → every check is a no-op default.
+	// No repo → every check is a no-op default.
 	seed := seedChecks(nil, "")
 	for _, name := range checkNames {
 		if !strings.Contains(seed["check."+name], "not configured") {
@@ -26,14 +26,14 @@ func TestSeedChecks(t *testing.T) {
 		}
 	}
 
-	// A repo registered in the central config with some checks; the run's
-	// cwd is that repo's checkout.
+	// A repo registered in the central config with some checks; the run
+	// names that repo by its owner/name ref (its path is irrelevant to the
+	// lookup).
 	home := t.TempDir()
-	repoDir := t.TempDir()
 	t.Setenv("HOME", home)
 	doc := config.Document{
 		Repos: map[string]config.RepoConfig{
-			"a/b": {Path: repoDir, Checks: map[string]string{
+			"a/b": {Path: "/wherever", Checks: map[string]string{
 				"lint": "golangci-lint run",
 				"test": "go test ./...",
 			}},
@@ -41,7 +41,7 @@ func TestSeedChecks(t *testing.T) {
 	}
 	mustNil(t, doc.Save(home))
 
-	seed = seedChecks(nil, repoDir)
+	seed = seedChecks(nil, "a/b")
 	if seed["check.lint"] != "golangci-lint run" {
 		t.Errorf("configured lint not used: %q", seed["check.lint"])
 	}
@@ -50,5 +50,13 @@ func TestSeedChecks(t *testing.T) {
 	}
 	if !strings.Contains(seed["check.deps"], "not configured") {
 		t.Errorf("unconfigured deps should default: %q", seed["check.deps"])
+	}
+
+	// An unregistered repo ref → every check is a no-op default.
+	seed = seedChecks(nil, "x/y")
+	for _, name := range checkNames {
+		if !strings.Contains(seed["check."+name], "not configured") {
+			t.Errorf("unknown repo check.%s = %q, want a no-op default", name, seed["check."+name])
+		}
 	}
 }
