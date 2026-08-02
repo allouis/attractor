@@ -1,31 +1,24 @@
 package attractor_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/allouis/attractor/internal/config"
 	"github.com/allouis/attractor/internal/graph"
 )
 
-func TestConfig_ParseProviders(t *testing.T) {
-	src := `
-# machine-local config
-default_provider = "anthropic"
-
-[providers.anthropic]
-backend   = "acp"
-command   = "claude-agent-acp"
-model_env = "ANTHROPIC_MODEL"   # trailing comment
-
-[providers.openai]
-backend = "acp"
-command = "codex-acp"
-model_env = "CODEX_MODEL"
-`
-	cfg, err := config.Parse([]byte(src))
+func TestConfig_LoadProviders(t *testing.T) {
+	home := t.TempDir()
+	saveConfig(t, home, config.Document{
+		DefaultProvider: "anthropic",
+		Providers: map[string]config.Provider{
+			"anthropic": {Backend: "acp", Command: "claude-agent-acp", ModelEnv: "ANTHROPIC_MODEL"},
+			"openai":    {Backend: "acp", Command: "codex-acp", ModelEnv: "CODEX_MODEL"},
+		},
+	})
+	doc, err := config.LoadDocument(home)
 	must(t, err)
+	cfg := doc.ProviderConfig()
 	if cfg.DefaultProvider != "anthropic" {
 		t.Fatalf("default_provider=%q, want anthropic", cfg.DefaultProvider)
 	}
@@ -42,59 +35,17 @@ model_env = "CODEX_MODEL"
 	}
 }
 
-func TestConfig_LoadOverlaysCwdOverHome(t *testing.T) {
-	home := t.TempDir()
-	cwd := t.TempDir()
-	writeConfig(t, filepath.Join(home, ".attractor", "config.toml"), `
-default_provider = "anthropic"
-[providers.anthropic]
-backend = "acp"
-command = "home-agent"
-`)
-	writeConfig(t, filepath.Join(cwd, ".attractor", "config.toml"), `
-[providers.anthropic]
-command = "cwd-agent"
-`)
-	cfg, err := config.Load(home, cwd)
+func TestConfig_LoadMissingReturnsDefault(t *testing.T) {
+	doc, err := config.LoadDocument(t.TempDir())
 	must(t, err)
-	// default_provider from home survives (cwd file doesn't set it).
-	if cfg.DefaultProvider != "anthropic" {
-		t.Fatalf("default_provider=%q, want anthropic", cfg.DefaultProvider)
+	// A missing config.json yields the fresh default (no migration): a
+	// ready-to-edit anthropic provider entry, but no default_provider so a
+	// bare run still simulates.
+	if _, ok := doc.Providers["anthropic"]; !ok {
+		t.Fatalf("fresh default missing anthropic provider: %+v", doc.Providers)
 	}
-	// cwd command overrides home command.
-	if got := cfg.Providers["anthropic"].Command; got != "cwd-agent" {
-		t.Fatalf("command=%q, want cwd-agent (cwd overlay)", got)
-	}
-}
-
-func TestConfig_IgnoresNonProviderTables(t *testing.T) {
-	cfg, err := config.Parse([]byte(`
-default_provider = "anthropic"
-
-[providers.anthropic]
-backend = "acp"
-
-[experimental]
-default_provider = "leaked"
-foo = "bar"
-`))
-	must(t, err)
-	if _, ok := cfg.Providers[""]; ok {
-		t.Fatalf("non-provider table must not create an empty provider: %+v", cfg.Providers)
-	}
-	if len(cfg.Providers) != 1 {
-		t.Fatalf("expected only the anthropic provider, got %+v", cfg.Providers)
-	}
-	if cfg.DefaultProvider != "anthropic" {
-		t.Fatalf("keys in an ignored table must not leak; default_provider=%q", cfg.DefaultProvider)
-	}
-}
-
-func TestConfig_LoadMissingFilesIsEmpty(t *testing.T) {
-	cfg, err := config.Load(t.TempDir(), t.TempDir())
-	must(t, err)
-	if cfg.DefaultProvider != "" || len(cfg.Providers) != 0 {
-		t.Fatalf("expected empty config, got %+v", cfg)
+	if doc.DefaultProvider != "" {
+		t.Fatalf("default_provider=%q, want unset (bare runs simulate)", doc.DefaultProvider)
 	}
 }
 
@@ -135,8 +86,9 @@ func TestConfig_ResolveProviderPrecedence(t *testing.T) {
 	}
 }
 
-func writeConfig(t *testing.T, path, body string) {
+// saveConfig writes the daemon-owned config.json under home, the storage
+// both the CLI and daemon read (config-screen-spec).
+func saveConfig(t *testing.T, home string, doc config.Document) {
 	t.Helper()
-	must(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	must(t, os.WriteFile(path, []byte(body), 0o644))
+	must(t, doc.Save(home))
 }

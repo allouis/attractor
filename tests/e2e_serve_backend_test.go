@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/config"
 	"github.com/allouis/attractor/internal/server"
 )
 
@@ -21,19 +22,13 @@ func TestServe_RoutesNodesThroughProviderConfig(t *testing.T) {
 	chdir(t, work)
 
 	agent := fakeACPCommand(t)
-	writeConfig(t, filepath.Join(work, ".attractor", "config.toml"), `
-default_provider = "anthropic"
-
-[providers.anthropic]
-backend   = "acp"
-command   = "`+agent+`"
-model_env = "FAKE_MODEL"
-
-[providers.openai]
-backend   = "acp"
-command   = "`+agent+`"
-model_env = "FAKE_MODEL"
-`)
+	saveConfig(t, home, config.Document{
+		DefaultProvider: "anthropic",
+		Providers: map[string]config.Provider{
+			"anthropic": {Backend: "acp", Command: agent, ModelEnv: "FAKE_MODEL"},
+			"openai":    {Backend: "acp", Command: agent, ModelEnv: "FAKE_MODEL"},
+		},
+	})
 
 	factory, err := cli.ServeHandlerFactory()
 	must(t, err)

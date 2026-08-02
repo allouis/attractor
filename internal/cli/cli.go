@@ -547,18 +547,19 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-// loadProviderConfig reads the provider routing config from the home
-// and current-working directories (service-spec §1).
+// loadProviderConfig reads the provider routing config, projected from
+// the daemon-owned ~/.attractor/config.json (config-screen-spec). The CLI
+// is a read-only consumer; the daemon owns the writes.
 func loadProviderConfig() (config.Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = ""
 	}
-	cwd, err := os.Getwd()
+	doc, err := config.LoadDocument(home)
 	if err != nil {
-		cwd = "."
+		return config.Config{}, err
 	}
-	return config.Load(home, cwd)
+	return doc.ProviderConfig(), nil
 }
 
 // parseBackendChoice validates the --backend flag value.

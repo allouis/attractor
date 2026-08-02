@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/allouis/attractor/internal/cli"
+	"github.com/allouis/attractor/internal/config"
 )
 
 // chdir switches to dir for the duration of the test, restoring the
@@ -31,19 +32,13 @@ func TestCLI_RoutesNodesThroughProviderConfig(t *testing.T) {
 	chdir(t, work)
 
 	agent := fakeACPCommand(t)
-	writeConfig(t, filepath.Join(work, ".attractor", "config.toml"), `
-default_provider = "anthropic"
-
-[providers.anthropic]
-backend   = "acp"
-command   = "`+agent+`"
-model_env = "FAKE_MODEL"
-
-[providers.openai]
-backend   = "acp"
-command   = "`+agent+`"
-model_env = "FAKE_MODEL"
-`)
+	saveConfig(t, home, config.Document{
+		DefaultProvider: "anthropic",
+		Providers: map[string]config.Provider{
+			"anthropic": {Backend: "acp", Command: agent, ModelEnv: "FAKE_MODEL"},
+			"openai":    {Backend: "acp", Command: agent, ModelEnv: "FAKE_MODEL"},
+		},
+	})
 
 	pipeline := filepath.Join(work, "route.dot")
 	must(t, os.WriteFile(pipeline, []byte(`digraph route {
@@ -81,12 +76,12 @@ func TestCLI_ExplicitBackendOverridesConfig(t *testing.T) {
 
 	// Config would route to a nonexistent agent; --backend simulation
 	// must win so the run still succeeds without spawning it.
-	writeConfig(t, filepath.Join(work, ".attractor", "config.toml"), `
-default_provider = "anthropic"
-[providers.anthropic]
-backend = "acp"
-command = "/nonexistent/agent"
-`)
+	saveConfig(t, home, config.Document{
+		DefaultProvider: "anthropic",
+		Providers: map[string]config.Provider{
+			"anthropic": {Backend: "acp", Command: "/nonexistent/agent"},
+		},
+	})
 	pipeline := filepath.Join(work, "route.dot")
 	must(t, os.WriteFile(pipeline, []byte(`digraph route {
 		start [shape=Mdiamond]
