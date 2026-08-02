@@ -847,6 +847,20 @@ function fmtDate(iso) {
   return `<span title="${escapeHtml(full)}">${escapeHtml(rel)}</span>`;
 }
 
+// fmtDuration renders a stage's elapsed time (web-ui-v2-spec U2). No start is
+// the em-dash placeholder; a start with no end is a still-running stage;
+// otherwise it is end-minus-start as "N.Ns" under a minute, "Nm SSs" above.
+function fmtDuration(startIso, endIso) {
+  if (!startIso) return '<span class="muted">—</span>';
+  if (!endIso) return '<span class="muted">running…</span>';
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  if (isNaN(ms)) return '<span class="muted">—</span>';
+  const secs = Math.max(0, ms) / 1000;
+  if (secs < 60) return escapeHtml(secs.toFixed(1) + 's');
+  const m = Math.floor(secs / 60), s = Math.floor(secs % 60);
+  return escapeHtml(`${m}m ${String(s).padStart(2, '0')}s`);
+}
+
 // runRowHtml builds one fleet row: the run (id → #run/<id>) alongside its
 // provenance backlinks (web-ui-spec W6) — the workflow it ran (→ #workflow/
 // <name>) and the item it was dispatched for (→ #items). Every
