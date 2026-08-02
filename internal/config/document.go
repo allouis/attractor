@@ -61,6 +61,26 @@ func (d Document) ChecksForRepo(repo string) map[string]string {
 	return d.Repos[repo].Checks
 }
 
+// RepoRunner returns the launcher placement (direct | local | vm) the repo
+// named by the run's ref declares, or "" when the ref is empty, unregistered,
+// or declares none — leaving the daemon --runner default to apply at dispatch
+// (per-repo VM config, VM2). Dispatch precedence (submission > repo > default)
+// is layered on top in VM3.
+func (d Document) RepoRunner(repo string) string {
+	return d.Repos[repo].Runner
+}
+
+// RepoImage returns the vm_images name the repo's VM runs boot from, or ""
+// when the ref is empty, unregistered, or declares no vm.image — leaving the
+// "default" image to apply at dispatch. Only meaningful when RepoRunner is
+// "vm" (per-repo VM config, VM2).
+func (d Document) RepoImage(repo string) string {
+	if vm := d.Repos[repo].VM; vm != nil {
+		return vm.Image
+	}
+	return ""
+}
+
 // Document is the whole daemon-owned config (config-screen-spec): one
 // ~/.attractor/config.json the daemon reads and writes. The legacy
 // config.Config and items.Repos are projections of this single document.

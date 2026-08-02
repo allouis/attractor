@@ -86,6 +86,44 @@ func TestChecksForRepoMatch(t *testing.T) {
 	}
 }
 
+// TestRepoRunner: a repo's declared runner projects out for dispatch;
+// an unregistered ref or an undeclared runner yields "" so the daemon
+// default applies (per-repo VM config, VM2).
+func TestRepoRunner(t *testing.T) {
+	doc := Document{Repos: map[string]RepoConfig{
+		"a/b": {Path: "/p", Runner: "vm"},
+		"c/d": {Path: "/q"},
+	}}
+	if got := doc.RepoRunner("a/b"); got != "vm" {
+		t.Errorf("RepoRunner(a/b) = %q, want vm", got)
+	}
+	if got := doc.RepoRunner("c/d"); got != "" {
+		t.Errorf("RepoRunner(undeclared) = %q, want \"\"", got)
+	}
+	if got := doc.RepoRunner("x/y"); got != "" {
+		t.Errorf("RepoRunner(unregistered) = %q, want \"\"", got)
+	}
+}
+
+// TestRepoImage: a repo's declared VM image projects out; an
+// unregistered ref, an undeclared image, or a runner with no vm block
+// yields "" so the "default" image applies (per-repo VM config, VM2).
+func TestRepoImage(t *testing.T) {
+	doc := Document{Repos: map[string]RepoConfig{
+		"a/b": {Path: "/p", Runner: "vm", VM: &VMConfig{Image: "node-ts"}},
+		"c/d": {Path: "/q", Runner: "vm"},
+	}}
+	if got := doc.RepoImage("a/b"); got != "node-ts" {
+		t.Errorf("RepoImage(a/b) = %q, want node-ts", got)
+	}
+	if got := doc.RepoImage("c/d"); got != "" {
+		t.Errorf("RepoImage(no vm block) = %q, want \"\"", got)
+	}
+	if got := doc.RepoImage("x/y"); got != "" {
+		t.Errorf("RepoImage(unregistered) = %q, want \"\"", got)
+	}
+}
+
 // TestChecksForRepoMiss: an unregistered or empty repo ref yields nil.
 func TestChecksForRepoMiss(t *testing.T) {
 	doc := Document{Repos: map[string]RepoConfig{"a/b": {Path: "/p"}}}
