@@ -49,6 +49,7 @@ type fakeDeps struct {
 	subDot      string
 	subVars     map[string]string
 	subCwd      string
+	subRepo     string
 	subTag      string
 	subWorkflow string
 	subBaseDir  string
@@ -71,8 +72,8 @@ func (d *fakeDeps) SourceNames() []string {
 
 func (d *fakeDeps) RepoPath(repo string) (string, bool) { return d.repos.Path(repo) }
 
-func (d *fakeDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName, baseDir string) (string, error) {
-	d.subDot, d.subVars, d.subCwd, d.subTag, d.subWorkflow, d.subBaseDir = dot, vars, cwd, tag, workflowName, baseDir
+func (d *fakeDeps) Submit(dot string, vars map[string]string, cwd, repo, tag, workflowName, baseDir string) (string, error) {
+	d.subDot, d.subVars, d.subCwd, d.subRepo, d.subTag, d.subWorkflow, d.subBaseDir = dot, vars, cwd, repo, tag, workflowName, baseDir
 	return d.subID, d.subErr
 }
 
@@ -155,6 +156,9 @@ func TestRunItemPRAutofillsRepo(t *testing.T) {
 	if deps.subCwd != repoDir {
 		t.Errorf("Submit cwd = %q, want %q (repo auto-filled from item)", deps.subCwd, repoDir)
 	}
+	if deps.subRepo != "allouis/attractor" {
+		t.Errorf("Submit repo = %q, want %q (repo auto-filled from item)", deps.subRepo, "allouis/attractor")
+	}
 	if deps.subTag != ref.String() {
 		t.Errorf("Submit tag = %q, want %q", deps.subTag, ref.String())
 	}
@@ -218,6 +222,9 @@ func TestRunItemNonPRUsesRequestRepo(t *testing.T) {
 	}
 	if deps.subCwd != repoDir {
 		t.Errorf("Submit cwd = %q, want %q (repo from request)", deps.subCwd, repoDir)
+	}
+	if deps.subRepo != "allouis/attractor" {
+		t.Errorf("Submit repo = %q, want %q (repo from request)", deps.subRepo, "allouis/attractor")
 	}
 }
 

@@ -73,8 +73,10 @@ func (s *Server) fireAutomation(a automation.Automation) (string, error) {
 		return "", fmt.Errorf("automation %q: read pipeline: %w", a.Name, err)
 	}
 	// baseDir = the pipeline's dir so its @prompts / child_dotfile resolve
-	// relative to itself, not the automation's work cwd.
-	return s.submit(string(src), a.Vars, a.Cwd, "", "", filepath.Dir(path), "")
+	// relative to itself, not the automation's work cwd. An automation opts
+	// into a repo's per-repo checks by setting the `repo` var, the same way
+	// items carry it (config-screen-spec C3).
+	return s.submit(string(src), a.Vars, a.Cwd, a.Vars["repo"], "", "", filepath.Dir(path), "")
 }
 
 // expandTilde replaces a leading ~ with the user's home directory.

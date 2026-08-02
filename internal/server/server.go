@@ -275,8 +275,9 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	if itemRef != nil {
 		tag = itemRef.String()
 	}
-	// A raw dot submission carries no catalog path, so no workflow_name.
-	id, err := s.submit(source, vars, cwd, tag, "", "", placement)
+	// A raw dot submission carries no catalog path, so no workflow_name,
+	// and no repo identity, so its checks fall to the no-op defaults.
+	id, err := s.submit(source, vars, cwd, "", tag, "", "", placement)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -305,9 +306,9 @@ func (d itemsDeps) SourceNames() []string {
 
 func (d itemsDeps) RepoPath(repo string) (string, bool) { return d.s.repos.Path(repo) }
 
-func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, tag, workflowName, baseDir string) (string, error) {
+func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, repo, tag, workflowName, baseDir string) (string, error) {
 	// Item-dispatched runs use the daemon's default launcher.
-	return d.s.submit(dot, vars, cwd, tag, workflowName, baseDir, "")
+	return d.s.submit(dot, vars, cwd, repo, tag, workflowName, baseDir, "")
 }
 
 func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
@@ -336,7 +337,7 @@ func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
 // automation and cron callers pass "". workflowName, when non-empty, is the
 // catalog directory the run was dispatched from — the run→workflow backlink
 // handle (web-ui-spec W6); raw dot and automation callers pass "".
-func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, workflowName, baseDir, placement string) (string, error) {
+func (s *Server) submit(source string, vars map[string]string, cwd, repo, itemRef, workflowName, baseDir, placement string) (string, error) {
 	// The pipeline's own files (@prompt refs, a manager_loop child_dotfile)
 	// resolve against baseDir — the directory the pipeline was loaded from —
 	// so a workflow dispatched from the catalog can reference its prompts and

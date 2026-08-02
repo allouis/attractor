@@ -73,13 +73,13 @@ func TestPerRunPlacementSelectsNamedLauncher(t *testing.T) {
 	defer srv.Close()
 
 	// runner="vm" → vm launcher
-	id1, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "vm")
+	id1, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "vm")
 	waitTerminal(t, srv, id1, 5*time.Second)
 	// no runner → default
-	id2, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "")
+	id2, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "")
 	waitTerminal(t, srv, id2, 5*time.Second)
 	// unknown runner → default
-	id3, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "bogus")
+	id3, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "bogus")
 	waitTerminal(t, srv, id3, 5*time.Second)
 
 	if !slices.Equal(seen, []string{"vm", "default", "default"}) {

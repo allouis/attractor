@@ -43,8 +43,10 @@ type Deps interface {
 	RepoPath(repo string) (string, bool)
 	// Submit runs the shared admission path, stamping the run with the
 	// opaque item tag and the workflow's catalog name (the run→workflow
-	// backlink handle, web-ui-spec W6), and returns the new run id.
-	Submit(dot string, vars map[string]string, cwd, tag, workflowName, baseDir string) (string, error)
+	// backlink handle, web-ui-spec W6), and returns the new run id. repo is
+	// the run's owner/name identity (empty for a raw dot), keying its
+	// per-repo static checks (config-screen-spec C3).
+	Submit(dot string, vars map[string]string, cwd, repo, tag, workflowName, baseDir string) (string, error)
 	// LinkedRuns returns the runs stamped with the item tag, newest first.
 	LinkedRuns(tag string) []LinkedRun
 }
@@ -144,7 +146,7 @@ func (h *handlers) runItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "resolve item: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	cwd, err := h.resolveRepoPath(item, req.Repo)
+	repo, cwd, err := h.resolveRepoPath(item, req.Repo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -165,7 +167,7 @@ func (h *handlers) runItem(w http.ResponseWriter, r *http.Request) {
 	// manager_loop child_dotfile (authored relative to the pipeline) resolve
 	// against it rather than the work cwd (the target repo).
 	baseDir := filepath.Dir(pipelinePath)
-	id, err := h.deps.Submit(string(dot), item.Vars, cwd, req.ItemRef.String(), workflowName, baseDir)
+	id, err := h.deps.Submit(string(dot), item.Vars, cwd, repo, req.ItemRef.String(), workflowName, baseDir)
 	if err != nil {
 		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -174,21 +176,23 @@ func (h *handlers) runItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveRepoPath picks the repo (item's `repo` var — a PR auto-fills it —
-// else the request's repo) and maps it to a local checkout. An unset or
-// unmapped repo is a 422: attractor can't set the run's cwd.
-func (h *handlers) resolveRepoPath(item source.Item, reqRepo string) (string, error) {
-	repo := item.Vars["repo"]
+// else the request's repo) and maps it to a local checkout. Returns the
+// repo ref alongside its path so the run keys its per-repo checks by
+// identity (config-screen-spec C3). An unset or unmapped repo is a 422:
+// attractor can't set the run's cwd.
+func (h *handlers) resolveRepoPath(item source.Item, reqRepo string) (repo, path string, err error) {
+	repo = item.Vars["repo"]
 	if repo == "" {
 		repo = reqRepo
 	}
 	if repo == "" {
-		return "", fmt.Errorf("no repo: item carries no repo and none supplied in the request")
+		return "", "", fmt.Errorf("no repo: item carries no repo and none supplied in the request")
 	}
 	path, ok := h.deps.RepoPath(repo)
 	if !ok {
-		return "", fmt.Errorf("repo %q not mapped in repos.toml", repo)
+		return "", "", fmt.Errorf("repo %q not mapped in repos.toml", repo)
 	}
-	return path, nil
+	return repo, path, nil
 }
 
 // annotate marks an Item with its linked runs. In-progress is derived,
