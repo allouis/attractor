@@ -12,7 +12,8 @@ loop → record). Small atomic commits; every intervention recorded here.
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
-| `web-ui-v2-spec.md` | drafted | **U1–U5 done**; U6–U7 todo |
+| `run-workflow-spec.md` | drafted (R2 already done via C2) | R1,R3–R5 todo → unblocks U6 |
+| `web-ui-v2-spec.md` | drafted | **U1–U5,U7 done**; U6 waits on run-workflow |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
 U1/U2/U3 are independent of the config work and can interleave.
@@ -173,6 +174,16 @@ config-screen spec commit; advancing it is deferred to the end.
   **Debug+unblock core (U2–U5) complete** — a UI-only teammate can now
   inspect stages, read the timeline/failure, see diff+artifacts, and
   answer gates without shell access.
+
+- **U7 — done** (`~/.attractor/runs/ui-U7`). 7 atomic commits, gate green:
+  fleet filter/search toolbar + repo/origin provenance cells +
+  URL-deep-linked filter state; repo threaded through `NewRun`/summary.
+  `vxppvvzr`…`zwvrlnsp`.
+
+- **Detour: run-workflow-spec** — U6 (re-run) reuses
+  `POST /workflows/{name}/run`, unbuilt. Building run-workflow R1,R3–R5
+  next (R2 `GET /repos` already delivered by config-screen C2), then U6.
+  This also lands the proper launch modal ("able to start using it").
 
 ## Interventions
 
