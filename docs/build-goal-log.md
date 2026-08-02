@@ -12,7 +12,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
-| `web-ui-v2-spec.md` | drafted | **U1–U4 done**; U5–U7 todo |
+| `web-ui-v2-spec.md` | drafted | **U1–U5 done**; U6–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
 U1/U2/U3 are independent of the config work and can interleave.
@@ -163,6 +163,16 @@ config-screen spec commit; advancing it is deferred to the end.
   The dogfood added its own security hardening: server refuses symlinked
   artifacts + guards an empty logs root; UI URL-encodes fetch paths, caps
   inline render size, guards against run switches. `qkxxxrmx`…`vzoktxvx`.
+
+- **U5 — done** (`~/.attractor/runs/ui-U5`). 7 atomic commits, gate green:
+  gate answering — inline open-questions dock driven live from SSE,
+  `gateAnswer` posts the choice, run resumes; loud blocked banner in
+  detail + fleet `runNeedsHuman` gating; server clears pending questions
+  on terminal transition, poll stops on finish. `xtnnrtqz`…`svtquvzx`.
+
+  **Debug+unblock core (U2–U5) complete** — a UI-only teammate can now
+  inspect stages, read the timeline/failure, see diff+artifacts, and
+  answer gates without shell access.
 
 ## Interventions
 
