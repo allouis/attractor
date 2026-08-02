@@ -320,6 +320,26 @@
   </section>
   <section id="runs-view">
     <div id="run-counts" class="counts"></div>
+    <div id="runs-toolbar" class="toolbar">
+      <select id="runs-filter-status" title="status">
+        <option value="">all statuses</option>
+        <option value="running">running</option>
+        <option value="needs-human">needs human</option>
+        <option value="queued">queued</option>
+        <option value="completed">completed</option>
+        <option value="failed">failed</option>
+        <option value="cancelled">cancelled</option>
+      </select>
+      <select id="runs-filter-workflow" title="workflow"><option value="">all workflows</option></select>
+      <select id="runs-filter-repo" title="repo"><option value="">all repos</option></select>
+      <select id="runs-filter-origin" title="started by">
+        <option value="">any origin</option>
+        <option value="item">item</option>
+        <option value="workflow">workflow</option>
+        <option value="manual">manual</option>
+      </select>
+      <input id="runs-filter-text" type="search" placeholder="filter runs…">
+    </div>
     <section id="run-list"></section>
   </section>
   <section id="workflows-view"><div id="workflows-list"></div></section>
@@ -910,14 +930,44 @@ async function fetchRuns() {
 
 // renderFleet draws the counts bar and run table from runsCache. Split from
 // the fetch so toolbar controls re-render the cached fleet without a refetch.
+// Counts summarise the whole fleet (unfiltered — they are the overview); the
+// table shows the toolbar-narrowed subset (web-ui-v2-spec U7).
 function renderFleet() {
-  const runs = runsCache;
-  renderRunCounts(runs);
-  if (!runs.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
+  const all = runsCache;
+  renderRunCounts(all);
+  populateRunFilters(all);
+  if (!all.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
+  const runs = applyRunFilters(all);
+  if (!runs.length) { $('run-list').innerHTML = emptyState('no runs match the filter'); return; }
   const rows = runs.map(runRowHtml).join('');
   $('run-list').innerHTML = `<table>
     <thead><tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
+}
+
+// runsFilter reads the toolbar into the shape runMatchesFilter expects.
+function runsFilter() {
+  return {
+    status: $('runs-filter-status')?.value || '',
+    workflow: $('runs-filter-workflow')?.value || '',
+    repo: $('runs-filter-repo')?.value || '',
+    origin: $('runs-filter-origin')?.value || '',
+    text: ($('runs-filter-text')?.value || '').trim().toLowerCase(),
+  };
+}
+
+// applyRunFilters narrows the fleet by the toolbar selections.
+function applyRunFilters(list) {
+  const filter = runsFilter();
+  return list.filter(p => runMatchesFilter(p, filter));
+}
+
+// populateRunFilters fills the workflow/repo selects with the distinct values
+// present in the fleet, preserving the current selection (fillOptions). The
+// status/origin selects are fixed enums, seeded in the markup.
+function populateRunFilters(runs) {
+  fillOptions('runs-filter-workflow', distinct(runs.map(p => p.workflow_name || '')));
+  fillOptions('runs-filter-repo', distinct(runs.map(runRepo)));
 }
 
 // renderRunCounts fills the counts bar with the four fleet states
@@ -1058,6 +1108,26 @@ function runRepoCell(p) {
 function runOriginCell(p) {
   const o = runOrigin(p);
   return `<span class="origin origin-${o}">${o}</span>`;
+}
+
+// runMatchesFilter narrows the polled fleet client-side (web-ui-v2-spec U7),
+// mirroring eventMatchesFilter. status is exact except the needs-human
+// pseudo-status, which keys the run's live-blocked flag (needs_human is
+// orthogonal to status — a blocked run is still "running"). workflow / repo /
+// origin are exact; text matches case-insensitively across id, item ref,
+// workflow and repo. All clauses AND together; an empty filter matches all.
+function runMatchesFilter(p, filter) {
+  if (filter.status) {
+    const ok = filter.status === 'needs-human' ? runNeedsHuman(p) : p.status === filter.status;
+    if (!ok) return false;
+  }
+  if (filter.workflow && (p.workflow_name || '') !== filter.workflow) return false;
+  if (filter.repo && runRepo(p) !== filter.repo) return false;
+  if (filter.origin && runOrigin(p) !== filter.origin) return false;
+  const q = (filter.text || '').toLowerCase();
+  if (!q) return true;
+  const hay = `${p.id || ''} ${p.item_ref || ''} ${p.workflow_name || ''} ${runRepo(p)}`.toLowerCase();
+  return hay.includes(q);
 }
 
 // runCancelButton renders a cancel trigger for a live run only; a terminal
@@ -2006,6 +2076,12 @@ window.addEventListener('load', () => {
     $(id)?.addEventListener('change', renderItems);
   }
   $('items-filter-text')?.addEventListener('input', renderItems);
+  // Fleet filter toolbar (web-ui-v2-spec U7): re-render the cached fleet on
+  // any control change — no refetch, matching the items toolbar.
+  for (const id of ['runs-filter-status', 'runs-filter-workflow', 'runs-filter-repo', 'runs-filter-origin']) {
+    $(id)?.addEventListener('change', renderFleet);
+  }
+  $('runs-filter-text')?.addEventListener('input', renderFleet);
   $('workflow-expand')?.addEventListener('change', renderWorkflowGraph);
   // Event-timeline filters (web-ui-v2-spec U3): seed the kind dropdown from the
   // known kinds, then re-render on either control changing.
