@@ -11,7 +11,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 | Spec | Status | Build |
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
-| `repo-vm-config-spec.md` | drafted | **VM1–VM3 done**; VM4 todo |
+| `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
@@ -127,6 +127,19 @@ config-screen spec commit; advancing it is deferred to the end.
   runner+image; VM launcher reports its registered images (`ImageValidator`)
   so unknown names are rejected; shared `resolveRepoRef`. `szllwtkw`,
   `tzmzsxsz`, `vvtzmppo`, `ukpyuwqk`, `zowkmspm`.
+
+- **VM4 — done** (`~/.attractor/runs/vm-VM4`). 9 atomic commits, gate green:
+  Repos panel renders per-repo runner + image selects (image follows
+  runner), round-trips runner/image/vm_images through save, `GET /config`
+  surfaces the registry; plus fixes for a save lost-update race, preserving
+  out-of-registry pinned images, and PUT preserving the server-owned
+  registry. `ozlnzqsq`…`wpknvsry`.
+
+- **✅ repo-vm-config-spec fully built** — VM1–VM4, 24 atomic commits, gate
+  green, one stray empty commit cleaned. Repos now declare `runner` +
+  `vm.image` centrally; dispatch resolves placement submission>repo>default
+  against a named-image registry; the Config Repos panel edits it. Next:
+  web-UI v2 (U1–U7).
 
 ## Interventions
 
