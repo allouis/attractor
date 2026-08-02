@@ -291,6 +291,16 @@ function showView(name) {
 }
 
 // ---- routing -----------------------------------------------------------
+// TABS is the top-level tab registry: hash → nav-link id, view section id,
+// and the enter handler that renders it. One place drives both route()'s
+// dispatch and highlightNav()'s active marking, so adding a tab is a single
+// entry rather than edits scattered across the two (web-ui-spec nav shell).
+const TABS = {
+  items:     { nav: 'nav-items',     view: 'items-view',     enter: showItems },
+  runs:      { nav: 'nav-runs',      view: 'runs-view',      enter: showRuns },
+  workflows: { nav: 'nav-workflows', view: 'workflows-view', enter: showWorkflows },
+};
+
 // teardownRun stops the run-detail stream + dock poll when leaving a run.
 function teardownRun() {
   if (es) { es.close(); es = null; }
@@ -300,7 +310,7 @@ function teardownRun() {
 
 // route dispatches on the URL hash. All navigation flows through the hash
 // (nav tabs, run rows, back links), so one hashchange listener drives
-// every view switch. Default landing is Items.
+// every view switch. An unknown tab falls back to Items (the default land).
 function route() {
   stopRunsPoll();
   const m = location.hash.match(/^#run\/(.+)$/);
@@ -308,17 +318,19 @@ function route() {
   teardownRun();
   const wf = location.hash.match(/^#workflow\/(.+)$/);
   if (wf) { openWorkflow(decodeURIComponent(wf[1])); return; }
-  const tab = location.hash.replace(/^#/, '') || 'items';
-  if (tab === 'runs') { highlightNav('runs'); showView('runs-view'); showRuns(); return; }
-  if (tab === 'workflows') { highlightNav('workflows'); showView('workflows-view'); showWorkflows(); return; }
-  highlightNav('items'); showView('items-view'); showItems();
+  const hash = location.hash.replace(/^#/, '');
+  const name = TABS[hash] ? hash : 'items';
+  const tab = TABS[name];
+  highlightNav(name);
+  showView(tab.view);
+  tab.enter();
 }
 
 // highlightNav marks the active tab; run detail counts as the Runs tab.
-function highlightNav(tab) {
-  const active = { items: 'nav-items', runs: 'nav-runs', workflows: 'nav-workflows' }[tab];
-  for (const id of ['nav-items', 'nav-runs', 'nav-workflows']) {
-    const el = $(id); if (el) el.classList.toggle('active', id === active);
+function highlightNav(name) {
+  for (const t in TABS) {
+    const el = $(TABS[t].nav);
+    if (el) el.classList.toggle('active', t === name);
   }
 }
 
