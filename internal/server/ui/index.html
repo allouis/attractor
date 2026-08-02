@@ -1049,8 +1049,10 @@ async function openRun(id) {
   if ($('tl-kind')) $('tl-kind').value = '';
   renderTimeline();
   $('node-pane').innerHTML = '<p class="muted">Click a node to inspect it.</p>';
+  $('run-artifact-view').innerHTML = '';
   await loadGraph(id);
   attachStream(id);
+  loadArtifacts();
   if (dockTimer) clearInterval(dockTimer);
   refreshDock();
   dockTimer = setInterval(refreshDock, 3000);
@@ -1119,8 +1121,8 @@ function attachStream(id) {
     stage_failed:    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); },
     stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
     stage_progress:  ev => appendProgress(ev),
-    pipeline_completed: done,
-    pipeline_failed:    ev => { $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); },
+    pipeline_completed: () => { done(); loadArtifacts(); },
+    pipeline_failed:    ev => { $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); loadArtifacts(); },
   };
   // Every event runs its kind's side-effect (if any) and — unless it is a
   // high-frequency kind (TIMELINE_SKIP) — lands in the U3 timeline. One
@@ -1346,6 +1348,67 @@ async function selectNode(id) {
   if (selectedNode !== id) return;          // a later click won the race
   if (pane) pane.innerHTML = stageDetailHtml(id, detail, nodeTiming[id] || {}, (nodeLog[id] || []).join(''));
   const log = $('node-log'); if (log) log.scrollTop = log.scrollHeight;
+}
+
+// loadArtifacts fills the U4 Diff + Artifacts regions for the current run. It
+// lists the run's logs tree (GET …/artifacts), renders the browser, then
+// auto-fetches the first diff-looking file and paints it in the Diff region.
+// Everything degrades to an empty/error state — a run with no artifacts yet
+// reads clean, not broken. Wiring the click handler here (not at boot) keeps it
+// bound to the freshly-rendered list.
+async function loadArtifacts() {
+  const listEl = $('run-artifacts-list');
+  const diffEl = $('run-diff-body');
+  if (listEl) listEl.innerHTML = loadingState();
+  if (diffEl) diffEl.innerHTML = '';
+  let entries;
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/artifacts`);
+    if (!r.ok) throw new Error(String(r.status));
+    entries = (await r.json()).entries || [];
+  } catch (e) {
+    if (listEl) listEl.innerHTML = errorState('artifacts unavailable');
+    return;
+  }
+  if (listEl) {
+    listEl.innerHTML = artifactListHtml(entries);
+    listEl.onclick = e => {
+      const row = e.target.closest && e.target.closest('.artifact-row');
+      if (row) viewArtifact(row.getAttribute('data-path'));
+    };
+  }
+  const diff = entries.find(e => !e.is_dir && isDiffPath(e.path));
+  if (!diffEl) return;
+  if (!diff) { diffEl.innerHTML = emptyState('This run produced no diff.'); return; }
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/artifacts/${diff.path}`);
+    if (!r.ok) throw new Error(String(r.status));
+    diffEl.innerHTML = diffHtml(await r.text());
+  } catch (e) {
+    diffEl.innerHTML = errorState('diff unavailable');
+  }
+}
+
+// viewArtifact fetches a single artifact and shows it inline (U4): a diff-looking
+// file renders coloured, anything else as escaped text. The body is
+// attacker-controlled, so it is never inserted raw.
+async function viewArtifact(path) {
+  const view = $('run-artifact-view');
+  if (!view) return;
+  view.innerHTML = loadingState();
+  let body;
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/artifacts/${path}`);
+    if (!r.ok) throw new Error(String(r.status));
+    body = await r.text();
+  } catch (e) {
+    view.innerHTML = errorState('could not load ' + escapeHtml(path));
+    return;
+  }
+  const inner = isDiffPath(path)
+    ? `<div class="diff">${diffHtml(body)}</div>`
+    : `<pre class="stage-text">${escapeHtml(body)}</pre>`;
+  view.innerHTML = `<h4>${escapeHtml(path)}</h4>${inner}`;
 }
 
 // ---- config view -------------------------------------------------------
