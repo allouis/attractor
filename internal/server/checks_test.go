@@ -108,7 +108,7 @@ func TestSubmitSeedsChecksForRepo(t *testing.T) {
 
 	srv := checksTestServer(t)
 	cwd := t.TempDir() // not the repo's registered path
-	id, err := srv.submit(doneGraphSrv, nil, cwd, "a/b", "", "", "", "")
+	id, err := srv.submit(doneGraphSrv, nil, cwd, "a/b", "", "", "", "", "")
 	mustNil(t, err)
 	waitTerminal(t, srv, id, 5*time.Second)
 

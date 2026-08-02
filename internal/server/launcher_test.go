@@ -73,17 +73,55 @@ func TestPerRunPlacementSelectsNamedLauncher(t *testing.T) {
 	defer srv.Close()
 
 	// runner="vm" → vm launcher
-	id1, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "vm")
+	id1, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "vm", "")
 	waitTerminal(t, srv, id1, 5*time.Second)
 	// no runner → default
-	id2, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "")
+	id2, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "", "")
 	waitTerminal(t, srv, id2, 5*time.Second)
 	// unknown runner → default
-	id3, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "bogus")
+	id3, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "bogus", "")
 	waitTerminal(t, srv, id3, 5*time.Second)
 
 	if !slices.Equal(seen, []string{"vm", "default", "default"}) {
 		t.Fatalf("launcher order = %v, want [vm default default]", seen)
+	}
+}
+
+// imageRecordingLauncher captures the run's requested VM image name at
+// launch, then self-completes like a phone-home child.
+type imageRecordingLauncher struct{ got *string }
+
+func (l imageRecordingLauncher) Launch(run *Run, _ string) error {
+	*l.got = run.image
+	run.Ingest(engine.Event{Kind: engine.EventPipelineCompleted, Status: "success"})
+	return nil
+}
+
+// A submission's `image` field is carried onto the run so the vm launcher
+// resolves the right boot script per run (VM1) — the symmetric partner of
+// the `runner` override. Repo-config precedence and submit-time rejection of
+// unknown names are VM3.
+func TestPerRunImageCarriedToLauncher(t *testing.T) {
+	tmp := t.TempDir()
+	var got string
+	rec := imageRecordingLauncher{got: &got}
+	srv := New(Config{
+		Addr: "127.0.0.1:0", LogsRoot: tmp,
+		Launcher:  NewDirectLauncher(),
+		Launchers: map[string]Launcher{"vm": rec, "direct": NewDirectLauncher()},
+	})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer srv.Close()
+
+	id, err := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "vm", "python")
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	waitTerminal(t, srv, id, 5*time.Second)
+	if got != "python" {
+		t.Fatalf("run.image at launch = %q, want python", got)
 	}
 }
 

@@ -77,7 +77,7 @@ func (s *Server) fireAutomation(a automation.Automation) (string, error) {
 	// the run's repo (the same way items carry it, config-screen-spec C3),
 	// keying its per-repo checks; an automation without one still backfills
 	// its repo from a cwd that is a registered checkout (seedChecks).
-	return s.submit(string(src), a.Vars, a.Cwd, a.Vars["repo"], "", "", filepath.Dir(path), "")
+	return s.submit(string(src), a.Vars, a.Cwd, a.Vars["repo"], "", "", filepath.Dir(path), "", "")
 }
 
 // expandTilde replaces a leading ~ with the user's home directory.
