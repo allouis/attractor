@@ -1238,6 +1238,19 @@ function onConfigClick(e) {
   }
 }
 
+// onConfigChange handles delegated select changes: a runner select flipping
+// to/from vm enables/disables that row's image select (the image is only
+// meaningful under a vm runner — dispatch resolution §2). It also marks the
+// view dirty, since select changes don't fire the input listener in every
+// browser.
+function onConfigChange(e) {
+  setConfigDirty(true);
+  const runnerSel = e.target.closest('select[data-repo-runner]');
+  if (!runnerSel) return;
+  const img = runnerSel.closest('tr[data-repo-row]')?.querySelector('select[data-repo-image]');
+  if (img) img.disabled = runnerSel.value !== 'vm';
+}
+
 // setConfigDirty tracks unsaved edits so the user sees the view has pending
 // changes; a successful save (or a fresh render) clears it.
 function setConfigDirty(dirty) {
@@ -1452,6 +1465,7 @@ window.addEventListener('load', () => {
   // dirty on any field edit.
   $('config-view')?.addEventListener('click', onConfigClick);
   $('config-view')?.addEventListener('input', () => setConfigDirty(true));
+  $('config-view')?.addEventListener('change', onConfigChange);
   $('config-save')?.addEventListener('click', saveConfig);
   $('run-picker-cancel')?.addEventListener('click', () => $('run-picker').close());
   $('run-picker-run')?.addEventListener('click', submitRun);

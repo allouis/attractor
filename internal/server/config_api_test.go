@@ -209,6 +209,45 @@ func TestPutConfigWarnsBadRepoPath(t *testing.T) {
 	}
 }
 
+// TestPutConfigRoundTripsRunnerImageAndRegistry: a document carrying a repo's
+// declared runner + vm.image and the vm_images registry survives a PUT and
+// resurfaces on GET — the Config Repos panel's save-then-reload path. Guards
+// the whole-doc contract that a save never drops a repo's placement or the
+// image registry (per-repo VM config, VM4).
+func TestPutConfigRoundTripsRunnerImageAndRegistry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	doc := config.Document{
+		Repos: map[string]config.RepoConfig{
+			"a/b": {Path: home, Runner: "vm", VM: &config.VMConfig{Image: "node-ts"}},
+		},
+		VMImages: map[string]string{"default": ".#vm-runner", "node-ts": ".#vm-runner"},
+	}
+	body, _ := json.Marshal(doc)
+	rec := serveConfig(t, http.MethodPut, "/config", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	// Persisted to disk.
+	got, err := config.LoadDocument(home)
+	mustNil(t, err)
+	rc := got.Repos["a/b"]
+	if rc.Runner != "vm" || rc.VM == nil || rc.VM.Image != "node-ts" {
+		t.Errorf("PUT dropped the repo runner/image: %#v", rc)
+	}
+	if got.VMImages["node-ts"] == "" {
+		t.Errorf("PUT dropped the vm_images registry: %#v", got.VMImages)
+	}
+	// And resurfaces on GET (so the panel can repaint the selects).
+	rec = serveConfig(t, http.MethodGet, "/config", nil)
+	getBody := rec.Body.String()
+	for _, want := range []string{`"runner":"vm"`, `"image":"node-ts"`, `"vm_images"`} {
+		if !strings.Contains(getBody, want) {
+			t.Errorf("GET /config missing %q after round-trip: %s", want, getBody)
+		}
+	}
+}
+
 // TestPutConfigMalformedJSON: a body that isn't a document is a 400.
 func TestPutConfigMalformedJSON(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
