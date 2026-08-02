@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,6 +158,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/control", s.control)
 	mux.HandleFunc("POST /pipelines/{id}/artifacts/{path...}", s.putArtifact)
 	mux.HandleFunc("GET /pipelines/{id}/graph", s.getGraph)
+	mux.HandleFunc("GET /pipelines/{id}/artifacts", s.listArtifacts)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", s.getArtifact)
 	mux.HandleFunc("GET /pipelines/{id}/stages/{node}", s.getStage)
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.listQuestions)
@@ -579,6 +581,46 @@ func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, full)
+}
+
+// artifactEntry is one node of a run's logs tree, its path relative to the
+// run's logsRoot (web-ui-v2-spec U4). Directories carry is_dir so the browser
+// can group; files carry their size.
+type artifactEntry struct {
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	IsDir bool   `json:"is_dir"`
+}
+
+// listArtifacts serves GET /pipelines/{id}/artifacts: the whole logs tree as a
+// flat, sorted list. This is the browser's SSH replacement — every file the run
+// produced (stage dirs, uploaded artifacts, events.jsonl) is discoverable and
+// then fetched individually via getArtifact.
+func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.registry.Get(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	root := filepath.Clean(run.logsRoot)
+	entries := []artifactEntry{}
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || path == root {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		e := artifactEntry{Path: filepath.ToSlash(rel), IsDir: d.IsDir()}
+		if info, err := d.Info(); err == nil {
+			e.Size = info.Size()
+		}
+		entries = append(entries, e)
+		return nil
+	})
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
 
 func (s *Server) listQuestions(w http.ResponseWriter, r *http.Request) {
