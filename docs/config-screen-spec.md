@@ -138,7 +138,7 @@ loopback.
 
 | # | Deliverable | Depends on | Status |
 |---|---|---|---|
-| C1 | `config.json` schema + load/save (JSON), replacing the TOML `Load`/`LoadRepos`; `config.Config`/`items.Repos` become projections; per-repo nested checks; fresh-default on first run (no migration); update both readers (`seedChecks`, CLI provider path); tests | — | todo |
+| C1 | `config.json` schema + load/save (JSON), replacing the TOML `Load`/`LoadRepos`; `config.Config`/`items.Repos` become projections; per-repo nested checks; fresh-default on first run (no migration); update both readers (`seedChecks`, CLI provider path); tests | — | done |
 | C2 | `GET /config` (secrets redacted) + `PUT /config` (whole-doc, secret-merge, structural validation / soft warnings); `GET /repos` reprojected off `config.repos`; tests | C1 | todo |
 | C3 | `seedChecks` reads per-repo checks from the central config keyed by the run's repo, not the repo cwd; test | C1 | todo |
 | C4 | Config view: hand-built panels — repos + checks table CRUD, Linear secret input (+ Clear), providers form with restart-note; whole-doc save via `PUT /config` | C2 | todo |
