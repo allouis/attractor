@@ -10,7 +10,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 
 | Spec | Status | Build |
 |---|---|---|
-| `config-screen-spec.md` | decisions locked | **C1–C2 done**; C3–C5 todo |
+| `config-screen-spec.md` | decisions locked | **C1–C3 done**; C4–C5 todo |
 | `repo-vm-config-spec.md` | drafted | VM1–VM4 todo (after config-screen C1) |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
@@ -68,6 +68,15 @@ config-screen spec commit; advancing it is deferred to the end.
   - `owszxnyn` feat(server): GET /repos projects config.repos live
   - `zvtuswqk` test(e2e): config API roundtrip through the real server
   - `nuznosro` docs: mark C2 done
+
+- **config-screen C3 — done** (dogfood run, `~/.attractor/runs/config-C3`).
+  5 atomic commits, gate green, no intervention:
+  - `tyoznwxv` feat(config): ChecksForRepo keys checks by repo ref
+  - `tvrqwlnp` refactor(items): thread the run's repo through the Submit seam
+  - `nmzutnum` feat(server): seedChecks keys checks by the run's repo
+  - `mrluyknp` feat(config): RepoForPath resolves a repo ref from a checkout path
+  - `ruwsulzn` fix(server): seedChecks backfills repo from cwd, warns on unregistered ref
+  - `oytxplyv` docs: mark C3 done
 
 ## Interventions
 
