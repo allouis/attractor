@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/allouis/attractor/internal/dot"
+	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/render"
 )
 
@@ -70,6 +72,53 @@ func (s *Server) workflowDir(name string) (string, bool) {
 		return "", false
 	}
 	return dir, true
+}
+
+// workflowDetail is the input contract GET /workflows/{name} exposes: the
+// catalog entry plus the goal and declared vars parsed from its pipeline.dot,
+// so the Run modal can build one form field per var (run-workflow-spec R1).
+type workflowDetail struct {
+	Name string   `json:"name"`
+	Path string   `json:"path"`
+	Goal string   `json:"goal"`
+	Vars []string `json:"vars"`
+}
+
+// getWorkflow serves GET /workflows/{name}: the workflow's goal and declared
+// vars, parsed from the catalog pipeline.dot via graph.Build. A missing
+// definition is a 404; an unparseable one is a 500 (broken, not absent).
+func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
+	dir, ok := s.workflowDir(r.PathValue("name"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	path := filepath.Join(dir, "pipeline.dot")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	file, err := dot.Parse(string(source))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	g, err := graph.Build(file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	vars := g.DeclaredVars()
+	if vars == nil {
+		vars = []string{}
+	}
+	writeJSON(w, http.StatusOK, workflowDetail{
+		Name: r.PathValue("name"),
+		Path: path,
+		Goal: g.Goal(),
+		Vars: vars,
+	})
 }
 
 // getWorkflowGraph serves GET /workflows/{name}/graph: the definition's
