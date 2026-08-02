@@ -1049,7 +1049,13 @@ function setConfigStatus(text, kind) {
 // scrapes.
 function reposPanelHtml(repos) {
   const names = Object.keys(repos || {}).sort();
-  const rows = names.map(name => repoRowHtml(name, repos[name] || {})).join('');
+  // Empty-state hint spans every column (owner/name + path + each standard
+  // check + the remove control) so a fresh config reads as "none yet, add
+  // one" rather than a bare header (config-screen-spec C5 empty states).
+  const cols = 3 + STANDARD_CHECKS.length;
+  const rows = names.length
+    ? names.map(name => repoRowHtml(name, repos[name] || {})).join('')
+    : `<tr data-empty-hint><td class="muted" colspan="${cols}">No repos registered — add one.</td></tr>`;
   return `<section class="config-panel" id="config-repos">
     <h3>Repos</h3>
     <p class="muted">Registered repos and their check commands — the run-form dropdown and the check backbone read these.</p>
@@ -1106,7 +1112,11 @@ function providersPanelHtml(doc) {
   const names = Object.keys(providers).sort();
   const options = names.map(n =>
     `<option value="${escapeHtml(n)}"${n === def ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
-  const rows = names.map(n => providerRowHtml(n, providers[n] || {})).join('');
+  // Empty-state hint spans provider + backend + command + model_env + the
+  // remove control (C5 empty states).
+  const rows = names.length
+    ? names.map(n => providerRowHtml(n, providers[n] || {})).join('')
+    : `<tr data-empty-hint><td class="muted" colspan="5">No providers configured — add one.</td></tr>`;
   return `<section class="config-panel" id="config-providers">
     <h3>Providers</h3>
     <p class="muted">Agent backends the router dispatches to.</p>
@@ -1139,14 +1149,20 @@ function providerRowHtml(name, p) {
 function onConfigClick(e) {
   if (e.target.closest('button[data-repo-add]')) {
     const rows = $('config-repos-rows');
-    if (rows) rows.insertAdjacentHTML('beforeend', repoRowHtml('', {}));
+    if (rows) {
+      rows.querySelectorAll('tr[data-empty-hint]').forEach(r => r.remove());
+      rows.insertAdjacentHTML('beforeend', repoRowHtml('', {}));
+    }
     return;
   }
   const rmRepo = e.target.closest('button[data-repo-remove]');
   if (rmRepo) { rmRepo.closest('tr[data-repo-row]').remove(); return; }
   if (e.target.closest('button[data-provider-add]')) {
     const rows = $('config-providers-rows');
-    if (rows) rows.insertAdjacentHTML('beforeend', providerRowHtml('', {}));
+    if (rows) {
+      rows.querySelectorAll('tr[data-empty-hint]').forEach(r => r.remove());
+      rows.insertAdjacentHTML('beforeend', providerRowHtml('', {}));
+    }
     return;
   }
   const rmProv = e.target.closest('button[data-provider-remove]');

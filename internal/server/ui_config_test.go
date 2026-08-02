@@ -59,6 +59,31 @@ func TestConfigReposPanel(t *testing.T) {
 	}
 }
 
+// TestConfigReposPanelEmpty: with no registered repos the panel shows an
+// empty-state hint (not a bare header-only table) and still offers add-repo
+// so the first repo can be entered (config-screen-spec C5 empty states).
+func TestConfigReposPanelEmpty(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({})`)
+	if !strings.Contains(strings.ToLower(html), "no repos") {
+		t.Errorf("empty repos panel should show a hint:\n%s", html)
+	}
+	if !strings.Contains(html, "data-repo-add") {
+		t.Errorf("empty repos panel should still offer add-repo:\n%s", html)
+	}
+}
+
+// TestConfigProvidersPanelEmpty: with no providers the panel shows an
+// empty-state hint and still offers add-provider (C5 empty states).
+func TestConfigProvidersPanelEmpty(t *testing.T) {
+	html := evalUI(t, `providersPanelHtml({default_provider:"",providers:{}})`)
+	if !strings.Contains(strings.ToLower(html), "no providers") {
+		t.Errorf("empty providers panel should show a hint:\n%s", html)
+	}
+	if !strings.Contains(html, "data-provider-add") {
+		t.Errorf("empty providers panel should still offer add-provider:\n%s", html)
+	}
+}
+
 // TestConfigLinearPanelSet: the Linear panel reports a stored key as set,
 // never echoes a value (it has none — GET redacts), and offers Clear.
 func TestConfigLinearPanelSet(t *testing.T) {
