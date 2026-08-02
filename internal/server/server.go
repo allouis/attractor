@@ -390,6 +390,21 @@ var checkNames = []string{"deps", "typecheck", "lint", "test"}
 // entry is logged: its checks silently no-op, which for a gate is a
 // misconfiguration worth a signal (the items dispatch path already 422s an
 // unmapped ref; automations do not).
+// resolveRepoRef returns the repo identity a dispatch resolves to: its
+// explicit owner/name ref when set, else the registered checkout whose path
+// is cwd (backfilling a cwd-only automation / raw-dot dispatch that carries
+// no ref), else "". Shared by static-check seeding and dispatch placement so
+// both key off the same identity (config-screen-spec C3, per-repo VM config).
+func resolveRepoRef(doc config.Document, repo, cwd string) string {
+	if repo != "" {
+		return repo
+	}
+	if r, ok := doc.RepoForPath(cwd); ok {
+		return r
+	}
+	return ""
+}
+
 func seedChecks(seed map[string]string, repo, cwd string) map[string]string {
 	if seed == nil {
 		seed = map[string]string{}
@@ -401,10 +416,8 @@ func seedChecks(seed map[string]string, repo, cwd string) map[string]string {
 				if _, ok := doc.Repos[repo]; !ok {
 					log.Printf("seedChecks: run names unregistered repo %q; static checks fall to no-op defaults", repo)
 				}
-			} else if r, ok := doc.RepoForPath(cwd); ok {
-				repo = r
 			}
-			configured = doc.ChecksForRepo(repo)
+			configured = doc.ChecksForRepo(resolveRepoRef(doc, repo, cwd))
 		}
 	}
 	for _, name := range checkNames {
