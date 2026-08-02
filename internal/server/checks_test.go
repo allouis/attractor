@@ -1,14 +1,12 @@
 package server
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/allouis/attractor/internal/config"
 )
 
-// TestSeedChecks verifies each check is seeded — from a repo's [checks]
-// config when present, and a no-op default otherwise.
 func mustNil(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
@@ -16,6 +14,9 @@ func mustNil(t *testing.T, err error) {
 	}
 }
 
+// TestSeedChecks verifies each check is seeded — from the central
+// config.json when the run's cwd matches a registered repo, and a no-op
+// default otherwise (config-screen-spec C1).
 func TestSeedChecks(t *testing.T) {
 	// No cwd → every check is a no-op default.
 	seed := seedChecks(nil, "")
@@ -25,12 +26,22 @@ func TestSeedChecks(t *testing.T) {
 		}
 	}
 
-	// A repo whose .attractor/config.toml sets some checks.
-	dir := t.TempDir()
-	mustNil(t, os.MkdirAll(filepath.Join(dir, ".attractor"), 0o755))
-	mustNil(t, os.WriteFile(filepath.Join(dir, ".attractor", "config.toml"),
-		[]byte("[checks]\nlint = \"golangci-lint run\"\ntest = \"go test ./...\"\n"), 0o644))
-	seed = seedChecks(nil, dir)
+	// A repo registered in the central config with some checks; the run's
+	// cwd is that repo's checkout.
+	home := t.TempDir()
+	repoDir := t.TempDir()
+	t.Setenv("HOME", home)
+	doc := config.Document{
+		Repos: map[string]config.RepoConfig{
+			"a/b": {Path: repoDir, Checks: map[string]string{
+				"lint": "golangci-lint run",
+				"test": "go test ./...",
+			}},
+		},
+	}
+	mustNil(t, doc.Save(home))
+
+	seed = seedChecks(nil, repoDir)
 	if seed["check.lint"] != "golangci-lint run" {
 		t.Errorf("configured lint not used: %q", seed["check.lint"])
 	}

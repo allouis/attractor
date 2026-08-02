@@ -369,9 +369,10 @@ func (s *Server) submit(source string, vars map[string]string, cwd, itemRef, wor
 var checkNames = []string{"deps", "typecheck", "lint", "test"}
 
 // seedChecks adds $context.check.<name> for every static check, taking the
-// command from the target repo's .attractor/config.toml [checks] table and
-// falling back to a no-op (echo … ; success) when a repo configures none,
-// so a work pipeline can reference them unconditionally.
+// command from the central config.json entry of the repo whose checkout is
+// the run's cwd, and falling back to a no-op (echo … ; success) when no
+// registered repo configures one, so a work pipeline can reference them
+// unconditionally.
 func seedChecks(seed map[string]string, cwd string) map[string]string {
 	if seed == nil {
 		seed = map[string]string{}
@@ -379,8 +380,8 @@ func seedChecks(seed map[string]string, cwd string) map[string]string {
 	var configured map[string]string
 	if cwd != "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			if cfg, err := config.Load(home, cwd); err == nil {
-				configured = cfg.Checks
+			if doc, err := config.LoadDocument(home); err == nil {
+				configured = doc.ChecksForPath(cwd)
 			}
 		}
 	}

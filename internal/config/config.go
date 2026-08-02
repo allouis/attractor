@@ -7,8 +7,6 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/allouis/attractor/internal/graph"
@@ -33,82 +31,6 @@ type Config struct {
 	// LinearAPIKey authenticates the Linear source (items-spec I2). The
 	// daemon can't borrow the session's MCP, so the key lives in config.
 	LinearAPIKey string
-	// Checks maps a static-check name (deps, typecheck, lint, test) to the
-	// shell command that runs it for this repo. A repo's own
-	// .attractor/config.toml [checks] table supplies them; the daemon seeds
-	// them into the run context as $context.check.<name> so a work pipeline
-	// (implement, bug-fix) can gate on them without hardcoding a toolchain.
-	Checks map[string]string
-}
-
-// Load reads ~/.attractor/config.toml then overlays
-// ./.attractor/config.toml (cwd wins). Missing files are not an error:
-// they yield an empty Config, which leaves routing to fall back to the
-// default provider (or, absent that, the CLI's --backend override).
-func Load(homeDir, cwd string) (Config, error) {
-	cfg := Config{Providers: map[string]Provider{}}
-	paths := []string{
-		filepath.Join(homeDir, ".attractor", "config.toml"),
-		filepath.Join(cwd, ".attractor", "config.toml"),
-	}
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return Config{}, err
-		}
-		layer, err := Parse(data)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.overlay(layer)
-	}
-	// Environment fallback: LINEAR_API_KEY lets the Linear key live in the
-	// process env (like GH_TOKEN does for the GitHub source via `gh`)
-	// rather than only in config.toml. A config file still wins when both
-	// are set.
-	if cfg.LinearAPIKey == "" {
-		if k := os.Getenv("LINEAR_API_KEY"); k != "" {
-			cfg.LinearAPIKey = k
-		}
-	}
-	return cfg, nil
-}
-
-// overlay merges src onto the receiver, src winning on any key it sets.
-func (c *Config) overlay(src Config) {
-	if src.DefaultProvider != "" {
-		c.DefaultProvider = src.DefaultProvider
-	}
-	if src.LinearAPIKey != "" {
-		c.LinearAPIKey = src.LinearAPIKey
-	}
-	if len(src.Checks) > 0 {
-		if c.Checks == nil {
-			c.Checks = map[string]string{}
-		}
-		for k, v := range src.Checks {
-			c.Checks[k] = v
-		}
-	}
-	if c.Providers == nil {
-		c.Providers = map[string]Provider{}
-	}
-	for name, sp := range src.Providers {
-		p := c.Providers[name]
-		if sp.Backend != "" {
-			p.Backend = sp.Backend
-		}
-		if sp.Command != "" {
-			p.Command = sp.Command
-		}
-		if sp.ModelEnv != "" {
-			p.ModelEnv = sp.ModelEnv
-		}
-		c.Providers[name] = p
-	}
 }
 
 // InferProvider guesses the provider from an llm_model prefix
