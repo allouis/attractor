@@ -1184,12 +1184,13 @@ function onConfigClick(e) {
   const rmProv = e.target.closest('button[data-provider-remove]');
   if (rmProv) { rmProv.closest('tr[data-provider-row]').remove(); return; }
   if (e.target.closest('button[data-linear-clear]')) {
-    linearClear = true;
+    // Toggle the pending clear and re-render just the Linear panel from the
+    // redacted load state, so arming is reversible ("keep key" un-arms) and
+    // in-progress repo/provider edits elsewhere are left untouched.
+    linearClear = !linearClear;
     setConfigDirty(true);
-    const key = $('config-linear-key');
-    if (key) { key.value = ''; key.disabled = true; }
-    const note = $('config-linear-note');
-    if (note) note.textContent = 'key will be cleared on save';
+    const panel = $('config-linear');
+    if (panel && configLoaded) panel.outerHTML = linearPanelHtml(configLoaded.linear, linearClear);
   }
 }
 

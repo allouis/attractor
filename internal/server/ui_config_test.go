@@ -138,6 +138,38 @@ func TestConfigLinearPanelSet(t *testing.T) {
 	}
 }
 
+// TestConfigLinearPanelArmedClear: an armed pending-clear disables the input,
+// announces the clear, and flips the control to an un-arm ("keep key") — so
+// the clear is reversible via re-render, not a one-way DOM mutation
+// (config-screen-spec C5 redaction UX).
+func TestConfigLinearPanelArmedClear(t *testing.T) {
+	html := evalUI(t, `linearPanelHtml({api_key_set:true}, true)`)
+	if !strings.Contains(html, "will be cleared") {
+		t.Errorf("armed clear should announce the pending clear:\n%s", html)
+	}
+	if !strings.Contains(html, "disabled") {
+		t.Errorf("armed clear should disable the key input:\n%s", html)
+	}
+	if !strings.Contains(html, "keep key") {
+		t.Errorf("armed clear should offer an un-arm control:\n%s", html)
+	}
+}
+
+// TestConfigLinearPanelNotArmed: without an armed clear the input is live,
+// there is no clear announcement, and the control reads "clear key".
+func TestConfigLinearPanelNotArmed(t *testing.T) {
+	html := evalUI(t, `linearPanelHtml({api_key_set:true}, false)`)
+	if strings.Contains(html, "will be cleared") {
+		t.Errorf("unarmed panel should not announce a clear:\n%s", html)
+	}
+	if strings.Contains(html, "disabled") {
+		t.Errorf("unarmed panel should leave the key input live:\n%s", html)
+	}
+	if !strings.Contains(html, "clear key") {
+		t.Errorf("unarmed panel should offer the clear control:\n%s", html)
+	}
+}
+
 // TestConfigLinearPanelUnset: no stored key → reported unset, no Clear (there
 // is nothing to remove).
 func TestConfigLinearPanelUnset(t *testing.T) {
