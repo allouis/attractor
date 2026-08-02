@@ -248,6 +248,33 @@ func TestPutConfigRoundTripsRunnerImageAndRegistry(t *testing.T) {
 	}
 }
 
+// TestPutConfigPreservesVMImagesWhenOmitted: the vm_images registry is
+// server-owned (nix/CLI-managed, never edited via the UI). A PUT that omits it
+// — any non-UI client, or the UI once it stops echoing — must keep the stored
+// registry, not wipe it (per-repo VM config, VM4). Mirrors the secret merge:
+// omitted ⇒ preserve.
+func TestPutConfigPreservesVMImagesWhenOmitted(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustNil(t, config.Document{
+		VMImages: map[string]string{"default": ".#vm-runner", "node-ts": ".#vm-runner"},
+	}.Save(home))
+
+	// A PUT carrying no vm_images at all (a bare curl/script client).
+	body, _ := json.Marshal(config.Document{
+		Repos: map[string]config.RepoConfig{"a/b": {Path: home}},
+	})
+	rec := serveConfig(t, http.MethodPut, "/config", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	got, err := config.LoadDocument(home)
+	mustNil(t, err)
+	if got.VMImages["node-ts"] == "" || got.VMImages["default"] == "" {
+		t.Errorf("PUT omitting vm_images wiped the registry: %#v", got.VMImages)
+	}
+}
+
 // TestPutConfigMalformedJSON: a body that isn't a document is a 400.
 func TestPutConfigMalformedJSON(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

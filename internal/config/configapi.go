@@ -67,10 +67,14 @@ func (d Document) Validate() (warnings []string, err error) {
 	return warnings, nil
 }
 
-// WithMergedSecrets implements the PUT secret-merge: an empty incoming
-// secret keeps the stored value, a non-empty one replaces it, and an
-// explicit ClearAPIKey drops it (the distinct clear action — an empty key
-// alone always preserves). d is the incoming (UI-submitted) document, prev
+// WithMergedSecrets implements the PUT merge of server-owned state the UI
+// never manages, so a whole-doc replace can't wipe it. The Linear secret:
+// an empty incoming key keeps the stored value, a non-empty one replaces it,
+// and an explicit ClearAPIKey drops it (the distinct clear — an empty key
+// alone always preserves). The vm_images registry (nix/CLI-managed): an
+// omitted incoming registry keeps the stored one, so any client PUT-ing
+// without it — or the UI, which no longer echoes it — leaves it intact
+// (per-repo VM config, VM4). d is the incoming (UI-submitted) document, prev
 // the currently stored one. The clear signal is consumed here, never
 // persisted.
 func (d Document) WithMergedSecrets(prev Document) Document {
@@ -81,6 +85,9 @@ func (d Document) WithMergedSecrets(prev Document) Document {
 		d.Linear.APIKey = prev.Linear.APIKey
 	}
 	d.Linear.ClearAPIKey = false
+	if d.VMImages == nil {
+		d.VMImages = prev.VMImages
+	}
 	return d
 }
 
