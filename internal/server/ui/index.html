@@ -1028,7 +1028,7 @@ async function showConfig() {
 function renderConfig(doc) {
   linearClear = false;
   $('config-body').innerHTML =
-    reposPanelHtml(doc.repos) + linearPanelHtml(doc.linear) + providersPanelHtml(doc);
+    reposPanelHtml(doc.repos) + linearPanelHtml(doc.linear, linearClear) + providersPanelHtml(doc);
   setConfigDirty(false);
 }
 
@@ -1079,15 +1079,20 @@ function repoRowHtml(name, rc) {
 // linearPanelHtml renders the Linear secret panel: the key's set/unset
 // state (never the value — GET /config redacts it), a secret input that
 // replaces the stored key only when non-empty, and a Clear control shown
-// only when a key is stored (nothing to clear otherwise).
-function linearPanelHtml(linear) {
+// only when a key is stored (nothing to clear otherwise). armedClear
+// reflects a pending Clear: the input is disabled, the note announces the
+// clear, and the control flips to an undo — so arming is a re-render, not a
+// one-way DOM mutation.
+function linearPanelHtml(linear, armedClear) {
   const set = !!(linear && linear.api_key_set);
+  const armed = set && !!armedClear;
   return `<section class="config-panel" id="config-linear">
     <h3>Linear</h3>
     <p class="muted">API key for the Linear item source — status <strong>${set ? 'set' : 'unset'}</strong>. The stored key is never shown.</p>
-    <label>API key <input type="password" id="config-linear-key" placeholder="${
+    <label>API key <input type="password" id="config-linear-key"${armed ? ' disabled' : ''} placeholder="${
       set ? 'leave blank to keep the stored key' : 'enter a key'}"></label>
-    <p>${set ? '<button type="button" data-linear-clear>clear key</button> ' : ''}<span id="config-linear-note" class="config-note"></span></p>
+    <p>${set ? `<button type="button" data-linear-clear>${armed ? 'keep key' : 'clear key'}</button> ` : ''}<span id="config-linear-note" class="config-note">${
+      armed ? 'key will be cleared on save' : ''}</span></p>
   </section>`;
 }
 
