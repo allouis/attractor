@@ -59,6 +59,33 @@ func TestConfigReposPanel(t *testing.T) {
 	}
 }
 
+// TestConfigLinearPanelSet: the Linear panel reports a stored key as set,
+// never echoes a value (it has none — GET redacts), and offers Clear.
+func TestConfigLinearPanelSet(t *testing.T) {
+	html := evalUI(t, `linearPanelHtml({api_key_set:true})`)
+	if !strings.Contains(html, "set") {
+		t.Errorf("linear panel should report the key as set:\n%s", html)
+	}
+	if !strings.Contains(html, `type="password"`) {
+		t.Errorf("linear panel should use a secret input:\n%s", html)
+	}
+	if !strings.Contains(html, "data-linear-clear") {
+		t.Errorf("a set key should offer a Clear control:\n%s", html)
+	}
+}
+
+// TestConfigLinearPanelUnset: no stored key → reported unset, no Clear (there
+// is nothing to remove).
+func TestConfigLinearPanelUnset(t *testing.T) {
+	html := evalUI(t, `linearPanelHtml({api_key_set:false})`)
+	if !strings.Contains(html, "unset") {
+		t.Errorf("linear panel should report the key as unset:\n%s", html)
+	}
+	if strings.Contains(html, "data-linear-clear") {
+		t.Errorf("an unset key should not offer Clear:\n%s", html)
+	}
+}
+
 // TestConfigReposPanelEscapes guards against a malicious repo name/path
 // being rendered as live markup (the doc is daemon-owned but the panel must
 // not become an injection sink).

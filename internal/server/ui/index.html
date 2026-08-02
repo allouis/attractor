@@ -277,6 +277,7 @@ const nodeState = {};          // node id -> status class
 let dockTimer = null;
 let runsTimer = null;          // fleet-list poll while the Runs view is open
 let configLoaded = null;       // last GET /config doc (redacted) the view rendered
+let linearClear = false;       // pending explicit Linear-key clear (Clear button)
 
 // STANDARD_CHECKS are the checks the current pipelines reference; the Repos
 // panel surfaces them as fixed columns even when a repo sets none. The
@@ -1019,7 +1020,8 @@ async function showConfig() {
 // renderConfig paints the panels from the loaded doc. Each panel is a pure
 // name→HTML function so it is unit-testable via the node vm harness.
 function renderConfig(doc) {
-  $('config-body').innerHTML = reposPanelHtml(doc.repos);
+  linearClear = false;
+  $('config-body').innerHTML = reposPanelHtml(doc.repos) + linearPanelHtml(doc.linear);
 }
 
 // setConfigStatus shows a save result above the panels: an error (structural
@@ -1066,6 +1068,21 @@ function repoRowHtml(name, rc) {
   </tr>`;
 }
 
+// linearPanelHtml renders the Linear secret panel: the key's set/unset
+// state (never the value — GET /config redacts it), a secret input that
+// replaces the stored key only when non-empty, and a Clear control shown
+// only when a key is stored (nothing to clear otherwise).
+function linearPanelHtml(linear) {
+  const set = !!(linear && linear.api_key_set);
+  return `<section class="config-panel" id="config-linear">
+    <h3>Linear</h3>
+    <p class="muted">API key for the Linear item source — status <strong>${set ? 'set' : 'unset'}</strong>. The stored key is never shown.</p>
+    <label>API key <input type="password" id="config-linear-key" placeholder="${
+      set ? 'leave blank to keep the stored key' : 'enter a key'}"></label>
+    <p>${set ? '<button type="button" data-linear-clear>clear key</button> ' : ''}<span id="config-linear-note" class="config-note"></span></p>
+  </section>`;
+}
+
 // onConfigClick handles the Repos panel's delegated add/remove — the rows
 // are innerHTML so a single listener on the view drives every row's control
 // (matching the items/run-list convention).
@@ -1076,7 +1093,14 @@ function onConfigClick(e) {
     return;
   }
   const rm = e.target.closest('button[data-repo-remove]');
-  if (rm) rm.closest('tr[data-repo-row]').remove();
+  if (rm) { rm.closest('tr[data-repo-row]').remove(); return; }
+  if (e.target.closest('button[data-linear-clear]')) {
+    linearClear = true;
+    const key = $('config-linear-key');
+    if (key) { key.value = ''; key.disabled = true; }
+    const note = $('config-linear-note');
+    if (note) note.textContent = 'key will be cleared on save';
+  }
 }
 
 // ---- wait.human dock ---------------------------------------------------
