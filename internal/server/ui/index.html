@@ -184,6 +184,21 @@
   #human-dock { margin-top: var(--space-4); }
   #human-dock .q { border: 1px solid var(--state-needs-human); border-radius: 6px;
                    padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
+  /* Event timeline (web-ui-v2-spec U3): the full, filterable run event log —
+     a scrollable feed under the graph so the whole history is one glance. */
+  #event-timeline { margin-top: var(--space-4); }
+  #event-timeline h3 { margin: 0 0 var(--space-2); }
+  .tl-controls { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .tl-controls input { flex: 1; }
+  .timeline { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
+              max-height: 360px; overflow: auto; font: var(--font-sm)/1.45 ui-monospace, monospace; }
+  .tl-row { display: flex; align-items: baseline; gap: var(--space-2);
+            padding: var(--space-1) var(--space-3); border-bottom: 1px solid var(--border); }
+  .tl-row:last-child { border-bottom: 0; }
+  .tl-time { color: var(--text-muted); white-space: nowrap; }
+  .tl-kind { flex: none; }
+  .tl-node { color: var(--text-muted); }
+  .tl-msg { white-space: pre-wrap; word-break: break-word; }
   .pulse { animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
   .muted { color: var(--text-muted); }
@@ -290,6 +305,7 @@
   <section id="run-view">
     <p><a href="#runs">&larr; all runs</a></p>
     <h2 id="run-title"></h2>
+    <div id="run-failure"></div>
     <div class="layout">
       <div id="graph" class="graph-pane"></div>
       <div>
@@ -297,6 +313,14 @@
         <div id="human-dock"></div>
       </div>
     </div>
+    <section id="event-timeline">
+      <h3>Events</h3>
+      <div class="tl-controls">
+        <select id="tl-kind" aria-label="filter events by kind"><option value="">all kinds</option></select>
+        <input id="tl-text" placeholder="filter events…" aria-label="filter events by text">
+      </div>
+      <div id="tl-rows" class="timeline"></div>
+    </section>
   </section>
 </main>
 <script>
