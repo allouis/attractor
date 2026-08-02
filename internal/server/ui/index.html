@@ -132,6 +132,12 @@
   .chip.needs-human { display: inline-block; font-size: var(--font-sm); font-weight: 600;
            padding: 0 var(--space-2); border-radius: 999px; margin-left: var(--space-2);
            background: var(--state-needs-human); color: var(--attention-ink); }
+  /* Origin provenance tag (web-ui-v2-spec U7): a quiet label for how a run
+     was launched — item / workflow / manual. Muted by default; the item
+     origin gets a faint tint since a dispatched run is the common case. */
+  .origin { font-size: var(--font-sm); text-transform: uppercase; letter-spacing: .03em;
+            color: var(--text-muted); }
+  .origin.origin-item { color: var(--text); }
   /* Items filter/group toolbar. Controls consume tokens; they wrap on
      narrow viewports rather than overflow. */
   .toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
@@ -898,7 +904,7 @@ async function renderRuns() {
   if (!runs.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
   const rows = runs.map(runRowHtml).join('');
   $('run-list').innerHTML = `<table>
-    <thead><tr><th>run</th><th>workflow</th><th>item</th><th>status</th><th>started</th><th></th></tr></thead>
+    <thead><tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -960,10 +966,11 @@ function fmtDuration(startIso, endIso) {
 }
 
 // runRowHtml builds one fleet row: the run (id → #run/<id>) alongside its
-// provenance backlinks (web-ui-spec W6) — the workflow it ran (→ #workflow/
-// <name>) and the item it was dispatched for (→ #items). Every
-// attacker-controlled field (workflow_name, item_ref, status come from the
-// DOT source / external item) is escaped before it reaches innerHTML;
+// provenance (web-ui-spec W6, web-ui-v2-spec U7) — the workflow it ran (→
+// #workflow/<name>), the item it was dispatched for (→ #items), the repo it
+// touched, and its origin (item/workflow/manual). Every attacker-controlled
+// field (workflow_name, item_ref, repo, status come from the DOT source /
+// external item) is escaped before it reaches innerHTML;
 // navigation is pure-hash so no inline JS carries the id. A live blocked run
 // carries the loud needs-human chip — the fleet's highest-attention flag.
 function runRowHtml(p) {
@@ -974,6 +981,8 @@ function runRowHtml(p) {
       <td><a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a></td>
       <td class="muted">${runWorkflowCell(p)}</td>
       <td class="muted">${runItemCell(p)}</td>
+      <td class="muted">${runRepoCell(p)}</td>
+      <td class="muted">${runOriginCell(p)}</td>
       <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}</td>
       <td class="muted">${fmtDate(p.started_at)}</td>
       <td>${runCancelButton(p)}</td>
@@ -999,6 +1008,44 @@ function runItemCell(p) {
   const ref = p.item_ref || '';
   if (!ref) return '';
   return `<a href="#items" title="${escapeHtml(ref)}">${escapeHtml(ref)}</a>`;
+}
+
+// runOrigin classifies how a run was launched (web-ui-v2-spec U7 provenance,
+// the "started-by" facet). The daemon has no user identity — tailnet = trust,
+// per-user auth is a v2 non-goal — so origin, not a person, is what the fleet
+// can honestly attribute: an item dispatch, a workflow run, or a raw manual
+// submission. A dispatch also carries a workflow, so item wins.
+function runOrigin(p) {
+  if (p.item_ref) return 'item';
+  if (p.workflow_name) return 'workflow';
+  return 'manual';
+}
+
+// runRepo labels the repo a run touched: the dispatched owner/name when known
+// (summary `repo`, stamped at submit), else the cwd's last path segment so a
+// raw-dot run against a checkout still shows something recognisable. Empty
+// when neither is known.
+function runRepo(p) {
+  if (p.repo) return p.repo;
+  const cwd = (p.cwd || '').replace(/\/+$/, '');
+  if (!cwd) return '';
+  return cwd.slice(cwd.lastIndexOf('/') + 1);
+}
+
+// runRepoCell renders the repo provenance cell; every value is escaped (repo
+// and cwd both originate from external items / DOT source). No repo is the
+// muted placeholder, matching the fleet's other empty cells.
+function runRepoCell(p) {
+  const repo = runRepo(p);
+  if (!repo) return '<span class="muted">—</span>';
+  return `<span title="${escapeHtml(repo)}">${escapeHtml(repo)}</span>`;
+}
+
+// runOriginCell renders the origin provenance cell. The origin is a fixed
+// enum (item/workflow/manual), carried in an origin-<kind> class for styling.
+function runOriginCell(p) {
+  const o = runOrigin(p);
+  return `<span class="origin origin-${o}">${o}</span>`;
 }
 
 // runCancelButton renders a cancel trigger for a live run only; a terminal
