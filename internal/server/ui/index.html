@@ -284,6 +284,8 @@ let dockTimer = null;
 let runsTimer = null;          // fleet-list poll while the Runs view is open
 let configLoaded = null;       // last GET /config doc (redacted) the view rendered
 let linearClear = false;       // pending explicit Linear-key clear (Clear button)
+let configDirty = false;       // Config view has unsaved edits (nav/unload guard)
+let activeView = null;         // id of the section route() last showed
 
 // STANDARD_CHECKS are the checks the current pipelines reference; the Repos
 // panel surfaces them as fixed columns even when a repo sets none. The
@@ -312,11 +314,26 @@ function toggleTheme() {
   syncToggle();
 }
 
-// showView switches the single visible top-level section by id.
+// showView switches the single visible top-level section by id, recording it
+// so the route guard knows which view is being left.
 function showView(name) {
   for (const sec of document.querySelectorAll('main > section')) {
     sec.style.display = sec.id === name ? 'block' : 'none';
   }
+  activeView = name;
+}
+
+// confirmLeaveConfig guards against silently dropping unsaved Config edits.
+// route() calls it before switching views; when leaving the Config view with
+// pending edits for a different hash it prompts, and on cancel restores the
+// address bar to #config without a reload (history.replaceState fires no
+// hashchange), keeping the in-progress edits on screen.
+function confirmLeaveConfig() {
+  if (activeView !== 'config-view' || !configDirty) return true;
+  if (location.hash === '#config') return true;   // staying on the view
+  if (confirm('Discard unsaved config changes?')) { configDirty = false; return true; }
+  history.replaceState(null, '', '#config');
+  return false;
 }
 
 // ---- routing -----------------------------------------------------------
@@ -342,6 +359,7 @@ function teardownRun() {
 // (nav tabs, run rows, back links), so one hashchange listener drives
 // every view switch. An unknown tab falls back to Items (the default land).
 function route() {
+  if (!confirmLeaveConfig()) return;   // stay put on a cancelled leave
   stopRunsPoll();
   const m = location.hash.match(/^#run\/(.+)$/);
   if (m) { openRun(m[1]); return; }
@@ -1197,6 +1215,7 @@ function onConfigClick(e) {
 // setConfigDirty tracks unsaved edits so the user sees the view has pending
 // changes; a successful save (or a fresh render) clears it.
 function setConfigDirty(dirty) {
+  configDirty = dirty;
   const el = $('config-dirty');
   if (el) el.textContent = dirty ? 'unsaved changes' : '';
 }
@@ -1394,6 +1413,12 @@ window.addEventListener('load', () => {
   $('config-save')?.addEventListener('click', saveConfig);
   $('run-picker-cancel')?.addEventListener('click', () => $('run-picker').close());
   $('run-picker-run')?.addEventListener('click', submitRun);
+  // A full unload (reload / close / external nav) bypasses the hash router,
+  // so guard it too: the browser shows its native leave prompt when the
+  // Config view has unsaved edits.
+  window.addEventListener('beforeunload', (e) => {
+    if (activeView === 'config-view' && configDirty) { e.preventDefault(); e.returnValue = ''; }
+  });
   window.addEventListener('hashchange', route);
   route();
 });

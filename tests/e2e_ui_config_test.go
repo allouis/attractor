@@ -30,3 +30,25 @@ func TestServer_UI_ConfigTab(t *testing.T) {
 		}
 	}
 }
+
+// TestServer_UI_ConfigDirtyGuard guards the unsaved-changes guard wiring
+// (config-screen-spec C5 dirty state): leaving the Config view — by nav or a
+// full page unload — with pending edits must warn rather than silently
+// discard them. The guard is DOM/navigation behaviour (not exercisable by
+// the vm harness), so this asserts the wiring is served: the beforeunload
+// listener and the in-app leave prompt.
+func TestServer_UI_ConfigDirtyGuard(t *testing.T) {
+	srv := newTestServer(t, server.DefaultHandlers(handler.Codergen{}))
+
+	resp, err := http.Get(srv.URL() + "/ui")
+	must(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	page := string(body)
+
+	for _, marker := range []string{"beforeunload", "Discard unsaved config changes"} {
+		if !strings.Contains(page, marker) {
+			t.Errorf("page missing dirty-guard wiring %q", marker)
+		}
+	}
+}
