@@ -874,11 +874,14 @@ async function renderWorkflowGraph() {
 // a transient poll blip: a first-load failure surfaces the error, a
 // mid-poll failure keeps the last-good fleet visible.
 let runsRendered = false;
+// runsCache holds the last-fetched fleet so a toolbar change re-renders
+// (filter, group) without a refetch — the items view's cache pattern.
+let runsCache = [];
 
-// showRuns renders immediately then polls until the view is left.
+// showRuns fetches immediately then polls until the view is left.
 function showRuns() {
-  renderRuns();
-  runsTimer = setInterval(renderRuns, 2500);
+  fetchRuns();
+  runsTimer = setInterval(fetchRuns, 2500);
 }
 
 // stopRunsPoll halts the fleet poll; route() calls it on every navigation
@@ -887,19 +890,28 @@ function stopRunsPoll() {
   if (runsTimer) { clearInterval(runsTimer); runsTimer = null; }
 }
 
-async function renderRuns() {
-  let runs = [];
+// fetchRuns polls the fleet into runsCache then renders. A transient blip
+// keeps the last-good fleet visible (runsRendered); only a first-load
+// failure with nothing to keep surfaces the error.
+async function fetchRuns() {
+  let runs;
   try {
     const r = await fetch('/pipelines');
     if (!r.ok) throw new Error('status ' + r.status);
     runs = (await r.json()).pipelines || [];
   } catch (e) {
-    // A poll blip keeps the last-rendered fleet; only a first load with
-    // nothing to keep surfaces the error.
     if (!runsRendered) $('run-list').innerHTML = errorState('server unreachable');
     return;
   }
+  runsCache = runs;
   runsRendered = true;
+  renderFleet();
+}
+
+// renderFleet draws the counts bar and run table from runsCache. Split from
+// the fetch so toolbar controls re-render the cached fleet without a refetch.
+function renderFleet() {
+  const runs = runsCache;
   renderRunCounts(runs);
   if (!runs.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
   const rows = runs.map(runRowHtml).join('');
@@ -1081,7 +1093,7 @@ async function cancelRun(id) {
   try {
     await postJSON(`/pipelines/${id}/cancel`, {});
   } catch (e) { /* transient; the next poll re-reflects the true state */ }
-  renderRuns();
+  fetchRuns();
 }
 
 // ---- run view ----------------------------------------------------------
