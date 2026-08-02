@@ -336,14 +336,19 @@ func Serve(args []string) error {
 	insecure := fs.Bool("insecure", false, "allow non-loopback bind without auth (network layer is responsible)")
 	maxConcurrent := fs.Int("max-concurrent-runs", 4, "maximum runs executing at once; the rest queue FIFO")
 	runner := fs.String("runner", "direct", "where runs execute: direct (in-process) | local (subprocess) | vm (nixos VM)")
-	vmRunner := fs.String("vm-runner", "", "path to the run-nixos-vm boot script for --runner vm (default: build .#vm-runner)")
+	var vmRunners repeatedString
+	fs.Var(&vmRunners, "vm-runner", "run-nixos-vm boot script for --runner vm; `name=path` registers a named image, a bare path is the default image (repeatable; default: build .#vm-runner)")
 	vmDir := fs.String("vm-dir", "", "root for per-run VM disks + job dirs (--runner vm; default: <logs>/vms)")
 	vmRetention := fs.Duration("vm-retention", 72*time.Hour, "how long a completed VM persists before the reaper GCs it (--runner vm)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	vmDirResolved := defaultString(*vmDir, filepath.Join(*logs, "vms"))
-	launcher, launchers, err := resolveLaunchers(*runner, *vmRunner, vmDirResolved)
+	vmImages, err := parseVMImages(vmRunners)
+	if err != nil {
+		return err
+	}
+	launcher, launchers, err := resolveLaunchers(*runner, vmImages, vmDirResolved)
 	if err != nil {
 		return err
 	}
@@ -398,28 +403,66 @@ func Serve(args []string) error {
 	select {}
 }
 
+// repeatedString collects a repeatable string flag (each --flag appends).
+type repeatedString []string
+
+func (r *repeatedString) String() string { return strings.Join(*r, ",") }
+
+func (r *repeatedString) Set(v string) error {
+	*r = append(*r, v)
+	return nil
+}
+
+// parseVMImages turns the repeatable --vm-runner flag into a name -> boot
+// script registry (VM1). A `name=path` entry registers that named image; a
+// bare path (no `=`) registers the "default" image. An empty name or a
+// duplicate name is rejected so a misconfiguration fails loudly at startup.
+func parseVMImages(flags []string) (map[string]string, error) {
+	images := map[string]string{}
+	for _, f := range flags {
+		name, path := "default", f
+		if before, after, found := strings.Cut(f, "="); found {
+			name, path = before, after
+		}
+		if name == "" {
+			return nil, fmt.Errorf("serve: --vm-runner %q has an empty image name", f)
+		}
+		if _, dup := images[name]; dup {
+			return nil, fmt.Errorf("serve: --vm-runner image %q set more than once", name)
+		}
+		images[name] = path
+	}
+	return images, nil
+}
+
 // resolveLaunchers builds the named launcher registry and picks the
 // default per --runner. All built launchers are available for per-run
 // override via a submission's `runner` field (V18). `vm` is only built
-// when it's the default or --vm-runner was given, so serve doesn't force a
-// nix build unless VMs are actually wanted.
-func resolveLaunchers(choice, vmRunner, vmDir string) (def server.Launcher, all map[string]server.Launcher, err error) {
+// when it's the default or a --vm-runner image was given, so serve doesn't
+// force a nix build unless VMs are actually wanted. The vm launcher
+// resolves each run's boot script from vmImages; a missing "default" image
+// is filled by building .#vm-runner (VM1).
+func resolveLaunchers(choice string, vmImages map[string]string, vmDir string) (def server.Launcher, all map[string]server.Launcher, err error) {
 	all = map[string]server.Launcher{
 		"direct": server.NewDirectLauncher(),
 		"local":  server.NewLocalLauncher(),
 	}
-	if choice == "vm" || vmRunner != "" {
-		script := vmRunner
-		if script == "" {
-			script, err = buildVMRunner()
-			if err != nil {
-				return nil, nil, err
+	if choice == "vm" || len(vmImages) > 0 {
+		images := make(map[string]string, len(vmImages)+1)
+		for name, script := range vmImages {
+			images[name] = script
+		}
+		if images["default"] == "" {
+			script, berr := buildVMRunner()
+			if berr != nil {
+				return nil, nil, berr
 			}
+			images["default"] = script
 		}
 		if err = os.MkdirAll(vmDir, 0o755); err != nil {
 			return nil, nil, err
 		}
-		all["vm"] = server.NewVMLauncher(script, vmDir)
+		all["vm"] = server.NewVMLauncherWithImages(images, "default", vmDir)
 	}
 	def, ok := all[choice]
 	if !ok {
