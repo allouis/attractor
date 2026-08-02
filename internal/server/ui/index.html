@@ -1129,6 +1129,12 @@ function attachStream(id) {
     stage_progress:  ev => appendProgress(ev),
     pipeline_completed: () => { done(); loadArtifacts(); },
     pipeline_failed:    ev => { $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); loadArtifacts(); },
+    // Gate events drive the dock live (U5): a run blocks (interview_started) or
+    // resumes (answered/timeout) between polls, so refresh the dock + banner
+    // the moment the stream says so rather than waiting for the poll fallback.
+    interview_started:  () => refreshDock(),
+    interview_answered: () => refreshDock(),
+    interview_timeout:  () => refreshDock(),
   };
   // Every event runs its kind's side-effect (if any) and — unless it is a
   // high-frequency kind (TIMELINE_SKIP) — lands in the U3 timeline. One
