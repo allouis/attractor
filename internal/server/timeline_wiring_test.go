@@ -40,8 +40,12 @@ class FakeES {
 }
 
 const els = {};
+// A fake element whose innerHTML tracks appended rows so the test can assert
+// on the incremental single-row appends (insertAdjacentHTML), not just a full
+// innerHTML rebuild.
 const el = () => ({ innerHTML: '', value: '', textContent: '', scrollTop: 0, scrollHeight: 0,
-  querySelectorAll: () => [], querySelector: () => null,
+  querySelectorAll: () => [], querySelector: () => null, firstElementChild: null,
+  insertAdjacentHTML(pos, html) { this.innerHTML += html; },
   classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {} });
 const document = { getElementById: (id) => (els[id] = els[id] || el()) };
 
@@ -51,12 +55,18 @@ const fetch = (url) => Promise.resolve({ ok: true, status: 200,
 const sandbox = { window: { addEventListener() {} }, document, location: {},
   console, EventSource: FakeES, fetch };
 vm.createContext(sandbox);
-vm.runInContext(m[1] + '\nglobalThis.__setRun = (r) => { currentRun = r; };', sandbox);
+vm.runInContext(m[1] + '\nglobalThis.__setRun = (r) => { currentRun = r; };' +
+  '\nglobalThis.__nodeLog = nodeLog;', sandbox);
 
 const fire = (kind, ev) => (listeners[kind] || []).forEach(fn => fn({ data: JSON.stringify(ev) }));
 const feed = () => {
   fire('pipeline_started', { ts: '2026-08-02T10:00:00Z' });
   fire('stage_started',    { node_id: 'plan', ts: '2026-08-02T10:00:01Z' });
+  // A real run emits stage_progress once per assistant token — thousands of
+  // them. They belong to the inspector's live tail, not the high-level
+  // timeline, so they must NOT become timeline rows.
+  for (let i = 0; i < 500; i++)
+    fire('stage_progress', { node_id: 'plan', detail: { kind: 'assistant_delta' }, message: 'TOKENFRAGMENT', ts: '2026-08-02T10:00:01Z' });
   fire('stage_failed',     { node_id: 'plan', message: 'lint blew up', ts: '2026-08-02T10:00:02Z' });
   fire('pipeline_failed',  { message: 'boom the run died', ts: '2026-08-02T10:00:03Z' });
 };
@@ -73,6 +83,7 @@ feed();
 process.stdout.write(JSON.stringify({
   rows: els['tl-rows'].innerHTML,
   failure: els['run-failure'].innerHTML,
+  nodeLog: (sandbox.__nodeLog['plan'] || []).length,
 }));
 `
 	out, err := exec.Command("node", "-e", harness, uiPath).CombinedOutput()
@@ -88,6 +99,16 @@ process.stdout.write(JSON.stringify({
 	}
 	if !strings.Contains(result, "boom the run died") {
 		t.Errorf("failure banner missing the reason:\n%s", result)
+	}
+	// The per-token stage_progress flood must be excluded from the timeline —
+	// neither a stage_progress row nor its token fragments appear.
+	if strings.Contains(result, "stage_progress") || strings.Contains(result, "TOKENFRAGMENT") {
+		t.Errorf("timeline flooded with stage_progress deltas (should be inspector-only):\n%s", result)
+	}
+	// ...but stage_progress still drives the inspector's node log (500 chunks
+	// per connection, deduped across the reconnect).
+	if !strings.Contains(result, `"nodeLog":500`) {
+		t.Errorf("stage_progress no longer reaches the node log:\n%s", result)
 	}
 	// Reconnect replayed every event a second time; the cursor must dedup, so
 	// each kind appears exactly once.

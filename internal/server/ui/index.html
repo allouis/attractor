@@ -350,6 +350,13 @@ const EVENT_KINDS = [
   'interview_started', 'interview_answered', 'interview_timeout', 'usage',
 ];
 
+// TIMELINE_SKIP are kinds the U3 timeline does NOT log. stage_progress is
+// emitted once per assistant token (acp.go / claudecode.go) — thousands per
+// run; it is the inspector's live tail (U2), not a high-level timeline event.
+// It still flows through the dispatch (paint + node-log side-effects and the
+// replay cursor), it just never becomes a timeline row.
+const TIMELINE_SKIP = new Set(['stage_progress']);
+
 // STANDARD_CHECKS are the checks the current pipelines reference; the Repos
 // panel surfaces them as fixed columns even when a repo sets none. The
 // stored checks map stays open (config-screen-spec) — a repo may carry more.
@@ -1075,11 +1082,13 @@ function attachStream(id) {
     pipeline_completed: done,
     pipeline_failed:    ev => { $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); },
   };
-  // Every event both lands in the U3 timeline and runs its kind's side-effect
-  // (if any). One dispatch keeps the applied/pos cursor authoritative for both.
+  // Every event runs its kind's side-effect (if any) and — unless it is a
+  // high-frequency kind (TIMELINE_SKIP) — lands in the U3 timeline. One
+  // dispatch keeps the applied/pos cursor authoritative for both.
   for (const kind of EVENT_KINDS) {
     const fn = HANDLERS[kind];
-    on(kind, ev => { recordTimelineEvent(kind, ev); if (fn) fn(ev); });
+    const record = !TIMELINE_SKIP.has(kind);
+    on(kind, ev => { if (record) recordTimelineEvent(kind, ev); if (fn) fn(ev); });
   }
   es.onerror = () => { /* transient; EventSource retries on its own */ };
 }
@@ -1103,11 +1112,25 @@ function appendProgress(ev) {
 }
 
 // recordTimelineEvent appends one streamed event to the run's event log and
-// re-renders the timeline (web-ui-v2-spec U3). It runs on every kind via the
-// attachStream dispatch, so the log is the complete run history.
+// its row to the timeline (web-ui-v2-spec U3). Appending a single row keeps a
+// run of N events at O(N) total work — a full renderTimeline() rebuild per
+// event would be O(N^2) and freeze the main thread on any real run.
 function recordTimelineEvent(kind, ev) {
   timeline.push({ kind, ev });
-  renderTimeline();
+  appendTimelineRow(kind, ev);
+}
+
+// appendTimelineRow adds one event's row to #tl-rows when it passes the active
+// filter, clearing the empty-state placeholder on the first row and following
+// the tail. Full-rebuild paths (filter change, run reset) go through
+// renderTimeline instead.
+function appendTimelineRow(kind, ev) {
+  const rows = $('tl-rows');
+  if (!rows) return;
+  if (!eventMatchesFilter(kind, ev, timelineFilter())) return;
+  if (rows.querySelector('.state')) rows.innerHTML = '';
+  rows.insertAdjacentHTML('beforeend', timelineRowHtml(kind, ev));
+  rows.scrollTop = rows.scrollHeight;
 }
 
 // timelineFilter reads the active kind + text filter from the controls.
@@ -1116,9 +1139,9 @@ function timelineFilter() {
 }
 
 // renderTimeline rebuilds #tl-rows from the recorded timeline through the
-// active filter. Full rebuild (n is small) so a filter change and a new event
-// take the same path. An empty result distinguishes "no events yet" from
-// "filtered everything out".
+// active filter. Used on a filter change or run reset — a live event appends a
+// single row (appendTimelineRow) instead. An empty result distinguishes "no
+// events yet" from "filtered everything out".
 function renderTimeline() {
   const rows = $('tl-rows');
   if (!rows) return;

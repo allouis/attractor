@@ -40,8 +40,9 @@ class FakeES {
 }
 
 const els = {};
-const el = () => ({ innerHTML: '', scrollTop: 0, scrollHeight: 0,
-  querySelectorAll: () => [], querySelector: () => null,
+const el = () => ({ innerHTML: '', value: '', scrollTop: 0, scrollHeight: 0,
+  querySelectorAll: () => [], querySelector: () => null, firstElementChild: null,
+  insertAdjacentHTML(pos, html) { this.innerHTML += html; },
   classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {} });
 const document = { getElementById: (id) => (els[id] = els[id] || el()) };
 
