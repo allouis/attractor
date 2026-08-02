@@ -283,6 +283,52 @@ func TestConfigBuildPutBody(t *testing.T) {
 	}
 }
 
+// TestConfigBuildPutBodyRunnerImage: a repo's declared runner + image ride
+// into the PUT body (runner as a field, image nested under vm), and the
+// vm_images registry round-trips unchanged — the UI references it but never
+// edits it, so a save must not drop it (per-repo VM config, VM4).
+func TestConfigBuildPutBodyRunnerImage(t *testing.T) {
+	body := evalUI(t, `JSON.stringify(buildPutBody({`+
+		`defaultProvider:"",providers:[],linearKey:"",linearClear:false,`+
+		`vmImages:{default:".#vm-runner","node-ts":".#vm-runner"},`+
+		`repos:[{name:"a/b",path:"/p",checks:{},runner:"vm",image:"node-ts"}]}))`)
+
+	for _, want := range []string{`"runner":"vm"`, `"vm":{"image":"node-ts"}`, `"vm_images":{`, `".#vm-runner"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("PUT body missing %q:\n%s", want, body)
+		}
+	}
+}
+
+// TestConfigBuildPutBodyOmitsEmptyRunner: a repo that declares no runner
+// sends neither a runner nor a vm key, so an untouched config file stays
+// byte-unchanged (mirrors the schema's omitempty, VM2).
+func TestConfigBuildPutBodyOmitsEmptyRunner(t *testing.T) {
+	body := evalUI(t, `JSON.stringify(buildPutBody({`+
+		`defaultProvider:"",providers:[],linearKey:"",linearClear:false,`+
+		`repos:[{name:"a/b",path:"/p",checks:{},runner:"",image:""}]}))`)
+	for _, unwanted := range []string{`"runner"`, `"vm"`, `"vm_images"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("PUT body should not contain %q for an unset runner:\n%s", unwanted, body)
+		}
+	}
+}
+
+// TestConfigBuildPutBodyImageOnlyWhenVM: a non-vm runner drops the image —
+// vm.image is only meaningful under a vm runner (dispatch resolution §2), so
+// a stale image left from an earlier vm selection is not persisted.
+func TestConfigBuildPutBodyImageOnlyWhenVM(t *testing.T) {
+	body := evalUI(t, `JSON.stringify(buildPutBody({`+
+		`defaultProvider:"",providers:[],linearKey:"",linearClear:false,`+
+		`repos:[{name:"a/b",path:"/p",checks:{},runner:"local",image:"node-ts"}]}))`)
+	if !strings.Contains(body, `"runner":"local"`) {
+		t.Errorf("PUT body should carry the local runner:\n%s", body)
+	}
+	if strings.Contains(body, `"vm"`) || strings.Contains(body, `node-ts`) {
+		t.Errorf("PUT body should drop the image off a non-vm runner:\n%s", body)
+	}
+}
+
 // TestConfigBuildPutBodySecrets: a typed key replaces; an armed clear sets
 // the clear signal.
 func TestConfigBuildPutBodySecrets(t *testing.T) {

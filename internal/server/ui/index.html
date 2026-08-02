@@ -1259,7 +1259,11 @@ function collectConfig() {
       const v = inp.value.trim();
       if (v) checks[inp.dataset.check] = v; else delete checks[inp.dataset.check];
     });
-    return { name, path: tr.querySelector('[data-repo-path]').value.trim(), checks };
+    return {
+      name, path: tr.querySelector('[data-repo-path]').value.trim(), checks,
+      runner: tr.querySelector('[data-repo-runner]').value,
+      image: tr.querySelector('[data-repo-image]').value,
+    };
   });
   const providers = [...document.querySelectorAll('#config-providers-rows tr[data-provider-row]')].map(tr => ({
     name: tr.querySelector('[data-provider-name]').value.trim(),
@@ -1270,6 +1274,10 @@ function collectConfig() {
   return {
     defaultProvider: $('config-default-provider').value,
     providers, repos,
+    // vm_images is CLI/nix-managed and read-only in the UI — round-trip the
+    // loaded registry so a whole-doc save never drops it (per-repo VM config,
+    // VM4).
+    vmImages: (configLoaded && configLoaded.vm_images) || undefined,
     linearKey: $('config-linear-key').value,
     linearClear,
   };
@@ -1288,11 +1296,19 @@ function buildPutBody(form) {
   const repos = {};
   for (const r of form.repos) {
     if (!r.name) continue;
-    repos[r.name] = { path: r.path, checks: r.checks || {} };
+    const rc = { path: r.path, checks: r.checks || {} };
+    // A declared runner rides as a field; the vm.image only nests under a vm
+    // runner (it is meaningless otherwise — dispatch resolution §2). An unset
+    // runner emits neither key, keeping an untouched config byte-unchanged.
+    if (r.runner) rc.runner = r.runner;
+    if (r.runner === 'vm' && r.image) rc.vm = { image: r.image };
+    repos[r.name] = rc;
   }
   const linear = { api_key: form.linearKey || '' };
   if (form.linearClear) linear.api_key_clear = true;
-  return { default_provider: form.defaultProvider || '', providers, repos, linear };
+  const body = { default_provider: form.defaultProvider || '', providers, repos, linear };
+  if (form.vmImages) body.vm_images = form.vmImages;
+  return body;
 }
 
 // saveMessage classifies the PUT /config response into a banner: a 422 is a
