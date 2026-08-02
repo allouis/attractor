@@ -11,7 +11,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 | Spec | Status | Build |
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
-| `repo-vm-config-spec.md` | drafted | **VM1 done**; VM2–VM4 todo |
+| `repo-vm-config-spec.md` | drafted | **VM1–VM2 done**; VM3–VM4 todo |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
@@ -117,6 +117,10 @@ config-screen spec commit; advancing it is deferred to the end.
   = default); per-run image carried from the submission; plus defensive
   fixes (gate VM activation on explicit intent, reject empty boot paths).
   Key commits `pxznzqyt`, `rtkmuytn`, `nqkoxluk`, `nsyymxqw`, `tlrumspn`.
+
+- **VM2 — done** (`~/.attractor/runs/vm-VM2`). 3 atomic commits, gate green,
+  no intervention: `repos.<name>` schema gains `runner` + `vm.image`;
+  projected for dispatch. `sqxtknuv`, `xtxsqqzz`, `yzkplmlr`.
 
 ## Interventions
 
