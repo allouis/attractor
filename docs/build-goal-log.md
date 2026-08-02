@@ -12,7 +12,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
-| `web-ui-v2-spec.md` | drafted | **U1–U2 done**; U3–U7 todo |
+| `web-ui-v2-spec.md` | drafted | **U1–U3 done**; U4–U7 todo |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
 U1/U2/U3 are independent of the config work and can interleave.
@@ -150,6 +150,12 @@ config-screen spec commit; advancing it is deferred to the end.
   stage inspector — clicking a node loads its prompt/response/tool-calls/
   status/timing from `GET …/stages/{node}` (`fmtDuration`, `toolCallHtml`,
   `stageDetailHtml`, `selectNode`). The first real SSH-replacement view.
+
+- **U3 — done** (`~/.attractor/runs/ui-U3`). 9 atomic commits, gate green:
+  full run-detail event timeline (SSE routed through a kind table,
+  `timelineRowHtml`, filterable via `eventMatchesFilter`) + a prominent
+  `failureBannerHtml` in the run header; fixes to bound the timeline
+  array/DOM and keep the per-token `stage_progress` flood out. `lkvzrpqp`…`ospkqxrw`.
 
 ## Interventions
 
