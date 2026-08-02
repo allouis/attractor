@@ -54,6 +54,18 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"warnings": warnings})
 }
 
+// listRepos projects the registered repos onto a name-sorted list, read
+// live from config.json so UI edits show without a restart — the run-form
+// repo dropdown source (run-workflow-spec R2).
+func (s *Server) listRepos(w http.ResponseWriter, r *http.Request) {
+	doc, err := loadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc.ReposList())
+}
+
 // loadConfig reads the daemon-owned config.json from the user's home,
 // mirroring seedChecks' live-load seam.
 func loadConfig() (config.Document, error) {
