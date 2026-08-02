@@ -55,6 +55,29 @@ func TestReposMapProjection(t *testing.T) {
 	}
 }
 
+// TestChecksForRepoMatch: the checks of the repo named by the run's ref
+// (C3 keys by repo identity, not cwd).
+func TestChecksForRepoMatch(t *testing.T) {
+	doc := Document{Repos: map[string]RepoConfig{
+		"a/b": {Path: "/home/agent/Ghost", Checks: map[string]string{"deps": "pnpm install"}},
+	}}
+	got := doc.ChecksForRepo("a/b")
+	if got["deps"] != "pnpm install" {
+		t.Errorf("ChecksForRepo = %#v", got)
+	}
+}
+
+// TestChecksForRepoMiss: an unregistered or empty repo ref yields nil.
+func TestChecksForRepoMiss(t *testing.T) {
+	doc := Document{Repos: map[string]RepoConfig{"a/b": {Path: "/p"}}}
+	if got := doc.ChecksForRepo("x/y"); got != nil {
+		t.Errorf("ChecksForRepo(miss) = %#v, want nil", got)
+	}
+	if got := doc.ChecksForRepo(""); got != nil {
+		t.Errorf("ChecksForRepo(empty) = %#v, want nil", got)
+	}
+}
+
 // TestChecksForPathMatch: the checks of the repo whose path matches the
 // run's cwd (C1 keys by cwd via reverse match; C3 re-keys by repo ref).
 func TestChecksForPathMatch(t *testing.T) {

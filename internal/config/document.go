@@ -36,6 +36,13 @@ func (d Document) ReposMap() map[string]string {
 	return repos
 }
 
+// ChecksForRepo returns the static-check commands of the repo named by the
+// run's ref (owner/name), or nil when the ref is empty or unregistered. C3
+// keys checks by repo identity, replacing C1's cwd reverse match.
+func (d Document) ChecksForRepo(repo string) map[string]string {
+	return d.Repos[repo].Checks
+}
+
 // ChecksForPath returns the static-check commands of the repo whose local
 // path matches cwd, or nil when no registered repo lives there. C1 keys
 // checks by cwd via this reverse match; C3 re-keys by the run's repo ref.
