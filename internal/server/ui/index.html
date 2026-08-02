@@ -357,6 +357,11 @@ const EVENT_KINDS = [
 // replay cursor), it just never becomes a timeline row.
 const TIMELINE_SKIP = new Set(['stage_progress']);
 
+// TIMELINE_MAX caps the retained event log so a long-running or looping run
+// can't grow the array + DOM without bound. Past the cap the oldest events are
+// dropped — a debugger cares about the recent window, above all the failure.
+const TIMELINE_MAX = 2000;
+
 // STANDARD_CHECKS are the checks the current pipelines reference; the Repos
 // panel surfaces them as fixed columns even when a repo sets none. The
 // stored checks map stays open (config-screen-spec) — a repo may carry more.
@@ -1117,6 +1122,14 @@ function appendProgress(ev) {
 // event would be O(N^2) and freeze the main thread on any real run.
 function recordTimelineEvent(kind, ev) {
   timeline.push({ kind, ev });
+  if (timeline.length > TIMELINE_MAX) {
+    // Over the cap: drop the oldest and rebuild the (now bounded) window. This
+    // is the only O(TIMELINE_MAX) path and it fires at most once per event once
+    // capped — still bounded, never the unbounded O(N) of the pre-cap rebuild.
+    timeline.shift();
+    renderTimeline();
+    return;
+  }
   appendTimelineRow(kind, ev);
 }
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -114,5 +115,87 @@ process.stdout.write(JSON.stringify({
 	// each kind appears exactly once.
 	if n := strings.Count(result, "pipeline_started"); n != 1 {
 		t.Errorf("reconnect duplicated the timeline: pipeline_started x%d\n%s", n, result)
+	}
+}
+
+// TestTimelineIsBounded drives the real recordTimelineEvent: a long-running
+// pipeline (loops, many stages) must not grow the timeline array or the DOM
+// without bound. Past TIMELINE_MAX the oldest events are dropped, keeping the
+// most recent window — the part a debugger cares about.
+func TestTimelineIsBounded(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available; skipping UI timeline test")
+	}
+	uiPath, err := filepath.Abs("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	harness := `
+const fs = require('fs');
+const vm = require('vm');
+const html = fs.readFileSync(process.argv[1], 'utf8');
+const m = html.match(/<script>([\s\S]*?)<\/script>/);
+if (!m) { console.error('no <script> found'); process.exit(2); }
+
+const listeners = {};
+let onopenCb = null;
+class FakeES {
+  constructor(url) { this.url = url; }
+  addEventListener(kind, fn) { (listeners[kind] = listeners[kind] || []).push(fn); }
+  set onopen(fn) { onopenCb = fn; }
+  set onerror(fn) {}
+  close() {}
+}
+const els = {};
+const el = () => ({ innerHTML: '', value: '', textContent: '', scrollTop: 0, scrollHeight: 0,
+  querySelectorAll: () => [], querySelector: () => null, firstElementChild: null,
+  insertAdjacentHTML(pos, html) { this.innerHTML += html; },
+  classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {} });
+const document = { getElementById: (id) => (els[id] = els[id] || el()) };
+const sandbox = { window: { addEventListener() {} }, document, location: {}, console, EventSource: FakeES };
+vm.createContext(sandbox);
+vm.runInContext(m[1] + '\nglobalThis.__timeline = timeline;\nglobalThis.__MAX = TIMELINE_MAX;', sandbox);
+
+const fire = (kind, ev) => (listeners[kind] || []).forEach(fn => fn({ data: JSON.stringify(ev) }));
+sandbox.attachStream('run1');
+if (onopenCb) onopenCb();
+const MAX = sandbox.__MAX;
+const total = MAX + 5;
+for (let i = 0; i < total; i++)
+  fire('stage_started', { node_id: 'n', message: 'e' + i, ts: '2026-08-02T10:00:00Z' });
+
+process.stdout.write(JSON.stringify({
+  max: MAX,
+  len: sandbox.__timeline.length,
+  oldest: sandbox.__timeline[0].ev.message,
+  rowCount: (els['tl-rows'].innerHTML.match(/tl-row/g) || []).length,
+}));
+`
+	out, err := exec.Command("node", "-e", harness, uiPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node harness failed: %v\n%s", err, out)
+	}
+	var got struct {
+		Max      int    `json:"max"`
+		Len      int    `json:"len"`
+		Oldest   string `json:"oldest"`
+		RowCount int    `json:"rowCount"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output %q: %v", out, err)
+	}
+	if got.Max <= 0 {
+		t.Fatalf("TIMELINE_MAX not exposed / non-positive: %d", got.Max)
+	}
+	if got.Len != got.Max {
+		t.Errorf("timeline array unbounded: len=%d want cap=%d", got.Len, got.Max)
+	}
+	if got.RowCount > got.Max {
+		t.Errorf("timeline DOM unbounded: %d rows > cap %d", got.RowCount, got.Max)
+	}
+	// Fired e0..e(MAX+4); the oldest 5 are dropped, so the window starts at e5.
+	if got.Oldest != "e5" {
+		t.Errorf("bounded timeline kept the wrong window: oldest=%q want %q", got.Oldest, "e5")
 	}
 }
