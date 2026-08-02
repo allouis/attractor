@@ -43,6 +43,7 @@ type Manifest struct {
 	LogsRoot      string        `json:"logs_root"`
 	Tokens        *engine.Usage `json:"tokens,omitempty"`
 	ItemRef       string        `json:"item_ref,omitempty"`
+	Repo          string        `json:"repo,omitempty"`
 }
 
 // runRegistry holds active and completed runs by ID.
@@ -105,6 +106,7 @@ func (r *runRegistry) reload() {
 			workflowName: m.WorkflowName,
 			cwd:          m.Cwd,
 			itemRef:      m.ItemRef,
+			repo:         m.Repo,
 			subscribers:  map[chan engine.Event]struct{}{},
 			questions:    map[string]*pendingQuestion{},
 			persisted:    true,
@@ -127,10 +129,11 @@ func (r *runRegistry) reload() {
 // the external Item that spawned it (items-spec I1). workflowName, when
 // non-empty, is the catalog directory the run was dispatched from — the
 // handle the run→workflow backlink resolves against GET /workflows/{name}
-// (web-ui-spec W6); a raw dot submission (POST /pipelines) has none. Both
-// are stamped at creation, persisted in the manifest, and surfaced in the
-// run summary.
-func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef, workflowName string, initialContext map[string]string) *Run {
+// (web-ui-spec W6); a raw dot submission (POST /pipelines) has none. repo,
+// when non-empty, is the registered `owner/name` the run was dispatched
+// against (fleet repo provenance, web-ui-v2-spec U7). All are stamped at
+// creation, persisted in the manifest, and surfaced in the run summary.
+func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.PreparedGraph, baseDir string, makeHandlers HandlerFactory, itemRef, workflowName, repo string, initialContext map[string]string) *Run {
 	id := newRunID()
 	logsRoot := filepath.Join(baseDir, id)
 	run := &Run{
@@ -145,6 +148,7 @@ func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.Pre
 		factory:        makeHandlers,
 		itemRef:        itemRef,
 		workflowName:   workflowName,
+		repo:           repo,
 		initialContext: initialContext,
 		subscribers:    map[chan engine.Event]struct{}{},
 		questions:      map[string]*pendingQuestion{},
@@ -216,6 +220,10 @@ type Run struct {
 	workflowName string
 	cwd          string
 	itemRef      string
+	// repo is the registered `owner/name` this run was dispatched against
+	// (the fleet's repo provenance, web-ui-v2-spec U7); "" for a raw-dot
+	// submission that named no repo.
+	repo string
 	// token authenticates phone-home reporting for this run: a launched
 	// child presents it on POST /events, GET /control, POST /artifacts so
 	// only the process the daemon started can drive the run.
@@ -767,6 +775,7 @@ func (r *Run) writeManifest() {
 	m.WorkflowName = r.workflowName
 	m.Cwd = r.cwd
 	m.ItemRef = r.itemRef
+	m.Repo = r.repo
 	if r.graph != nil {
 		m.GraphGoal = r.graph.Goal()
 	}

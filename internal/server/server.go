@@ -392,7 +392,7 @@ func (s *Server) submit(source string, vars map[string]string, cwd, repo, itemRe
 		return "", err
 	}
 	seed := seedChecks(seedContext(vars, itemRef), repo, cwd)
-	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seed)
+	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, repo, seed)
 	run.placement = resolved.runner
 	run.image = resolved.image
 	s.dispatcher.enqueue(run)

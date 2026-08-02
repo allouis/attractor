@@ -19,7 +19,7 @@ import (
 func TestIngestEventAppendsHistoryAndPersists(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 
 	ev := engine.Event{Seq: 1, Kind: engine.EventStageStarted, NodeID: "plan"}
 	body, _ := json.Marshal(ev)
@@ -48,7 +48,7 @@ func TestIngestEventAppendsHistoryAndPersists(t *testing.T) {
 func TestControlReportsCancel(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 
 	poll := func() controlResponse {
 		req := httptest.NewRequest(http.MethodGet, "/pipelines/"+run.ID+"/control", nil)
@@ -78,7 +78,7 @@ func TestControlReportsCancel(t *testing.T) {
 func TestControlRejectsBadToken(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/pipelines/"+run.ID+"/control", nil)
 	req.Header.Set("Authorization", "Bearer nope")
 	rec := httptest.NewRecorder()
@@ -94,7 +94,7 @@ func TestControlRejectsBadToken(t *testing.T) {
 func TestUploadArtifactWritesUnderLogsRoot(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/pipelines/"+run.ID+"/artifacts/plan/response.md", strings.NewReader("hello plan"))
 	req.Header.Set("Authorization", "Bearer "+run.Token())
@@ -115,7 +115,7 @@ func TestUploadArtifactWritesUnderLogsRoot(t *testing.T) {
 func TestUploadArtifactRejectsTraversal(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/pipelines/"+run.ID+"/artifacts/../../escape.txt", strings.NewReader("x"))
 	req.Header.Set("Authorization", "Bearer "+run.Token())
@@ -134,7 +134,7 @@ func TestUploadArtifactRejectsTraversal(t *testing.T) {
 func TestIngestEventRejectsBadToken(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 
 	ev := engine.Event{Seq: 1, Kind: engine.EventStageStarted, NodeID: "plan"}
 	body, _ := json.Marshal(ev)

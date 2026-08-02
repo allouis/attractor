@@ -13,7 +13,7 @@ import (
 func TestPhoneHomeHumanGateRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 
 	run.Ingest(engine.Event{
 		Kind:       engine.EventInterviewStarted,

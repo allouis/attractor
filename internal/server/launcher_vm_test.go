@@ -125,7 +125,7 @@ func TestWriteJobMaterializesJobDir(t *testing.T) {
 func TestVMLauncherRequiresCwd(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 	l := vmLauncher{images: map[string]string{"default": "/nonexistent"}, defaultImage: "default", vmDir: t.TempDir(), guestHost: "10.0.2.2", pollInterval: time.Millisecond}
 	if err := l.Launch(run, "http://127.0.0.1:0"); err == nil {
 		t.Fatal("expected error for empty cwd")

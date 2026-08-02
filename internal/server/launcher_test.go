@@ -25,7 +25,7 @@ func TestDefaultLauncherIsDirect(t *testing.T) {
 func TestIngestTerminalEventCompletesRun(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 
 	run.Ingest(engine.Event{Kind: engine.EventStageStarted, NodeID: "plan"})
 	if run.Status() == RunCompleted {
@@ -191,7 +191,7 @@ func TestPerRunImageCarriedToLauncher(t *testing.T) {
 func TestIngestPipelineStartedMarksRunning(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 	if run.Status() != RunQueued {
 		t.Fatalf("initial status = %v, want queued", run.Status())
 	}
@@ -213,7 +213,7 @@ func TestReportURLLoopbackForWildcard(t *testing.T) {
 func TestIngestTerminalEventClosesSubscribers(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
-	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", nil)
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
 	run.mu.Lock()
 	run.status = RunRunning
 	run.mu.Unlock()
