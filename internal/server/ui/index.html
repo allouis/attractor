@@ -313,6 +313,18 @@ let configLoaded = null;       // last GET /config doc (redacted) the view rende
 let linearClear = false;       // pending explicit Linear-key clear (Clear button)
 let configDirty = false;       // Config view has unsaved edits (nav/unload guard)
 let activeView = null;         // id of the section route() last showed
+const timeline = [];           // run detail: {kind, ev} per streamed event (U3)
+
+// EVENT_KINDS is every engine event kind the SSE stream carries (engine
+// events.go). attachStream registers one dispatch per kind so the replay
+// cursor stays authoritative for the whole stream and the U3 timeline sees
+// them all — even kinds with no graph side-effect.
+const EVENT_KINDS = [
+  'pipeline_started', 'pipeline_completed', 'pipeline_failed',
+  'stage_started', 'stage_completed', 'stage_failed', 'stage_retrying',
+  'stage_progress', 'checkpoint_saved',
+  'interview_started', 'interview_answered', 'interview_timeout', 'usage',
+];
 
 // STANDARD_CHECKS are the checks the current pipelines reference; the Repos
 // panel surfaces them as fixed columns even when a repo sets none. The
@@ -1016,18 +1028,25 @@ function attachStream(id) {
   // Record each stage's start/end from the stream so the inspector can show
   // elapsed time without a timing field on GET …/stages/{node}.
   const timing = (id) => (nodeTiming[id] = nodeTiming[id] || {});
-  on('stage_started',   ev => { timing(ev.node_id).start = ev.ts; paintNode(ev.node_id, 'running'); });
-  on('stage_completed', ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'completed'); });
-  on('stage_failed',    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); });
-  on('stage_retrying',  ev => paintNode(ev.node_id, 'retrying'));
-  on('stage_progress',  ev => appendProgress(ev));
   // On a terminal event, close the stream. The server ends the SSE
   // connection for finished runs, so leaving it open lets EventSource
   // reconnect every few seconds and replay the whole history again,
   // duplicating node-log chunks each time.
   const done = () => { if (es) es.close(); renderDock([]); refreshDock(); };
-  on('pipeline_completed', done);
-  on('pipeline_failed', done);
+  // Every kind is registered through one table so a single dispatch point
+  // handles the run (kinds with no side-effect map to null). Registering all
+  // of them keeps the applied/pos replay cursor authoritative for the whole
+  // stream — the U3 timeline recorder hangs off this same dispatch.
+  const HANDLERS = {
+    stage_started:   ev => { timing(ev.node_id).start = ev.ts; paintNode(ev.node_id, 'running'); },
+    stage_completed: ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'completed'); },
+    stage_failed:    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); },
+    stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
+    stage_progress:  ev => appendProgress(ev),
+    pipeline_completed: done,
+    pipeline_failed:    done,
+  };
+  for (const kind of EVENT_KINDS) on(kind, HANDLERS[kind] || (() => {}));
   es.onerror = () => { /* transient; EventSource retries on its own */ };
 }
 
