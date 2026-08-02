@@ -234,8 +234,20 @@ func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBacke
 	}
 	eng := engine.New(cfg)
 	done := make(chan struct{})
+	uploaded := false
 	go func() {
 		for ev := range eng.Events() {
+			// Upload the run's stage artifacts before forwarding the terminal
+			// event. The daemon marks the run terminal the moment it ingests
+			// pipeline_completed/failed (registry.finishFromEvent), so a run
+			// reported terminal must already carry its artifacts — the run-
+			// detail UI and the phone-home end-to-end contract read them as
+			// soon as status flips. Every node's status.json/prompt/response
+			// is flushed by now (the engine writes them before this event).
+			if rep != nil && !uploaded && isTerminalEvent(ev.Kind) {
+				_ = rep.client.UploadDir(logsRoot, daemonOwnedArtifact)
+				uploaded = true
+			}
 			if rep != nil {
 				_ = rep.client.Event(ev)
 			}
@@ -250,7 +262,9 @@ func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBacke
 	}()
 	outcome, runErr := eng.Run(prepared)
 	<-done
-	if rep != nil {
+	// Fallback: a run that ended without a terminal event (an engine error
+	// before pipeline_completed) still uploads whatever it produced.
+	if rep != nil && !uploaded {
 		_ = rep.client.UploadDir(logsRoot, daemonOwnedArtifact)
 	}
 	fmt.Printf("\npipeline %s logs=%s\n", outcome.Status, logsRoot)
@@ -261,6 +275,12 @@ func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBacke
 		return fmt.Errorf("pipeline failed: %s", outcome.FailureReason)
 	}
 	return nil
+}
+
+// isTerminalEvent reports whether ev ends the run — the event whose ingest
+// flips the daemon's run to a terminal state (registry.finishFromEvent).
+func isTerminalEvent(k engine.EventKind) bool {
+	return k == engine.EventPipelineCompleted || k == engine.EventPipelineFailed
 }
 
 // daemonOwnedArtifact reports whether a run-dir file is one the daemon
