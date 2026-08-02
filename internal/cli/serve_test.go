@@ -34,9 +34,11 @@ func TestParseVMImages(t *testing.T) {
 	}
 
 	bad := map[string][]string{
-		"empty name":     {"=/x"},
-		"duplicate name": {"node=/a", "node=/b"},
-		"duplicate bare": {"/a", "/b"},
+		"empty name":       {"=/x"},
+		"duplicate name":   {"node=/a", "node=/b"},
+		"duplicate bare":   {"/a", "/b"},
+		"empty path named": {"python="},
+		"empty path bare":  {""},
 	}
 	for name, in := range bad {
 		t.Run(name, func(t *testing.T) {
@@ -116,5 +118,16 @@ func TestServeVMImagesLoadsConfig(t *testing.T) {
 	empty, err := serveVMImages(t.TempDir())
 	if err != nil || len(empty) != 0 {
 		t.Errorf("serveVMImages(empty home) = %v, err=%v; want empty, nil", empty, err)
+	}
+
+	// A config image with an empty path fails loudly at startup, not
+	// cryptically at VM boot (VM1 design goal).
+	badHome := t.TempDir()
+	badDoc := config.Document{VMImages: map[string]string{"python": ""}}
+	if err := badDoc.Save(badHome); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := serveVMImages(badHome); err == nil {
+		t.Errorf("serveVMImages accepted an empty image path; want error")
 	}
 }

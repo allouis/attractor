@@ -431,6 +431,9 @@ func parseVMImages(flags []string) (map[string]string, error) {
 		if name == "" {
 			return nil, fmt.Errorf("serve: --vm-runner %q has an empty image name", f)
 		}
+		if path == "" {
+			return nil, fmt.Errorf("serve: --vm-runner image %q has an empty boot-script path", name)
+		}
 		if _, dup := images[name]; dup {
 			return nil, fmt.Errorf("serve: --vm-runner image %q set more than once", name)
 		}
@@ -549,6 +552,9 @@ func serveVMImages(home string) (map[string]string, error) {
 	}
 	images := make(map[string]string, len(doc.VMImages))
 	for name, script := range doc.VMImages {
+		if script == "" {
+			return nil, fmt.Errorf("serve: config vm_images[%q] has an empty boot-script path", name)
+		}
 		images[name] = script
 	}
 	return images, nil
