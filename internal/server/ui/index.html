@@ -1006,7 +1006,7 @@ function selectNode(id) {
 // PUT /config. showConfig refetches on every entry (no cache — a stale or
 // failure-cached config is worse than a reload) so edits made elsewhere and
 // the true redaction state always show.
-async function showConfig() {
+async function showConfig(warnings) {
   const body = $('config-body');
   body.innerHTML = '<p class="muted">loading…</p>';
   setConfigStatus('');
@@ -1020,15 +1020,17 @@ async function showConfig() {
     return;
   }
   configLoaded = doc;
-  renderConfig(doc);
+  renderConfig(doc, warnings);
 }
 
 // renderConfig paints the panels from the loaded doc. Each panel is a pure
-// name→HTML function so it is unit-testable via the node vm harness.
-function renderConfig(doc) {
+// name→HTML function so it is unit-testable via the node vm harness. Soft
+// save-warnings (from a preceding PUT) are threaded to the Repos panel so
+// they surface inline on the offending rows as well as in the top banner.
+function renderConfig(doc, warnings) {
   linearClear = false;
   $('config-body').innerHTML =
-    reposPanelHtml(doc.repos) + linearPanelHtml(doc.linear, linearClear) + providersPanelHtml(doc);
+    reposPanelHtml(doc.repos, warnings) + linearPanelHtml(doc.linear, linearClear) + providersPanelHtml(doc);
   setConfigDirty(false);
 }
 
@@ -1047,14 +1049,14 @@ function setConfigStatus(text, kind) {
 // an add-repo control. Every stored value is external to the HTML context,
 // so all are escaped. The row inputs carry data-* hooks the save collector
 // scrapes.
-function reposPanelHtml(repos) {
+function reposPanelHtml(repos, warnings) {
   const names = Object.keys(repos || {}).sort();
   // Empty-state hint spans every column (owner/name + path + each standard
   // check + the remove control) so a fresh config reads as "none yet, add
   // one" rather than a bare header (config-screen-spec C5 empty states).
   const cols = 3 + STANDARD_CHECKS.length;
   const rows = names.length
-    ? names.map(name => repoRowHtml(name, repos[name] || {})).join('')
+    ? names.map(name => repoRowHtml(name, repos[name] || {}, repoWarning(name, warnings))).join('')
     : `<tr data-empty-hint><td class="muted" colspan="${cols}">No repos registered — add one.</td></tr>`;
   return `<section class="config-panel" id="config-repos">
     <h3>Repos</h3>
@@ -1069,17 +1071,31 @@ function reposPanelHtml(repos) {
 }
 
 // repoRowHtml renders one repo row. An empty name/path (the add-repo case)
-// yields a blank editable row.
-function repoRowHtml(name, rc) {
+// yields a blank editable row. A non-empty warning (a soft save-warning for
+// this repo, e.g. an unresolved path) surfaces inline under the path input
+// so the reject-vs-warn distinction lands on the offending row, not only in
+// the top banner (config-screen-spec C5).
+function repoRowHtml(name, rc, warning) {
   const checks = rc.checks || {};
   const checkCells = STANDARD_CHECKS.map(c =>
     `<td><input data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}"></td>`).join('');
+  const warn = warning
+    ? `<div class="config-note" data-repo-warning>⚠ ${escapeHtml(warning)}</div>` : '';
   return `<tr data-repo-row>
     <td><input data-repo-name value="${escapeHtml(name)}" placeholder="owner/name"></td>
-    <td><input data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout"></td>
+    <td><input data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}</td>
     ${checkCells}
     <td><button type="button" data-repo-remove title="remove repo">&times;</button></td>
   </tr>`;
+}
+
+// repoWarning finds the soft save-warning for a repo, matching the backend's
+// `repo %q:` prefix (config Validate) so the quoted name delimits the match
+// — a same-prefixed sibling ("a/bc") does not steal "a/b"'s warning. Returns
+// the warning string, or '' when none applies.
+function repoWarning(name, warnings) {
+  const prefix = `repo "${name}":`;
+  return (warnings || []).find(w => String(w).startsWith(prefix)) || '';
 }
 
 // linearPanelHtml renders the Linear secret panel: the key's set/unset
@@ -1265,7 +1281,9 @@ async function saveConfig() {
     let body = {};
     try { body = await r.json(); } catch (e) { /* an error body may not be JSON */ }
     const msg = saveMessage(r.status, body);
-    if (r.status === 200) await showConfig();   // re-render from server truth
+    // Re-render from server truth (reflects redaction, clears dirty), carrying
+    // the soft warnings so they land inline on the offending repo rows too.
+    if (r.status === 200) await showConfig((body && body.warnings) || []);
     setConfigStatus(msg.text, msg.kind);
   } finally {
     configSaving = false;

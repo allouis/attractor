@@ -84,6 +84,45 @@ func TestConfigProvidersPanelEmpty(t *testing.T) {
 	}
 }
 
+// TestRepoWarning matches a soft save-warning back to its repo by the
+// backend's `repo %q:` format, so an unresolved-path warning lands inline on
+// the offending row and not on a same-prefixed sibling (config-screen-spec
+// C5 validation surfaces — reject vs warn).
+func TestRepoWarning(t *testing.T) {
+	ws := `['repo "a/b": path "/x" does not resolve to a directory']`
+	if got := evalUI(t, `repoWarning("a/b", `+ws+`)`); got == "" {
+		t.Errorf("repoWarning should match the a/b warning, got empty")
+	}
+	if got := evalUI(t, `repoWarning("a/bc", `+ws+`)`); got != "" {
+		t.Errorf("repoWarning should not match a same-prefixed sibling, got %q", got)
+	}
+	if got := evalUI(t, `repoWarning("c/d", `+ws+`)`); got != "" {
+		t.Errorf("repoWarning should not match an unrelated repo, got %q", got)
+	}
+}
+
+// TestConfigReposPanelWarns: a soft warning for a repo surfaces inline on
+// that row (not just the top banner), so the user sees which path failed.
+func TestConfigReposPanelWarns(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({"a/b":{path:"/x",checks:{}},"c/d":{path:"/home",checks:{}}},`+
+		`['repo "a/b": path "/x" does not resolve to a directory'])`)
+	if !strings.Contains(html, "data-repo-warning") {
+		t.Errorf("warned repo should carry an inline marker:\n%s", html)
+	}
+	// The marker text names the failure and is escaped (external string).
+	if !strings.Contains(html, "does not resolve") {
+		t.Errorf("inline warning should carry the failure text:\n%s", html)
+	}
+}
+
+// TestConfigReposPanelNoWarn: absent warnings render no inline marker.
+func TestConfigReposPanelNoWarn(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({"a/b":{path:"/home",checks:{}}})`)
+	if strings.Contains(html, "data-repo-warning") {
+		t.Errorf("unwarned panel should carry no inline marker:\n%s", html)
+	}
+}
+
 // TestConfigLinearPanelSet: the Linear panel reports a stored key as set,
 // never echoes a value (it has none — GET redacts), and offers Clear.
 func TestConfigLinearPanelSet(t *testing.T) {
