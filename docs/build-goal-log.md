@@ -10,7 +10,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 
 | Spec | Status | Build |
 |---|---|---|
-| `config-screen-spec.md` | decisions locked | **C1 done**; C2–C5 todo |
+| `config-screen-spec.md` | decisions locked | **C1–C2 done**; C3–C5 todo |
 | `repo-vm-config-spec.md` | drafted | VM1–VM4 todo (after config-screen C1) |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
@@ -60,6 +60,14 @@ config-screen spec commit; advancing it is deferred to the end.
   intervention needed. Follow-ups the synth left non-blocking: legacy-config
   warning when an old `config.toml` is present; revisit `DefaultDocument`'s
   seeded provider once C4 lands.
+
+- **config-screen C2 — done** (dogfood run, `~/.attractor/runs/config-C2`).
+  5 atomic commits, gate green, no intervention:
+  - `qqmuzxrx` feat(config): redaction, validation, secret-merge on Document
+  - `zwolsplk` feat(server): GET /config redacted + PUT /config secret-merge/validate
+  - `owszxnyn` feat(server): GET /repos projects config.repos live
+  - `zvtuswqk` test(e2e): config API roundtrip through the real server
+  - `nuznosro` docs: mark C2 done
 
 ## Interventions
 
