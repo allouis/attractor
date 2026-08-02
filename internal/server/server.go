@@ -41,18 +41,19 @@ const defaultMaxConcurrentRuns = 4
 
 // Server is the HTTP-mode Attractor service.
 type Server struct {
-	addr         string
-	logsRoot     string
-	listener     net.Listener
-	httpsrv      *http.Server
-	registry     *runRegistry
-	makeHandlers HandlerFactory
-	authToken    string
-	dispatcher   *dispatcher
-	launcher     Launcher            // default launcher
-	launchers    map[string]Launcher // named launchers for per-run override
-	sources      map[string]source.Source
-	repos        items.Repos
+	addr          string
+	logsRoot      string
+	listener      net.Listener
+	httpsrv       *http.Server
+	registry      *runRegistry
+	makeHandlers  HandlerFactory
+	authToken     string
+	dispatcher    *dispatcher
+	launcher      Launcher            // default launcher
+	launchers     map[string]Launcher // named launchers for per-run override
+	defaultRunner string              // launcher name a dispatch defaults to (--runner)
+	sources       map[string]source.Source
+	repos         items.Repos
 
 	automationsDir string
 	workflowsDir   string
@@ -103,6 +104,11 @@ type Config struct {
 	// pipelines `direct` but a test run in a `vm`. Unknown names fall back
 	// to Launcher.
 	Launchers map[string]Launcher
+	// DefaultRunner names the launcher a dispatch lands in when neither the
+	// submission nor the repo config declares one — the daemon --runner
+	// default (per-repo VM config, VM3). Empty defaults to "direct", matching
+	// the default Launcher.
+	DefaultRunner string
 }
 
 // New constructs an unstarted server.
@@ -128,6 +134,7 @@ func New(cfg Config) *Server {
 		dispatcher:     newDispatcher(cfg.MaxConcurrentRuns),
 		launcher:       cfg.Launcher,
 		launchers:      cfg.Launchers,
+		defaultRunner:  cfg.DefaultRunner,
 		automationsDir: cfg.AutomationsDir,
 		workflowsDir:   cfg.WorkflowsDir,
 		sources:        cfg.Sources,
@@ -135,6 +142,9 @@ func New(cfg Config) *Server {
 	}
 	if s.launcher == nil {
 		s.launcher = directLauncher{}
+	}
+	if s.defaultRunner == "" {
+		s.defaultRunner = "direct"
 	}
 	s.dispatcher.launch = func(r *Run) { _ = s.launcherFor(r.placement).Launch(r, s.reportURL()) }
 	mux := http.NewServeMux()
@@ -359,10 +369,30 @@ func (s *Server) submit(source string, vars map[string]string, cwd, repo, itemRe
 	if err != nil {
 		return "", err
 	}
+	// Resolve where this run executes: submission override > the repo's
+	// declared runner/image > the daemon default (per-repo VM config, VM3),
+	// rejecting an unknown runner/image before a run is registered. Read the
+	// same live config seam seedChecks uses so UI edits apply without a
+	// restart; a load failure leaves an empty doc, so only the submission and
+	// daemon default apply.
+	var doc config.Document
+	if home, err := os.UserHomeDir(); err == nil {
+		doc, _ = config.LoadDocument(home)
+	}
+	ref := resolveRepoRef(doc, repo, cwd)
+	resolved, err := resolvePlacement(
+		placementReq{runner: placement, image: image},
+		placementReq{runner: doc.RepoRunner(ref), image: doc.RepoImage(ref)},
+		s.defaultRunner,
+		s.launchers,
+	)
+	if err != nil {
+		return "", err
+	}
 	seed := seedChecks(seedContext(vars, itemRef), repo, cwd)
 	run := s.registry.NewRun(source, prepared.Graph, prepared, s.logsRoot, s.makeHandlers, itemRef, workflowName, seed)
-	run.placement = placement
-	run.image = image
+	run.placement = resolved.runner
+	run.image = resolved.image
 	s.dispatcher.enqueue(run)
 	return run.ID, nil
 }

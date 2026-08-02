@@ -2,9 +2,11 @@ package server
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/allouis/attractor/internal/config"
 	"github.com/allouis/attractor/internal/engine"
 )
 
@@ -56,7 +58,8 @@ func (l recordingLauncher) Launch(run *Run, _ string) error {
 }
 
 // A submission's `runner` field selects a named launcher per run (V18),
-// overriding the daemon default; unknown/empty falls back to the default.
+// overriding the daemon default; an empty field falls back to the default. An
+// unknown runner is a submit rejection (VM3), not a silent fallback.
 func TestPerRunPlacementSelectsNamedLauncher(t *testing.T) {
 	tmp := t.TempDir()
 	var seen []string
@@ -78,12 +81,70 @@ func TestPerRunPlacementSelectsNamedLauncher(t *testing.T) {
 	// no runner → default
 	id2, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "", "")
 	waitTerminal(t, srv, id2, 5*time.Second)
-	// unknown runner → default
-	id3, _ := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "bogus", "")
-	waitTerminal(t, srv, id3, 5*time.Second)
+	// unknown runner → submit rejection (VM3), nothing enqueued
+	if _, err := srv.submit("digraph{ s [shape=Mdiamond]; e [shape=Msquare]; s -> e }", nil, tmp, "", "", "", "", "bogus", ""); err == nil {
+		t.Fatal("expected unknown-runner rejection")
+	}
 
-	if !slices.Equal(seen, []string{"vm", "default", "default"}) {
-		t.Fatalf("launcher order = %v, want [vm default default]", seen)
+	if !slices.Equal(seen, []string{"vm", "default"}) {
+		t.Fatalf("launcher order = %v, want [vm default]", seen)
+	}
+}
+
+// A repo's declared runner+image apply to a dispatch that names neither —
+// the daily driver "this repo → this VM" (VM3). The run's cwd is the repo's
+// registered checkout, so resolution keys off the repo identity.
+func TestSubmitResolvesRepoDeclaredPlacement(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repoDir := t.TempDir()
+	doc := config.Document{Repos: map[string]config.RepoConfig{
+		"a/b": {Path: repoDir, Runner: "vm", VM: &config.VMConfig{Image: "node-ts"}},
+	}}
+	mustNil(t, doc.Save(home))
+
+	var got string
+	rec := imageRecordingLauncher{got: &got}
+	srv := New(Config{
+		Addr: "127.0.0.1:0", LogsRoot: t.TempDir(),
+		Launcher:  NewDirectLauncher(),
+		Launchers: map[string]Launcher{"vm": rec, "direct": NewDirectLauncher()},
+	})
+	mustNil(t, srv.Start())
+	defer srv.Close()
+
+	id, err := srv.submit(doneGraphSrv, nil, repoDir, "", "", "", "", "", "")
+	mustNil(t, err)
+	waitTerminal(t, srv, id, 5*time.Second)
+
+	run, ok := srv.registry.Get(id)
+	if !ok {
+		t.Fatal("run not found")
+	}
+	if run.placement != "vm" {
+		t.Errorf("placement = %q, want vm (from repo config)", run.placement)
+	}
+	if got != "node-ts" {
+		t.Errorf("image at launch = %q, want node-ts (from repo config)", got)
+	}
+}
+
+// A submission naming a vm image that is not registered is rejected at submit
+// (VM3), listing the registered names — not deferred to a boot failure.
+func TestSubmitRejectsUnknownImage(t *testing.T) {
+	tmp := t.TempDir()
+	vm := NewVMLauncherWithImages(map[string]string{"default": "/a", "node-ts": "/b"}, "default", t.TempDir())
+	srv := New(Config{
+		Addr: "127.0.0.1:0", LogsRoot: tmp,
+		Launcher:  NewDirectLauncher(),
+		Launchers: map[string]Launcher{"vm": vm, "direct": NewDirectLauncher()},
+	})
+	_, err := srv.submit(doneGraphSrv, nil, tmp, "", "", "", "", "vm", "bogus")
+	if err == nil {
+		t.Fatal("expected submit rejection for unknown image")
+	}
+	if !strings.Contains(err.Error(), "node-ts") {
+		t.Errorf("error should list registered images: %v", err)
 	}
 }
 

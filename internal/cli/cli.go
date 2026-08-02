@@ -399,6 +399,7 @@ func Serve(args []string) error {
 		Repos:             repos,
 		Launcher:          launcher,
 		Launchers:         launchers,
+		DefaultRunner:     *runner,
 	})
 	if err := srv.Start(); err != nil {
 		return err
