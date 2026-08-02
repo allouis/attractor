@@ -109,3 +109,25 @@ func writeConfigJSON(t *testing.T, home, body string) {
 		t.Fatal(err)
 	}
 }
+
+// TestLoadDocumentVMImages: a config.json with a vm_images block round-trips
+// through LoadDocument into the Document.VMImages registry (VM1).
+func TestLoadDocumentVMImages(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".attractor")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"vm_images":{"default":".#vm-runner","python":"/nix/store/x-run-nixos-vm-python"}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := LoadDocument(home)
+	if err != nil {
+		t.Fatalf("LoadDocument: %v", err)
+	}
+	want := map[string]string{"default": ".#vm-runner", "python": "/nix/store/x-run-nixos-vm-python"}
+	if !reflect.DeepEqual(doc.VMImages, want) {
+		t.Errorf("VMImages = %v, want %v", doc.VMImages, want)
+	}
+}

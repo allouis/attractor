@@ -344,9 +344,24 @@ func Serve(args []string) error {
 		return err
 	}
 	vmDirResolved := defaultString(*vmDir, filepath.Join(*logs, "vms"))
-	vmImages, err := parseVMImages(vmRunners)
+	cliImages, err := parseVMImages(vmRunners)
 	if err != nil {
 		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	configImages, err := serveVMImages(home)
+	if err != nil {
+		return err
+	}
+	// Config vm_images are the base registry; a --vm-runner flag of the same
+	// name overrides it, so an operator can point an image elsewhere without
+	// editing the config file.
+	vmImages := configImages
+	for name, script := range cliImages {
+		vmImages[name] = script
 	}
 	launcher, launchers, err := resolveLaunchers(*runner, vmImages, vmDirResolved)
 	if err != nil {
@@ -375,10 +390,6 @@ func Serve(args []string) error {
 	sources, err := serveSources()
 	if err != nil {
 		return err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = ""
 	}
 	repos, err := serveRepos(home)
 	if err != nil {
@@ -526,6 +537,22 @@ func serveRepos(home string) (items.Repos, error) {
 		return nil, err
 	}
 	return items.Repos(doc.ReposMap()), nil
+}
+
+// serveVMImages projects the daemon-owned config.json onto the named VM
+// boot-image registry (VM1). A missing config.json is not an error: the
+// fresh default has no images and the vm launcher falls back to building
+// .#vm-runner. Returns a fresh map so serve can overlay --vm-runner flags.
+func serveVMImages(home string) (map[string]string, error) {
+	doc, err := config.LoadDocument(home)
+	if err != nil {
+		return nil, err
+	}
+	images := make(map[string]string, len(doc.VMImages))
+	for name, script := range doc.VMImages {
+		images[name] = script
+	}
+	return images, nil
 }
 
 // bindIsLoopback returns true for 127.0.0.1, ::1, or localhost bind

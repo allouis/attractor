@@ -68,3 +68,27 @@ func TestServeReposLoadsConfig(t *testing.T) {
 		t.Errorf("repos.Path = %q, ok=%v; want /home/agent/attractor", got, ok)
 	}
 }
+
+// TestServeVMImagesLoadsConfig checks serve projects config.json vm_images
+// into the VM boot-image registry, returning a fresh map serve can overlay
+// --vm-runner flags onto without mutating the loaded document (VM1).
+func TestServeVMImagesLoadsConfig(t *testing.T) {
+	home := t.TempDir()
+	doc := config.Document{VMImages: map[string]string{"default": ".#vm-runner", "python": "/p"}}
+	if err := doc.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	images, err := serveVMImages(home)
+	if err != nil {
+		t.Fatalf("serveVMImages: %v", err)
+	}
+	want := map[string]string{"default": ".#vm-runner", "python": "/p"}
+	if !reflect.DeepEqual(images, want) {
+		t.Errorf("serveVMImages = %v, want %v", images, want)
+	}
+	// A missing config.json is not an error: no images.
+	empty, err := serveVMImages(t.TempDir())
+	if err != nil || len(empty) != 0 {
+		t.Errorf("serveVMImages(empty home) = %v, err=%v; want empty, nil", empty, err)
+	}
+}

@@ -69,6 +69,11 @@ type Document struct {
 	Providers       map[string]Provider   `json:"providers"`
 	Linear          LinearConfig          `json:"linear"`
 	Repos           map[string]RepoConfig `json:"repos"`
+	// VMImages is the named VM boot-image registry: image name ->
+	// run-nixos-vm boot script / flake ref. A repo's vm.image references a
+	// name; "default" is the daemon's fallback image (per-repo VM config,
+	// VM1). Omitted when empty so existing config files are unchanged.
+	VMImages map[string]string `json:"vm_images,omitempty"`
 }
 
 // LinearConfig holds the Linear source's API key (items-spec I2). Stored
