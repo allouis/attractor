@@ -123,6 +123,56 @@ func TestConfigReposPanelNoWarn(t *testing.T) {
 	}
 }
 
+// TestConfigReposPanelRunnerImage: a repo's declared runner + vm.image
+// render as selects — runner offers the fixed direct|local|vm placements
+// (the declared one selected), image offers the registered vm_images names
+// (the declared one selected). The row carries the save-collector hooks
+// (per-repo VM config, VM4).
+func TestConfigReposPanelRunnerImage(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({"a/b":{path:"/h",checks:{},runner:"vm",vm:{image:"node-ts"}}},[],`+
+		`{default:".#vm-runner","node-ts":".#vm-runner"})`)
+
+	for _, want := range []string{"data-repo-runner", "data-repo-image",
+		`<option value="direct"`, `<option value="local"`, `<option value="vm"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("repos panel missing %q:\n%s", want, html)
+		}
+	}
+	// The declared runner + image are the selected options.
+	if !strings.Contains(html, `value="vm" selected`) {
+		t.Errorf("declared runner should be selected:\n%s", html)
+	}
+	if !strings.Contains(html, `value="node-ts" selected`) {
+		t.Errorf("declared image should be selected:\n%s", html)
+	}
+}
+
+// TestConfigReposPanelImageOptionsFromRegistry: the image select is populated
+// from the registered vm_images names — a name absent from the registry is
+// not offered (VM4: the UI references registered images, never invents them).
+func TestConfigReposPanelImageOptionsFromRegistry(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({"a/b":{path:"/h",checks:{},runner:"vm"}},[],`+
+		`{default:".#vm-runner",python:"/nix/store/x"})`)
+	for _, want := range []string{`value="default"`, `value="python"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("image select missing registered name %q:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, `value="node-ts"`) {
+		t.Errorf("image select should offer only registered names:\n%s", html)
+	}
+}
+
+// TestConfigReposPanelImageEscapes: a registry image name is external and is
+// escaped in both the option value and its label.
+func TestConfigReposPanelImageEscapes(t *testing.T) {
+	html := evalUI(t, `reposPanelHtml({"a/b":{path:"/h",checks:{},runner:"vm"}},[],`+
+		`{"<img src=x onerror=alert(1)>":".#x"})`)
+	if strings.Contains(html, "<img src=x onerror=") {
+		t.Errorf("registry image name rendered as live markup:\n%s", html)
+	}
+}
+
 // TestConfigLinearPanelSet: the Linear panel reports a stored key as set,
 // never echoes a value (it has none — GET redacts), and offers Clear.
 func TestConfigLinearPanelSet(t *testing.T) {

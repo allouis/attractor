@@ -1048,7 +1048,7 @@ async function showConfig(warnings) {
 function renderConfig(doc, warnings) {
   linearClear = false;
   $('config-body').innerHTML =
-    reposPanelHtml(doc.repos, warnings) + linearPanelHtml(doc.linear, linearClear) + providersPanelHtml(doc);
+    reposPanelHtml(doc.repos, warnings, doc.vm_images) + linearPanelHtml(doc.linear, linearClear) + providersPanelHtml(doc);
   setConfigDirty(false);
 }
 
@@ -1067,20 +1067,20 @@ function setConfigStatus(text, kind) {
 // an add-repo control. Every stored value is external to the HTML context,
 // so all are escaped. The row inputs carry data-* hooks the save collector
 // scrapes.
-function reposPanelHtml(repos, warnings) {
+function reposPanelHtml(repos, warnings, vmImages) {
   const names = Object.keys(repos || {}).sort();
-  // Empty-state hint spans every column (owner/name + path + each standard
-  // check + the remove control) so a fresh config reads as "none yet, add
-  // one" rather than a bare header (config-screen-spec C5 empty states).
-  const cols = 3 + STANDARD_CHECKS.length;
+  // Empty-state hint spans every column (owner/name + path + runner + image +
+  // each standard check + the remove control) so a fresh config reads as "none
+  // yet, add one" rather than a bare header (config-screen-spec C5).
+  const cols = 5 + STANDARD_CHECKS.length;
   const rows = names.length
-    ? names.map(name => repoRowHtml(name, repos[name] || {}, repoWarning(name, warnings))).join('')
+    ? names.map(name => repoRowHtml(name, repos[name] || {}, repoWarning(name, warnings), vmImages)).join('')
     : `<tr data-empty-hint><td class="muted" colspan="${cols}">No repos registered — add one.</td></tr>`;
   return `<section class="config-panel" id="config-repos">
     <h3>Repos</h3>
     <p class="muted">Registered repos and their check commands — the run-form dropdown and the check backbone read these.</p>
     <table>
-      <thead><tr><th>owner/name</th><th>path</th>${
+      <thead><tr><th>owner/name</th><th>path</th><th>runner</th><th>image</th>${
         STANDARD_CHECKS.map(c => `<th>${escapeHtml(c)}</th>`).join('')}<th></th></tr></thead>
       <tbody id="config-repos-rows">${rows}</tbody>
     </table>
@@ -1093,18 +1093,44 @@ function reposPanelHtml(repos, warnings) {
 // this repo, e.g. an unresolved path) surfaces inline under the path input
 // so the reject-vs-warn distinction lands on the offending row, not only in
 // the top banner (config-screen-spec C5).
-function repoRowHtml(name, rc, warning) {
+function repoRowHtml(name, rc, warning, vmImages) {
   const checks = rc.checks || {};
   const checkCells = STANDARD_CHECKS.map(c =>
     `<td><input data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}"></td>`).join('');
   const warn = warning
     ? `<div class="config-note" data-repo-warning>⚠ ${escapeHtml(warning)}</div>` : '';
+  const runner = rc.runner || '';
   return `<tr data-repo-row>
     <td><input data-repo-name value="${escapeHtml(name)}" placeholder="owner/name"></td>
     <td><input data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}</td>
+    <td>${runnerSelectHtml(runner)}</td>
+    <td>${imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages)}</td>
     ${checkCells}
     <td><button type="button" data-repo-remove title="remove repo">&times;</button></td>
   </tr>`;
+}
+
+// runnerSelectHtml renders the per-repo runner (launcher placement) select: a
+// blank "(default)" — leave the daemon --runner default — plus the fixed
+// direct|local|vm placements, the declared one selected. data-repo-runner is
+// the save-collector hook and the change handler that toggles the row's image
+// select (per-repo VM config, VM4).
+function runnerSelectHtml(runner) {
+  const opts = ['', 'direct', 'local', 'vm'].map(v =>
+    `<option value="${escapeHtml(v)}"${v === runner ? ' selected' : ''}>${v || '(default)'}</option>`).join('');
+  return `<select data-repo-runner>${opts}</select>`;
+}
+
+// imageSelectHtml renders the per-repo VM image select: a blank "(default)"
+// image plus each registered vm_images name, the declared one selected. It is
+// only meaningful when the runner is vm, so it is disabled otherwise (the save
+// collector likewise drops the image off-vm). Names are external → escaped.
+function imageSelectHtml(image, runner, vmImages) {
+  const names = Object.keys(vmImages || {}).sort();
+  const opts = [''].concat(names).map(v =>
+    `<option value="${escapeHtml(v)}"${v === image ? ' selected' : ''}>${v ? escapeHtml(v) : '(default)'}</option>`).join('');
+  const dis = runner === 'vm' ? '' : ' disabled';
+  return `<select data-repo-image${dis}>${opts}</select>`;
 }
 
 // repoWarning finds the soft save-warning for a repo, matching the backend's
@@ -1185,7 +1211,7 @@ function onConfigClick(e) {
     const rows = $('config-repos-rows');
     if (rows) {
       rows.querySelectorAll('tr[data-empty-hint]').forEach(r => r.remove());
-      rows.insertAdjacentHTML('beforeend', repoRowHtml('', {}));
+      rows.insertAdjacentHTML('beforeend', repoRowHtml('', {}, '', (configLoaded && configLoaded.vm_images) || {}));
     }
     return;
   }
