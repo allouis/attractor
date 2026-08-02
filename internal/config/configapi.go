@@ -18,6 +18,10 @@ type RedactedDocument struct {
 	Providers       map[string]Provider   `json:"providers"`
 	Linear          RedactedLinear        `json:"linear"`
 	Repos           map[string]RepoConfig `json:"repos"`
+	// VMImages surfaces the named VM boot-image registry unredacted (image
+	// name -> boot script): the Config Repos panel reads it to populate the
+	// per-repo image select (per-repo VM config, VM4). Not a secret.
+	VMImages map[string]string `json:"vm_images,omitempty"`
 }
 
 // RedactedLinear reports whether a Linear key is stored, never its value.
@@ -33,6 +37,7 @@ func (d Document) Redacted() RedactedDocument {
 		Providers:       d.Providers,
 		Linear:          RedactedLinear{APIKeySet: d.Linear.APIKey != ""},
 		Repos:           d.Repos,
+		VMImages:        d.VMImages,
 	}
 }
 

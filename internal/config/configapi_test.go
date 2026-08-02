@@ -47,6 +47,23 @@ func TestRedactedUnsetKey(t *testing.T) {
 	}
 }
 
+// TestRedactedIncludesVMImages: the vm_images registry survives redaction —
+// the Config Repos panel reads the registered image names to populate its
+// per-repo image select (per-repo VM config, VM4).
+func TestRedactedIncludesVMImages(t *testing.T) {
+	doc := Document{VMImages: map[string]string{"default": ".#vm-runner", "node-ts": ".#vm-runner"}}
+	data, err := json.Marshal(doc.Redacted())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(data)
+	for _, want := range []string{`"vm_images"`, `"default"`, `"node-ts"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("redacted output missing %q: %s", want, s)
+		}
+	}
+}
+
 // TestValidateRejectsUnknownBackend: a provider backend outside
 // acp|claudecode|simulation fails the whole PUT (nothing saved).
 func TestValidateRejectsUnknownBackend(t *testing.T) {
