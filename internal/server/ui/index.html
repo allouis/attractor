@@ -208,6 +208,15 @@
              border: 1px solid var(--border); border-radius: 6px; padding: var(--space-1) var(--space-2); }
   .config-note { color: var(--state-needs-human); font-size: var(--font-sm); }
   .config-actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
+  /* Responsive (web-ui-v2-spec U1): on a narrow viewport collapse the
+     two-column run/workflow detail to a single column, let the header nav
+     wrap instead of overflowing, and tighten table cells + page padding. */
+  @media (max-width: 720px) {
+    main { padding: var(--space-3); }
+    header { flex-wrap: wrap; row-gap: var(--space-2); }
+    .layout { grid-template-columns: 1fr; }
+    th, td { padding: var(--space-2); }
+  }
 </style>
 </head>
 <body>
