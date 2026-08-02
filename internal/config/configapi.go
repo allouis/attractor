@@ -63,12 +63,19 @@ func (d Document) Validate() (warnings []string, err error) {
 }
 
 // WithMergedSecrets implements the PUT secret-merge: an empty incoming
-// secret keeps the stored value, a non-empty one replaces it. d is the
-// incoming (UI-submitted) document, prev the currently stored one.
+// secret keeps the stored value, a non-empty one replaces it, and an
+// explicit ClearAPIKey drops it (the distinct clear action — an empty key
+// alone always preserves). d is the incoming (UI-submitted) document, prev
+// the currently stored one. The clear signal is consumed here, never
+// persisted.
 func (d Document) WithMergedSecrets(prev Document) Document {
-	if d.Linear.APIKey == "" {
+	switch {
+	case d.Linear.ClearAPIKey:
+		d.Linear.APIKey = ""
+	case d.Linear.APIKey == "":
 		d.Linear.APIKey = prev.Linear.APIKey
 	}
+	d.Linear.ClearAPIKey = false
 	return d
 }
 

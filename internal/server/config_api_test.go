@@ -57,6 +57,27 @@ func TestGetConfigRedactsLinear(t *testing.T) {
 	}
 }
 
+// TestPutConfigClearsLinearKey: PUT with an explicit clear signal drops the
+// stored key (the Linear panel's Clear button), where an empty key alone
+// would preserve it (config-screen-spec).
+func TestPutConfigClearsLinearKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustNil(t, config.Document{Linear: config.LinearConfig{APIKey: "lin_secret"}}.Save(home))
+
+	body, err := json.Marshal(config.Document{Linear: config.LinearConfig{ClearAPIKey: true}})
+	mustNil(t, err)
+	rec := serveConfig(t, http.MethodPut, "/config", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	got, err := config.LoadDocument(home)
+	mustNil(t, err)
+	if got.Linear.APIKey != "" {
+		t.Errorf("clear left the key stored: %q", got.Linear.APIKey)
+	}
+}
+
 // TestGetConfigMissingReturnsDefault: no config.json → the fresh default,
 // with no key set.
 func TestGetConfigMissingReturnsDefault(t *testing.T) {

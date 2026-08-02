@@ -73,8 +73,15 @@ type Document struct {
 
 // LinearConfig holds the Linear source's API key (items-spec I2). Stored
 // here, redacted on read by the config API (config-screen-spec).
+//
+// ClearAPIKey is a write-only signal, never stored: because the redacted UI
+// form always submits an empty key (the value is never echoed), secret-
+// merge would keep the stored key forever. An explicit clear sets this so
+// WithMergedSecrets drops the stored key instead of preserving it. It is
+// omitempty + reset on merge so it never reaches the persisted file.
 type LinearConfig struct {
-	APIKey string `json:"api_key"`
+	APIKey      string `json:"api_key"`
+	ClearAPIKey bool   `json:"api_key_clear,omitempty"`
 }
 
 // RepoConfig is one registered repo: its local checkout plus the per-repo

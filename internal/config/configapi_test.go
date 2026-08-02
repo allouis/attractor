@@ -136,6 +136,29 @@ func TestWithMergedSecretsReplacesWhenSet(t *testing.T) {
 	}
 }
 
+// TestWithMergedSecretsClears: an explicit clear drops the stored key even
+// though the incoming key is empty (the redacted UI form always submits an
+// empty key). Secret-merge alone would keep it, so clearing is a distinct
+// signal (config-screen-spec). The signal itself must not persist.
+func TestWithMergedSecretsClears(t *testing.T) {
+	prev := Document{Linear: LinearConfig{APIKey: "kept"}}
+	incoming := Document{Linear: LinearConfig{APIKey: "", ClearAPIKey: true}}
+	got := incoming.WithMergedSecrets(prev)
+	if got.Linear.APIKey != "" {
+		t.Errorf("explicit clear should drop the stored key, got %q", got.Linear.APIKey)
+	}
+	if got.Linear.ClearAPIKey {
+		t.Error("clear signal must not survive into the merged doc")
+	}
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "api_key_clear") {
+		t.Errorf("clear signal leaked into the persisted doc: %s", data)
+	}
+}
+
 // TestReposListSorted: ReposList projects repos to a name-sorted slice —
 // the stable order the run-form dropdown reads (run-workflow-spec R2).
 func TestReposListSorted(t *testing.T) {
