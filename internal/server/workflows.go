@@ -60,15 +60,25 @@ func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// workflowDir resolves a catalog workflow name to its directory, confined to
+// the catalog root so a name cannot traverse out (mirroring getArtifact). The
+// bool is false when the name escapes the root — callers answer 404.
+func (s *Server) workflowDir(name string) (string, bool) {
+	root := filepath.Clean(s.workflowsDir)
+	dir := filepath.Join(root, filepath.Clean("/"+name))
+	if dir != root && !strings.HasPrefix(dir, root+string(filepath.Separator)) {
+		return "", false
+	}
+	return dir, true
+}
+
 // getWorkflowGraph serves GET /workflows/{name}/graph: the definition's
 // pipeline.dot rendered to SVG via render.SVG — the same renderer as the
 // run-graph endpoint, but from the catalog file with no run needed
-// (web-ui-spec W2). The name is confined to the catalog root so it cannot
-// traverse out, mirroring getArtifact.
+// (web-ui-spec W2).
 func (s *Server) getWorkflowGraph(w http.ResponseWriter, r *http.Request) {
-	root := filepath.Clean(s.workflowsDir)
-	dir := filepath.Join(root, filepath.Clean("/"+r.PathValue("name")))
-	if dir != root && !strings.HasPrefix(dir, root+string(filepath.Separator)) {
+	dir, ok := s.workflowDir(r.PathValue("name"))
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
