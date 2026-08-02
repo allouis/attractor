@@ -70,7 +70,7 @@ browser to APIs the daemon already serves*, not new backend.
 | # | Deliverable | Depends on | Status |
 |---|---|---|---|
 | U1 | **Visual pass**: design-system cleanup (components: cards/tables/badges/buttons/modals), layout + spacing, empty/loading/error states, responsive; no behaviour change | — | done |
-| U2 | **Stage inspector**: click a node → panel with prompt / response / tool-calls / status / timing via `GET …/stages/{node}` (T2); live tail of `assistant_delta` | — | todo |
+| U2 | **Stage inspector**: click a node → panel with prompt / response / tool-calls / status / timing via `GET …/stages/{node}` (T2); live tail of `assistant_delta` | — | done |
 | U3 | **Event timeline**: full scrollable, filterable run event log (via `…/events` SSE + replay cursor), failure reason surfaced prominently at the run header | — | todo |
 | U4 | **Diff + artifacts**: show the run's produced change (diff) and browse `…/artifacts/{path}` from the run detail | — | todo |
 | U5 | **Gate answering**: render open questions (`…/questions`) inline in run detail; option buttons POST the answer; run resumes; needs-human made loud in the fleet | — | todo |
