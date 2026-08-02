@@ -10,7 +10,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 
 | Spec | Status | Build |
 |---|---|---|
-| `config-screen-spec.md` | decisions locked | **C1–C3 done**; C4–C5 todo |
+| `config-screen-spec.md` | decisions locked | **C1–C4 done**; C5 todo |
 | `repo-vm-config-spec.md` | drafted | VM1–VM4 todo (after config-screen C1) |
 | `web-ui-v2-spec.md` | drafted | U1–U7 todo |
 
@@ -77,6 +77,24 @@ config-screen spec commit; advancing it is deferred to the end.
   - `mrluyknp` feat(config): RepoForPath resolves a repo ref from a checkout path
   - `ruwsulzn` fix(server): seedChecks backfills repo from cwd, warns on unregistered ref
   - `oytxplyv` docs: mark C3 done
+
+- **config-screen C4 — done** (dogfood run, `~/.attractor/runs/config-C4`).
+  8 atomic commits, gate green, no intervention:
+  - `tqpnrkzm` refactor(ui): drive nav/route from a TABS registry
+  - `mkznumys` feat(ui): Config tab with the Repos panel
+  - `xxylzwlr` feat(config): honor an explicit Linear key clear on PUT
+  - `xlowyuvu` feat(ui): Linear secret panel in the Config view
+  - `wmkkulyp` feat(ui): Providers panel in the Config view
+  - `snpvtymk` feat(ui): whole-doc save in the Config view
+  - `zvtowntq` fix(cli): upload stage artifacts before the terminal phone-home event
+  - `koxuqvou` docs: mark C4 done
+
+  **Real bug surfaced + fixed by the dogfood:** the pre-existing
+  `TestLocalLauncherEndToEnd` `-race` flake (noted after C1) reproduced 3/8;
+  the run root-caused it (artifacts uploaded after the terminal phone-home
+  event raced the daemon reading them) and fixed it properly — upload inside
+  the forwarding goroutine before the terminal event, post-loop fallback.
+  Now 20/20 deterministic under `-race`.
 
 ## Interventions
 
