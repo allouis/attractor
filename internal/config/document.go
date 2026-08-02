@@ -36,6 +36,23 @@ func (d Document) ReposMap() map[string]string {
 	return repos
 }
 
+// RepoForPath returns the owner/name of the registered repo whose local
+// checkout is cwd, ok=false if none (or cwd is empty). It reverse-resolves
+// a cwd-only dispatch (an automation or a raw-dot run, neither of which
+// carries a repo ref) to the repo identity that keys per-repo checks, so
+// those runs keep the checks they gated on before C3 (config-screen-spec).
+func (d Document) RepoForPath(cwd string) (string, bool) {
+	if cwd == "" {
+		return "", false
+	}
+	for name, rc := range d.Repos {
+		if rc.Path == cwd {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // ChecksForRepo returns the static-check commands of the repo named by the
 // run's ref (owner/name), or nil when the ref is empty or unregistered.
 // Checks are keyed by repo identity, not the run's cwd (config-screen-spec

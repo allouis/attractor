@@ -55,6 +55,25 @@ func TestReposMapProjection(t *testing.T) {
 	}
 }
 
+// TestRepoForPath: a registered checkout path reverse-resolves to its repo
+// ref, bridging cwd-only dispatch (automations, raw dot) to the identity
+// that keys per-repo checks (config-screen-spec C3).
+func TestRepoForPath(t *testing.T) {
+	doc := Document{Repos: map[string]RepoConfig{
+		"a/b": {Path: "/home/agent/Ghost"},
+		"c/d": {Path: "/home/agent/Other"},
+	}}
+	if got, ok := doc.RepoForPath("/home/agent/Ghost"); !ok || got != "a/b" {
+		t.Errorf("RepoForPath = %q, %v; want a/b, true", got, ok)
+	}
+	if got, ok := doc.RepoForPath("/unregistered"); ok || got != "" {
+		t.Errorf("RepoForPath(miss) = %q, %v; want \"\", false", got, ok)
+	}
+	if _, ok := doc.RepoForPath(""); ok {
+		t.Error("RepoForPath(empty) should not match a repo")
+	}
+}
+
 // TestChecksForRepoMatch: the checks of the repo named by the run's ref
 // (C3 keys by repo identity, not cwd).
 func TestChecksForRepoMatch(t *testing.T) {
