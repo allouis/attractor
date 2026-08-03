@@ -475,6 +475,11 @@ func (r *Run) Summary() map[string]any {
 	if vars := launchVars(r.initialContext); len(vars) > 0 {
 		resp["vars"] = vars
 	}
+	// resumable gates the re-run-from-failure control: true only when a failed
+	// run could actually resume from its checkpoint (web-ui-v2-spec U6). The
+	// UI shows re-run-from-failure only when it holds; plain re-run is always
+	// available on a terminal run with a known workflow.
+	resp["resumable"] = r.resumable()
 	return resp
 }
 
@@ -545,20 +550,32 @@ func (r *Run) SubmitAnswer(qid string, payload AnswerPayload) error {
 	}
 }
 
-// prepareRestart resets a failed run's terminal state so the dispatcher can
-// re-launch it (web-ui-v2-spec U6, re-run-from-failure). The engine resumes
-// from the on-disk checkpoint at logsRoot — the already-completed nodes are
-// skipped and the failed node re-executes — so only the terminal bookkeeping
-// is cleared here; the seeded context and logs stay put. Reports false (a
-// no-op) when the run is not failed, so the handler can 409.
-//
-// NOTE: resume reads checkpoint.json under logsRoot, which the direct launcher
-// writes there. A run executed by the local/vm launcher checkpoints inside the
-// child's filesystem, so a restart of one of those falls back to a fresh start
-// from the graph's entry node rather than the failed stage.
+// resumable reports whether a failed run can be re-run from its checkpoint.
+// Two conditions must hold: the run's engine deps are still in memory (a run
+// reloaded from disk after a daemon restart is a view-only shell — prepared /
+// factory are nil, so relaunching it would nil-func panic in execute), and it
+// ran on the direct launcher (checkpoint.json lives under logsRoot on the
+// daemon FS; a local/vm run checkpoints inside the now-gone child, so a resume
+// would silently fresh-start and re-run every completed, side-effecting node).
+// The empty placement is the direct default (server New). web-ui-v2-spec U6.
+func (r *Run) resumable() bool {
+	if r.prepared == nil || r.factory == nil {
+		return false
+	}
+	return r.placement == "" || r.placement == "direct"
+}
+
+// prepareRestart resets a resumable failed run's terminal state so the
+// dispatcher can re-launch it (web-ui-v2-spec U6, re-run-from-failure). The
+// engine resumes from the on-disk checkpoint at logsRoot — the already-
+// completed nodes are skipped and the failed node re-executes — so only the
+// terminal bookkeeping is cleared here; the seeded context and checkpoint stay
+// put. Reports false (a no-op) when the run is not a resumable failure, so the
+// handler can 409 rather than enqueue a run that would crash or silently
+// re-run everything.
 func (r *Run) prepareRestart() bool {
 	r.mu.Lock()
-	if r.status != RunFailed {
+	if r.status != RunFailed || !r.resumable() {
 		r.mu.Unlock()
 		return false
 	}
@@ -568,8 +585,7 @@ func (r *Run) prepareRestart() bool {
 	r.cancelled = false
 	r.completedAt = time.Time{}
 	// Drop the failed run's in-memory event history so the reopened run view
-	// replays only the resumed timeline (the stale pipeline_failed event would
-	// otherwise keep the failure banner up). events.jsonl on disk is untouched.
+	// replays only the resumed timeline.
 	r.history = nil
 	r.mu.Unlock()
 	r.writeManifest()

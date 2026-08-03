@@ -1360,9 +1360,12 @@ function isTerminal(p) {
 // runActionsHtml renders the run-detail control buttons (web-ui-v2-spec U6). A
 // terminal run with a known workflow offers re-run (reopens the Run modal
 // prefilled to resubmit workflow+vars+repo); a failed run additionally offers
-// re-run-from-failure (POST …/restart, resume from checkpoint). A live run
-// offers neither — cancel lives in the fleet. The run id rides a data-* attr
-// (escaped), fired by a delegated click, matching the cancel-button convention.
+// re-run-from-failure (POST …/restart, resume from checkpoint) — but only when
+// the daemon reports the run resumable (a reloaded shell or a local/vm run
+// cannot resume; re-running from failure there would crash or silently re-run
+// every side-effecting node). A live run offers neither — cancel lives in the
+// fleet. The run id rides a data-* attr (escaped), fired by a delegated click,
+// matching the cancel-button convention.
 function runActionsHtml(summary) {
   summary = summary || {};
   const id = escapeHtml(summary.id || '');
@@ -1370,7 +1373,7 @@ function runActionsHtml(summary) {
   if (isTerminal(summary) && summary.workflow_name) {
     buttons.push(`<button data-rerun data-run-id="${id}">re-run</button>`);
   }
-  if (summary.status === 'failed') {
+  if (summary.status === 'failed' && summary.resumable) {
     buttons.push(`<button data-restart data-run-id="${id}">re-run from failure</button>`);
   }
   return buttons.join(' ');

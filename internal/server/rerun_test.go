@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/interviewer"
 	"github.com/allouis/attractor/internal/items"
 	"github.com/allouis/attractor/internal/items/source"
 )
@@ -126,6 +128,68 @@ func TestRestart_UnknownRun404(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("restart of unknown run = %d, want 404", resp.StatusCode)
+	}
+}
+
+// registerRun injects a run directly into the registry for tests that need a
+// run in a state the normal admission path won't produce (a reloaded shell, a
+// non-direct placement).
+func registerRun(t *testing.T, srv *Server, run *Run) {
+	t.Helper()
+	run.logsRoot = t.TempDir()
+	run.subscribers = map[chan engine.Event]struct{}{}
+	run.questions = map[string]*pendingQuestion{}
+	srv.registry.mu.Lock()
+	srv.registry.runs[run.ID] = run
+	srv.registry.mu.Unlock()
+}
+
+// TestRunSummary_ResumableBit proves the summary flags whether a failed run can
+// resume from its checkpoint (web-ui-v2-spec U6): only a direct-launcher run
+// with its engine deps still in memory (never a reloaded shell, never a
+// local/vm run whose checkpoint died with the child). The UI gates the
+// re-run-from-failure button on this bit.
+func TestRunSummary_ResumableBit(t *testing.T) {
+	stub := HandlerFactory(func(interviewer.Interviewer) *engine.Registry { return nil })
+	cases := []struct {
+		name string
+		run  *Run
+		want bool
+	}{
+		{"direct + relaunchable", &Run{placement: "direct", prepared: &engine.PreparedGraph{}, factory: stub}, true},
+		{"default (empty) placement", &Run{placement: "", prepared: &engine.PreparedGraph{}, factory: stub}, true},
+		{"reloaded shell (nil deps)", &Run{placement: "direct"}, false},
+		{"vm placement", &Run{placement: "vm", prepared: &engine.PreparedGraph{}, factory: stub}, false},
+	}
+	for _, c := range cases {
+		got, _ := c.run.Summary()["resumable"].(bool)
+		if got != c.want {
+			t.Errorf("%s: resumable = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestRestart_RejectsUnresumableRun proves the restart handler refuses a run it
+// cannot resume rather than enqueuing it into a crash (web-ui-v2-spec U6): a
+// reloaded shell (nil prepared/factory → nil-func panic in execute) and a
+// local/vm run (checkpoint gone with the child → silent full re-run) both 409.
+func TestRestart_RejectsUnresumableRun(t *testing.T) {
+	srv := runFormServer(t, t.TempDir(), nil, items.Repos{})
+	stub := HandlerFactory(func(interviewer.Interviewer) *engine.Registry { return nil })
+	cases := []struct {
+		name string
+		run  *Run
+	}{
+		{"reloaded", &Run{ID: "reloaded", status: RunFailed, placement: "direct"}},
+		{"vm", &Run{ID: "vm-run", status: RunFailed, placement: "vm", prepared: &engine.PreparedGraph{}, factory: stub}},
+	}
+	for _, c := range cases {
+		registerRun(t, srv, c.run)
+		resp := postRestart(t, srv.URL(), c.run.ID)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusConflict {
+			t.Errorf("%s: restart = %d, want 409", c.name, resp.StatusCode)
+		}
 	}
 }
 

@@ -18,12 +18,22 @@ func TestRunActionsHtml(t *testing.T) {
 		t.Errorf("completed run must not offer re-run-from-failure:\n%s", completed)
 	}
 
-	failed := evalUI(t, `runActionsHtml({status:'failed', workflow_name:'impl', id:'r1'})`)
+	failed := evalUI(t, `runActionsHtml({status:'failed', resumable:true, workflow_name:'impl', id:'r1'})`)
 	if !strings.Contains(failed, "data-rerun") || !strings.Contains(failed, "data-restart") {
-		t.Errorf("failed run should offer both re-run and re-run-from-failure:\n%s", failed)
+		t.Errorf("resumable failed run should offer both re-run and re-run-from-failure:\n%s", failed)
 	}
 	if !strings.Contains(failed, `data-run-id="r1"`) {
 		t.Errorf("action buttons should carry the run id:\n%s", failed)
+	}
+
+	// A failed run the daemon reports non-resumable (a reloaded shell or a
+	// local/vm run) must NOT offer re-run-from-failure — only a fresh re-run.
+	notResumable := evalUI(t, `runActionsHtml({status:'failed', resumable:false, workflow_name:'impl', id:'r1'})`)
+	if strings.Contains(notResumable, "data-restart") {
+		t.Errorf("non-resumable failed run must not offer re-run-from-failure:\n%s", notResumable)
+	}
+	if !strings.Contains(notResumable, "data-rerun") {
+		t.Errorf("non-resumable failed run should still offer a fresh re-run:\n%s", notResumable)
 	}
 
 	running := evalUI(t, `runActionsHtml({status:'running', workflow_name:'impl', id:'r1'})`)
@@ -32,13 +42,13 @@ func TestRunActionsHtml(t *testing.T) {
 	}
 
 	// A raw-dot run (no workflow_name) cannot reconstruct the Run modal, so it
-	// offers only re-run-from-failure.
-	rawFailed := evalUI(t, `runActionsHtml({status:'failed', id:'r1'})`)
+	// offers only re-run-from-failure when resumable.
+	rawFailed := evalUI(t, `runActionsHtml({status:'failed', resumable:true, id:'r1'})`)
 	if strings.Contains(rawFailed, "data-rerun") {
 		t.Errorf("workflow-less run must not offer re-run (no modal to prefill):\n%s", rawFailed)
 	}
 	if !strings.Contains(rawFailed, "data-restart") {
-		t.Errorf("workflow-less failed run should still offer re-run-from-failure:\n%s", rawFailed)
+		t.Errorf("workflow-less resumable failed run should still offer re-run-from-failure:\n%s", rawFailed)
 	}
 }
 
