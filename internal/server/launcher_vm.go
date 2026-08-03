@@ -110,6 +110,17 @@ func (l vmLauncher) writeJob(run *Run, reportURL string) (jobDir string, err err
 	if err := os.MkdirAll(jobDir, 0o755); err != nil {
 		return "", err
 	}
+	// Ship the pipeline's base-dir (its `prompts/` and any other @file
+	// dependencies) into the job share so `--base-dir /mnt/job` resolves them
+	// in the guest. Without this a pipeline with `@prompts/…` dies in the VM
+	// with "no such file". Skip when the base-dir is the working tree itself
+	// (a raw-dot run): that whole tree is already mounted at /mnt/workspace,
+	// and copying it into the job share would duplicate the entire repo.
+	if base := run.baseDir(); base != "" && base != run.cwd {
+		if err := copyTree(base, jobDir); err != nil {
+			return "", fmt.Errorf("copy pipeline base-dir: %w", err)
+		}
+	}
 	job := vmJob{
 		RunID:     run.ID,
 		Token:     run.Token(),
@@ -124,10 +135,50 @@ func (l vmLauncher) writeJob(run *Run, reportURL string) (jobDir string, err err
 	if err := os.WriteFile(filepath.Join(jobDir, "job.json"), data, 0o644); err != nil {
 		return "", err
 	}
+	// Written last so our resolved source wins over any pipeline.dot copied
+	// from the base-dir tree above.
 	if err := os.WriteFile(filepath.Join(jobDir, "source.dot"), []byte(run.Source()), 0o644); err != nil {
 		return "", err
 	}
 	return jobDir, nil
+}
+
+// copyTree copies the regular files and subdirectories of src into dst
+// (which must already exist). Symlinks are skipped so a pipeline dir cannot
+// smuggle a link that escapes the job share into the guest.
+func copyTree(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, ent := range entries {
+		sp := filepath.Join(src, ent.Name())
+		dp := filepath.Join(dst, ent.Name())
+		info, err := ent.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			continue
+		case ent.IsDir():
+			if err := os.MkdirAll(dp, 0o755); err != nil {
+				return err
+			}
+			if err := copyTree(sp, dp); err != nil {
+				return err
+			}
+		default:
+			data, err := os.ReadFile(sp)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(dp, data, 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (l vmLauncher) Launch(run *Run, reportURL string) error {

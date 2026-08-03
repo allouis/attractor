@@ -120,6 +120,36 @@ func TestWriteJobMaterializesJobDir(t *testing.T) {
 	}
 }
 
+// copyTree ships a pipeline's base-dir (its prompts/ and @file deps) into
+// the job share, recursively, skipping symlinks. Without it a VM run of any
+// pipeline that uses @prompts/… dies in the guest with "no such file".
+func TestCopyTree(t *testing.T) {
+	src := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "prompts", "plan.md"), []byte("plan!"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "pipeline.dot"), []byte("digraph{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink must not be followed into the job share.
+	_ = os.Symlink("/etc/passwd", filepath.Join(src, "sneaky"))
+
+	dst := t.TempDir()
+	if err := copyTree(src, dst); err != nil {
+		t.Fatalf("copyTree: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "prompts", "plan.md"))
+	if err != nil || string(got) != "plan!" {
+		t.Fatalf("prompts/plan.md = %q (err %v)", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "sneaky")); !os.IsNotExist(err) {
+		t.Fatalf("symlink was copied into the job share (err %v)", err)
+	}
+}
+
 // A vm run with no working tree can't share a workspace; it fails fast
 // rather than booting a useless VM.
 func TestVMLauncherRequiresCwd(t *testing.T) {

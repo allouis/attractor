@@ -296,6 +296,16 @@ func (r *Run) Source() string {
 	return string(data)
 }
 
+// baseDir returns the directory the run's pipeline was loaded from — where
+// its @file prompt dependencies resolve. "" when the graph carries none
+// (e.g. a reloaded run whose graph was not rebuilt).
+func (r *Run) baseDir() string {
+	if r.graph == nil {
+		return ""
+	}
+	return r.graph.BaseDir
+}
+
 // Subscribe registers a new SSE consumer and replays the buffered
 // history into the returned channel before live events stream in. When
 // since > 0 only events with seq > since are replayed, so a client
