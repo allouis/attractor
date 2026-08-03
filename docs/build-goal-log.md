@@ -12,7 +12,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
-| `run-workflow-spec.md` | drafted | **R1–R4 done**; R5 todo → unblocks U6 |
+| `run-workflow-spec.md` | **BUILT (R1–R5 done)** | ✅ |
 | `web-ui-v2-spec.md` | drafted | **U1–U5,U7 done**; U6 waits on run-workflow |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
@@ -198,6 +198,14 @@ config-screen spec commit; advancing it is deferred to the end.
   unified Run modal (workflow dropdown → dynamic prefilled var fields +
   repo dropdown, `buildVarFields`/`varsFromFields`); `POST /items/run`
   removed and guarded by tests. `txnpqnnp`…`nrworrlo`.
+
+- **R5 — done** (`~/.attractor/runs/rw-R5`). 4 atomic commits, gate green:
+  run-form polish — block submit on empty required vars, loading state,
+  `needsItemNote` for item-only workflows, `runFieldBody`. `ywytkuzq`…`kqlrttwl`.
+
+- **✅ run-workflow-spec fully built** — R1–R5, 15 atomic commits, gate
+  green. Launch modal picks any workflow, fills its declared vars, picks a
+  registered repo; `/items/run` retired. Unblocks U6.
 
 ## Interventions
 
