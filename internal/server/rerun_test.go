@@ -238,3 +238,65 @@ func TestRunSummary_ExposesLaunchVars(t *testing.T) {
 	}
 	pollRunSummary(t, srv.URL(), id) // let the run finish before tempdir cleanup
 }
+
+// TestRestart_RotatesEventLog proves a resumed run's durable event log is not
+// corrupted by the old failed attempt (web-ui-v2-spec U6): after restart, the
+// on-disk events.jsonl carries no stale pipeline_failed and no duplicate seqs,
+// so a reboot (empty in-memory history → replay from disk) shows the resumed
+// run as completed, not failed. Reproduces the reboot path by clearing history.
+func TestRestart_RotatesEventLog(t *testing.T) {
+	catalog := t.TempDir()
+	repoDir := t.TempDir()
+	scratch := t.TempDir()
+	sentinel := filepath.Join(scratch, "sentinel")
+	dir := filepath.Join(catalog, "resume")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := `digraph resume {
+		vars="repo"
+		start [shape=Mdiamond]
+		a [type="tool", tool_command="true"]
+		b [type="tool", tool_command="[ -f ` + sentinel + ` ] || { touch ` + sentinel + `; exit 1; }"]
+		done [shape=Msquare]
+		start -> a -> b -> done
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "pipeline.dot"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := runFormServer(t, catalog, nil, items.Repos{"allouis/attractor": repoDir})
+
+	_, id := postRunWorkflow(t, srv.URL(), "resume", map[string]any{"repo": "allouis/attractor"})
+	pollRunSummary(t, srv.URL(), id)
+	resp := postRestart(t, srv.URL(), id)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("restart status = %d, want 202", resp.StatusCode)
+	}
+	pollRunUntil(t, srv.URL(), id, RunCompleted)
+
+	// Reboot simulation: drop in-memory history so a fresh Subscribe replays
+	// the run purely from the on-disk events.jsonl.
+	run, _ := srv.registry.Get(id)
+	run.mu.Lock()
+	run.history = nil
+	run.mu.Unlock()
+
+	seen := map[int64]bool{}
+	var terminal engine.EventKind
+	for ev := range run.Subscribe(0) {
+		if ev.Kind == engine.EventPipelineFailed {
+			t.Errorf("resumed run's disk log still carries a stale pipeline_failed")
+		}
+		if ev.Seq != 0 && seen[ev.Seq] {
+			t.Errorf("duplicate event seq %d in resumed run's disk log", ev.Seq)
+		}
+		seen[ev.Seq] = true
+		if ev.Kind == engine.EventPipelineCompleted || ev.Kind == engine.EventPipelineFailed {
+			terminal = ev.Kind
+		}
+	}
+	if terminal != engine.EventPipelineCompleted {
+		t.Errorf("replayed terminal event = %q, want pipeline_completed", terminal)
+	}
+}

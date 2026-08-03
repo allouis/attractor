@@ -588,8 +588,37 @@ func (r *Run) prepareRestart() bool {
 	// replays only the resumed timeline.
 	r.history = nil
 	r.mu.Unlock()
+	// Rotate the failed attempt's events.jsonl aside (keeping checkpoint.json,
+	// which the resume reads). The resumed run builds a fresh engine whose seq
+	// counter restarts at 1 and appends to events.jsonl; leaving the old log in
+	// place would duplicate seqs and replay a stale pipeline_failed to any
+	// reader whose in-memory history is empty (e.g. after a daemon reboot).
+	r.rotateEventLog()
 	r.writeManifest()
 	return true
+}
+
+// rotateEventLog moves the current events.jsonl into the next free _restart_N
+// subdirectory, preserving the failed attempt's log for inspection while
+// leaving the resumed run a clean file to write. Best-effort: a missing log or
+// a rename failure is ignored (the run proceeds without the old log). The
+// _restart_ prefix matches the loop-restart archive so nothing replays it.
+func (r *Run) rotateEventLog() {
+	src := filepath.Join(r.logsRoot, "events.jsonl")
+	if _, err := os.Stat(src); err != nil {
+		return
+	}
+	for n := 1; n < 1<<16; n++ {
+		dir := filepath.Join(r.logsRoot, fmt.Sprintf("_restart_%d", n))
+		if _, err := os.Stat(dir); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return
+		}
+		_ = os.Rename(src, filepath.Join(dir, "events.jsonl"))
+		return
+	}
 }
 
 // Checkpoint returns the run's checkpoint.json bytes if any.
