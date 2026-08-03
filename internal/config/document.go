@@ -53,6 +53,22 @@ func (d Document) RepoForPath(cwd string) (string, bool) {
 	return "", false
 }
 
+// RepoPath returns the local checkout path of the repo named by the given
+// owner/name ref, ok=false when the ref is empty, unregistered, or maps to an
+// empty path. It is the live-config counterpart of items.Repos.Path: the run
+// form resolves cwd from the same document it reads the dropdown from, so a
+// repo registered at runtime is immediately runnable (run-workflow-spec R3).
+func (d Document) RepoPath(repo string) (string, bool) {
+	if repo == "" {
+		return "", false
+	}
+	rc, ok := d.Repos[repo]
+	if !ok || rc.Path == "" {
+		return "", false
+	}
+	return rc.Path, true
+}
+
 // ChecksForRepo returns the static-check commands of the repo named by the
 // run's ref (owner/name), or nil when the ref is empty or unregistered.
 // Checks are keyed by repo identity, not the run's cwd (config-screen-spec

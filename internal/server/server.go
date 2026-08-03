@@ -171,6 +171,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /repos", s.listRepos)
 	mux.HandleFunc("GET /workflows", s.listWorkflows)
 	mux.HandleFunc("GET /workflows/{name}", s.getWorkflow)
+	mux.HandleFunc("POST /workflows/{name}/run", s.runWorkflow)
 	mux.HandleFunc("GET /workflows/{name}/graph", s.getWorkflowGraph)
 	mux.HandleFunc("GET /automations", s.listAutomations)
 	mux.HandleFunc("POST /automations/{name}/run", s.runAutomation)

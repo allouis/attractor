@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/allouis/attractor/internal/dot"
 	"github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/items"
 	"github.com/allouis/attractor/internal/render"
 )
 
@@ -119,6 +121,103 @@ func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
 		Goal: g.Goal(),
 		Vars: vars,
 	})
+}
+
+// runWorkflowRequest is the POST /workflows/{name}/run body: the chosen repo
+// (the run's cwd resolver and the `repo` var), the declared vars filled in the
+// form, and an optional item_ref that prefills them from an external Item
+// (run-workflow-spec R3). Item-driven and standalone launches are the same
+// path, with or without item_ref.
+type runWorkflowRequest struct {
+	Repo    string            `json:"repo"`
+	Vars    map[string]string `json:"vars"`
+	ItemRef *items.ItemRef    `json:"item_ref"`
+}
+
+// runWorkflow serves POST /workflows/{name}/run: the single admission point for
+// a manual launch. It resolves the catalog workflow (baseDir = its dir, so
+// @prompt refs and any manager_loop child_dotfile resolve against it), prefills
+// vars from item_ref when present, overlays the request vars, resolves the
+// registered repo to the run's cwd, and submits through the shared path (which
+// seeds the run context and static checks). Supersedes POST /items/run.
+func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	dir, ok := s.workflowDir(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	dotSource, err := os.ReadFile(filepath.Join(dir, "pipeline.dot"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	var req runWorkflowRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Base vars come from the linked Item (each declared var prefilled); the
+	// request vars overlay them so a human can tweak before launching.
+	vars := map[string]string{}
+	tag := ""
+	if req.ItemRef != nil {
+		if req.ItemRef.Source == "" || req.ItemRef.Type == "" || req.ItemRef.ExternalID == "" {
+			http.Error(w, "item_ref requires source, type, and external_id", http.StatusBadRequest)
+			return
+		}
+		src, ok := s.sources[req.ItemRef.Source]
+		if !ok {
+			http.Error(w, "unknown source "+req.ItemRef.Source, http.StatusBadRequest)
+			return
+		}
+		item, err := src.Get(r.Context(), *req.ItemRef)
+		if err != nil {
+			http.Error(w, "resolve item: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		for k, v := range item.Vars {
+			vars[k] = v
+		}
+		tag = req.ItemRef.String()
+	}
+	for k, v := range req.Vars {
+		vars[k] = v
+	}
+
+	// The repo field is authoritative (the form's dropdown), falling back to a
+	// prefilled item repo. It is both the cwd resolver and the `repo` var, so
+	// seed it back so the run context and per-repo checks agree.
+	repo := req.Repo
+	if repo == "" {
+		repo = vars["repo"]
+	}
+	if repo == "" {
+		http.Error(w, "no repo: none chosen and none prefilled from the item", http.StatusUnprocessableEntity)
+		return
+	}
+	vars["repo"] = repo
+	// Resolve cwd from live config, the same source the dropdown (GET /repos)
+	// and the run's checks/placement read — never a boot snapshot — so a repo
+	// added via the config screen is runnable without a daemon restart.
+	doc, err := loadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cwd, ok := doc.RepoPath(repo)
+	if !ok {
+		http.Error(w, "repo "+repo+" not mapped in config", http.StatusUnprocessableEntity)
+		return
+	}
+
+	id, err := s.submit(string(dotSource), vars, cwd, repo, tag, name, dir, "", "")
+	if err != nil {
+		http.Error(w, "validate: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
 // getWorkflowGraph serves GET /workflows/{name}/graph: the definition's
