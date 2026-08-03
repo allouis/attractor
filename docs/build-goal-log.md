@@ -12,7 +12,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 |---|---|---|
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
-| `run-workflow-spec.md` | drafted | **R1–R2 done**; R3–R5 todo → unblocks U6 |
+| `run-workflow-spec.md` | drafted | **R1–R3 done**; R4–R5 todo → unblocks U6 |
 | `web-ui-v2-spec.md` | drafted | **U1–U5,U7 done**; U6 waits on run-workflow |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
@@ -188,6 +188,11 @@ config-screen spec commit; advancing it is deferred to the end.
 - **R1 — done** (`~/.attractor/runs/rw-R1`). 3 atomic commits, gate green:
   `GET /workflows/{name}` returns goal + declared vars from the catalog
   dot; extracted `workflowDir` resolver. `klwnzuwt`, `stzzxroz`, `zzmzqvsn`.
+
+- **R3 — done** (`~/.attractor/runs/rw-R3`). 2 atomic commits, gate green:
+  `POST /workflows/{name}/run` — unified admission (vars + repo +
+  optional item_ref → submit, baseDir = workflow dir, check seeding).
+  `wsuqtuuk`, `qvqtlyum`.
 
 ## Interventions
 
