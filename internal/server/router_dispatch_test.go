@@ -36,11 +36,16 @@ func markerChild(t *testing.T, dir, name, marker string) string {
 }
 
 // TestRunItem_RouterRoutesPRToReviewChild is the R6 convention (router-spec
-// "Testing conventions"): POST /items/run {item_ref, pipeline: router} for
-// a PR Item runs the router, whose item.type=pr edge routes to the review
-// child; the single run carries item_ref.
+// "Testing conventions"): POST /workflows/router/run {item_ref} for a PR Item
+// runs the router, whose item.type=pr edge routes to the review child; the
+// single run carries item_ref.
 func TestRunItem_RouterRoutesPRToReviewChild(t *testing.T) {
+	catalog := t.TempDir()
 	repoDir := t.TempDir()
+	dir := filepath.Join(catalog, "router")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	work := t.TempDir()
 	reviewMarker := filepath.Join(work, "review.ran")
 	implementMarker := filepath.Join(work, "implement.ran")
@@ -70,16 +75,15 @@ func TestRunItem_RouterRoutesPRToReviewChild(t *testing.T) {
 		review_loop    -> done
 		implement_loop -> done
 	}`, reviewChild, implementChild)
-	routerPath := writeFile(t, work, "router.dot", routerSrc)
+	writeFile(t, dir, "pipeline.dot", routerSrc)
 
 	fs := &fakeSource{getItem: prItem()}
 	repos := items.Repos{"allouis/attractor": repoDir}
-	srv := itemsServerWithRepos(t, map[string]source.Source{"github": fs}, repos)
+	srv := runFormServer(t, catalog, map[string]source.Source{"github": fs}, repos)
 
 	ref := items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
-	resp, id := postRunItem(t, srv.URL(), map[string]any{
+	resp, id := postRunWorkflow(t, srv.URL(), "router", map[string]any{
 		"item_ref": ref,
-		"pipeline": routerPath,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)

@@ -1,15 +1,12 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,22 +36,11 @@ func (f *fakeSource) Get(_ context.Context, ref items.ItemRef) (source.Item, err
 	return f.getItem, f.getErr
 }
 
-// fakeDeps stands in for the server: it records the admission call and
-// replays canned sources, repo paths, and linked runs.
+// fakeDeps stands in for the server: it replays canned sources and the runs
+// linked to an item tag.
 type fakeDeps struct {
 	sources map[string]source.Source
-	repos   items.Repos
 	linked  map[string][]LinkedRun
-
-	subDot      string
-	subVars     map[string]string
-	subCwd      string
-	subRepo     string
-	subTag      string
-	subWorkflow string
-	subBaseDir  string
-	subID       string
-	subErr      error
 }
 
 func (d *fakeDeps) Source(name string) (source.Source, bool) {
@@ -70,13 +56,6 @@ func (d *fakeDeps) SourceNames() []string {
 	return names
 }
 
-func (d *fakeDeps) RepoPath(repo string) (string, bool) { return d.repos.Path(repo) }
-
-func (d *fakeDeps) Submit(dot string, vars map[string]string, cwd, repo, tag, workflowName, baseDir string) (string, error) {
-	d.subDot, d.subVars, d.subCwd, d.subRepo, d.subTag, d.subWorkflow, d.subBaseDir = dot, vars, cwd, repo, tag, workflowName, baseDir
-	return d.subID, d.subErr
-}
-
 func (d *fakeDeps) LinkedRuns(tag string) []LinkedRun { return d.linked[tag] }
 
 // itemsServer mounts Register on a test HTTP server backed by deps.
@@ -87,230 +66,6 @@ func itemsServer(t *testing.T, deps *fakeDeps) string {
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts.URL
-}
-
-// A minimal start->done graph is a valid pipeline body.
-const doneGraph = "digraph { start [shape=Mdiamond]; done [shape=Msquare]; start -> done }"
-
-// writeGraph writes doneGraph to a temp .dot and returns its path.
-func writeGraph(t *testing.T) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "pipe.dot")
-	if err := os.WriteFile(p, []byte(doneGraph), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-// postRunItem POSTs POST /items/run and returns the response plus decoded id.
-func postRunItem(t *testing.T, url string, body map[string]any) (*http.Response, string) {
-	t.Helper()
-	buf, _ := json.Marshal(body)
-	resp, err := http.Post(url+"/items/run", "application/json", bytes.NewReader(buf))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out struct {
-		ID string `json:"id"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	resp.Body.Close()
-	return resp, out.ID
-}
-
-func prItem() source.Item {
-	return source.Item{
-		Ref:   items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
-		Title: "Fix login",
-		Vars: map[string]string{
-			"repo":      "allouis/attractor",
-			"pr_number": "42",
-		},
-	}
-}
-
-func TestRunItemPRAutofillsRepo(t *testing.T) {
-	repoDir := t.TempDir()
-	fs := &fakeSource{getItem: prItem()}
-	deps := &fakeDeps{
-		sources: map[string]source.Source{"github": fs},
-		repos:   items.Repos{"allouis/attractor": repoDir},
-		subID:   "run-1",
-	}
-	url := itemsServer(t, deps)
-
-	ref := items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
-	resp, id := postRunItem(t, url, map[string]any{
-		"item_ref": ref,
-		"pipeline": writeGraph(t),
-	})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", resp.StatusCode)
-	}
-	if id != "run-1" {
-		t.Errorf("id = %q, want run-1", id)
-	}
-	if fs.gotRef != ref {
-		t.Errorf("source.Get ref = %+v, want %+v", fs.gotRef, ref)
-	}
-	if deps.subCwd != repoDir {
-		t.Errorf("Submit cwd = %q, want %q (repo auto-filled from item)", deps.subCwd, repoDir)
-	}
-	if deps.subRepo != "allouis/attractor" {
-		t.Errorf("Submit repo = %q, want %q (repo auto-filled from item)", deps.subRepo, "allouis/attractor")
-	}
-	if deps.subTag != ref.String() {
-		t.Errorf("Submit tag = %q, want %q", deps.subTag, ref.String())
-	}
-}
-
-// TestRunItemStampsWorkflowNameFromCatalogDir proves runItem derives the
-// workflow name from the catalog layout <root>/<name>/pipeline.dot — the
-// parent directory, which is the handle the run→workflow backlink resolves
-// against (web-ui-spec W6). It is the dir name, not the DOT digraph name.
-func TestRunItemStampsWorkflowNameFromCatalogDir(t *testing.T) {
-	repoDir := t.TempDir()
-	dir := filepath.Join(t.TempDir(), "bug-fix")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	pipe := filepath.Join(dir, "pipeline.dot")
-	if err := os.WriteFile(pipe, []byte(doneGraph), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	fs := &fakeSource{getItem: prItem()}
-	deps := &fakeDeps{
-		sources: map[string]source.Source{"github": fs},
-		repos:   items.Repos{"allouis/attractor": repoDir},
-		subID:   "run-1",
-	}
-	url := itemsServer(t, deps)
-
-	resp, _ := postRunItem(t, url, map[string]any{
-		"item_ref": items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
-		"pipeline": pipe,
-	})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", resp.StatusCode)
-	}
-	if deps.subWorkflow != "bug-fix" {
-		t.Errorf("Submit workflowName = %q, want \"bug-fix\" (catalog dir)", deps.subWorkflow)
-	}
-}
-
-func TestRunItemNonPRUsesRequestRepo(t *testing.T) {
-	repoDir := t.TempDir()
-	// A Linear-style item carries no `repo` var, so the request supplies it.
-	fs := &fakeSource{getItem: source.Item{
-		Ref:  items.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
-		Vars: map[string]string{"identifier": "ENG-42"},
-	}}
-	deps := &fakeDeps{
-		sources: map[string]source.Source{"linear": fs},
-		repos:   items.Repos{"allouis/attractor": repoDir},
-		subID:   "run-1",
-	}
-	url := itemsServer(t, deps)
-
-	resp, _ := postRunItem(t, url, map[string]any{
-		"item_ref": items.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
-		"pipeline": writeGraph(t),
-		"repo":     "allouis/attractor",
-	})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", resp.StatusCode)
-	}
-	if deps.subCwd != repoDir {
-		t.Errorf("Submit cwd = %q, want %q (repo from request)", deps.subCwd, repoDir)
-	}
-	if deps.subRepo != "allouis/attractor" {
-		t.Errorf("Submit repo = %q, want %q (repo from request)", deps.subRepo, "allouis/attractor")
-	}
-}
-
-func TestRunItemUnknownSource(t *testing.T) {
-	url := itemsServer(t, &fakeDeps{sources: map[string]source.Source{}})
-	resp, _ := postRunItem(t, url, map[string]any{
-		"item_ref": items.ItemRef{Source: "nope", Type: "pr", ExternalID: "x#1"},
-		"pipeline": writeGraph(t),
-	})
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
-}
-
-// TestRunItemPassesVarsAndTag proves POST /items/run hands the Item's vars
-// and the Ref-derived opaque tag to the admission path, so the run is
-// stamped and seeded (seeding itself is the server's concern).
-func TestRunItemPassesVarsAndTag(t *testing.T) {
-	repoDir := t.TempDir()
-	fs := &fakeSource{getItem: prItem()}
-	deps := &fakeDeps{
-		sources: map[string]source.Source{"github": fs},
-		repos:   items.Repos{"allouis/attractor": repoDir},
-		subID:   "run-1",
-	}
-	url := itemsServer(t, deps)
-
-	ref := items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
-	resp, _ := postRunItem(t, url, map[string]any{
-		"item_ref": ref,
-		"pipeline": writeGraph(t),
-	})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", resp.StatusCode)
-	}
-	if deps.subTag != ref.String() {
-		t.Errorf("Submit tag = %q, want %q", deps.subTag, ref.String())
-	}
-	want := map[string]string{"repo": "allouis/attractor", "pr_number": "42"}
-	for k, v := range want {
-		if deps.subVars[k] != v {
-			t.Errorf("Submit vars[%q] = %q, want %q", k, deps.subVars[k], v)
-		}
-	}
-}
-
-func TestRunItemRepoUnmapped(t *testing.T) {
-	fs := &fakeSource{getItem: prItem()}
-	deps := &fakeDeps{sources: map[string]source.Source{"github": fs}, repos: items.Repos{}}
-	url := itemsServer(t, deps)
-	resp, _ := postRunItem(t, url, map[string]any{
-		"item_ref": items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
-		"pipeline": writeGraph(t),
-	})
-	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422", resp.StatusCode)
-	}
-}
-
-func TestRunItemNoRepo(t *testing.T) {
-	// Non-PR item with no repo var and no request repo → unresolvable.
-	fs := &fakeSource{getItem: source.Item{
-		Ref: items.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
-	}}
-	deps := &fakeDeps{sources: map[string]source.Source{"linear": fs}, repos: items.Repos{}}
-	url := itemsServer(t, deps)
-	resp, _ := postRunItem(t, url, map[string]any{
-		"item_ref": items.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
-		"pipeline": writeGraph(t),
-	})
-	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422", resp.StatusCode)
-	}
-}
-
-func TestRunItemGetFails(t *testing.T) {
-	fs := &fakeSource{getErr: errors.New("gh: not found")}
-	deps := &fakeDeps{sources: map[string]source.Source{"github": fs}, repos: items.Repos{}}
-	url := itemsServer(t, deps)
-	resp, _ := postRunItem(t, url, map[string]any{
-		"item_ref": items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"},
-		"pipeline": writeGraph(t),
-	})
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502", resp.StatusCode)
-	}
 }
 
 func getItems(t *testing.T, url string) (*http.Response, []map[string]any) {

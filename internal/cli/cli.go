@@ -532,8 +532,8 @@ func serveSources() (map[string]source.Source, error) {
 }
 
 // serveRepos projects the daemon-owned config.json onto the repo→path map
-// (items-spec I3), backing POST /items/run's repo → cwd resolution. A
-// missing config.json is not an error: the fresh default's empty map.
+// (items-spec I3) the server boots with. A missing config.json is not an
+// error: the fresh default's empty map.
 func serveRepos(home string) (items.Repos, error) {
 	doc, err := config.LoadDocument(home)
 	if err != nil {

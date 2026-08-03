@@ -24,9 +24,9 @@ func defaultWorkflowsDir() string {
 	return filepath.Join(".attractor", "pipelines")
 }
 
-// workflow is one catalog entry: the definition's directory name and the
-// absolute path to its pipeline.dot, which POST /items/run wants as its
-// `pipeline` field (web-ui-spec §Views).
+// workflow is one catalog entry: the definition's directory name (the handle
+// the run form keys POST /workflows/{name}/run on) and the absolute path to
+// its pipeline.dot (web-ui-spec §Views).
 type workflow struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
@@ -139,7 +139,8 @@ type runWorkflowRequest struct {
 // @prompt refs and any manager_loop child_dotfile resolve against it), prefills
 // vars from item_ref when present, overlays the request vars, resolves the
 // registered repo to the run's cwd, and submits through the shared path (which
-// seeds the run context and static checks). Supersedes POST /items/run.
+// seeds the run context and static checks). The single admission point for a
+// manual launch — item-driven and standalone both funnel through here.
 func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	dir, ok := s.workflowDir(name)

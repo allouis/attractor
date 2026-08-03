@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -37,32 +36,6 @@ func (f *fakeSource) List(_ context.Context, filter source.Filter) ([]source.Ite
 func (f *fakeSource) Get(_ context.Context, ref items.ItemRef) (source.Item, error) {
 	f.gotRef = ref
 	return f.getItem, f.getErr
-}
-
-func itemsServerWithRepos(t *testing.T, sources map[string]source.Source, repos items.Repos) *Server {
-	t.Helper()
-	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir(), Sources: sources, Repos: repos})
-	if err := srv.Start(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
-	return srv
-}
-
-// postRunItem POSTs POST /items/run and returns the response plus decoded id.
-func postRunItem(t *testing.T, url string, body map[string]any) (*http.Response, string) {
-	t.Helper()
-	buf, _ := json.Marshal(body)
-	resp, err := http.Post(url+"/items/run", "application/json", bytes.NewReader(buf))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out struct {
-		ID string `json:"id"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	resp.Body.Close()
-	return resp, out.ID
 }
 
 // pollRunSummary fetches GET /pipelines/{id} until terminal, returning the

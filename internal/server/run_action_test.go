@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,16 +13,16 @@ import (
 	"github.com/allouis/attractor/internal/items/source"
 )
 
-// TestWorkflowCatalogPath_DrivesItemRun proves the compose the Items
-// run-action picker relies on (web-ui-spec W4): a path from the GET
-// /workflows catalog is a valid `pipeline` for POST /items/run. It lists
-// the catalog, dispatches the first entry's path for a PR item, and checks
-// the run completes and carries item_ref.
-func TestWorkflowCatalogPath_DrivesItemRun(t *testing.T) {
-	root := t.TempDir()
+// TestItemRun_DrivesRunToCompletion proves the item-driven launch the Items
+// run action performs (run-workflow-spec R4): POST /workflows/{name}/run with
+// an item_ref lists off the catalog, resolves the item's vars/repo, runs the
+// workflow to completion, and stamps the run with item_ref. A tool node's
+// marker file is the filesystem trace that the workflow actually executed.
+func TestItemRun_DrivesRunToCompletion(t *testing.T) {
+	catalog := t.TempDir()
 	repoDir := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "ran")
-	dir := filepath.Join(root, "alpha")
+	dir := filepath.Join(catalog, "alpha")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,34 +37,23 @@ func TestWorkflowCatalogPath_DrivesItemRun(t *testing.T) {
 	}
 
 	fs := &fakeSource{getItem: prItem()}
-	srv := New(Config{
-		Addr:         "127.0.0.1:0",
-		LogsRoot:     t.TempDir(),
-		Sources:      map[string]source.Source{"github": fs},
-		Repos:        items.Repos{"allouis/attractor": repoDir},
-		WorkflowsDir: root,
-	})
-	if err := srv.Start(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
+	srv := runFormServer(t, catalog, map[string]source.Source{"github": fs}, items.Repos{"allouis/attractor": repoDir})
 
-	// The catalog path the picker would hand to the run action.
+	// The catalog entry the run action would dispatch (keyed by name, not path).
 	resp, err := http.Get(srv.URL() + "/workflows")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var catalog []workflow
-	_ = json.NewDecoder(resp.Body).Decode(&catalog)
+	var catalogList []workflow
+	_ = json.NewDecoder(resp.Body).Decode(&catalogList)
 	resp.Body.Close()
-	if len(catalog) != 1 {
-		t.Fatalf("catalog = %d entries, want 1", len(catalog))
+	if len(catalogList) != 1 {
+		t.Fatalf("catalog = %d entries, want 1", len(catalogList))
 	}
 
 	ref := items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
-	runResp, id := postRunItem(t, srv.URL(), map[string]any{
+	runResp, id := postRunWorkflow(t, srv.URL(), catalogList[0].Name, map[string]any{
 		"item_ref": ref,
-		"pipeline": catalog[0].Path,
 	})
 	if runResp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", runResp.StatusCode)
@@ -84,16 +74,16 @@ func TestWorkflowCatalogPath_DrivesItemRun(t *testing.T) {
 	}
 }
 
-// TestItemRun_StampsWorkflowName proves a run dispatched from the catalog
-// carries workflow_name = the catalog directory name (web-ui-spec W6): the
-// handle the run→workflow backlink targets (#workflow/<dir>). It is the dir
-// name, NOT the DOT digraph name — graphviz ids cannot contain hyphens, so a
-// `bug-fix/` dir holds a `digraph bug_fix`. Linking by graph_name would 404;
-// only the dir name resolves against GET /workflows/{name}/graph.
+// TestItemRun_StampsWorkflowName proves an item-driven run carries
+// workflow_name = the catalog directory name (web-ui-spec W6): the handle the
+// run→workflow backlink targets (#workflow/<dir>). It is the dir name, NOT the
+// DOT digraph name — graphviz ids cannot contain hyphens, so a `bug-fix/` dir
+// holds a `digraph bug_fix`. Linking by graph_name would 404; only the dir
+// name resolves against GET /workflows/{name}/graph.
 func TestItemRun_StampsWorkflowName(t *testing.T) {
-	root := t.TempDir()
+	catalog := t.TempDir()
 	repoDir := t.TempDir()
-	dir := filepath.Join(root, "bug-fix")
+	dir := filepath.Join(catalog, "bug-fix")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -107,22 +97,11 @@ func TestItemRun_StampsWorkflowName(t *testing.T) {
 	}
 
 	fs := &fakeSource{getItem: prItem()}
-	srv := New(Config{
-		Addr:         "127.0.0.1:0",
-		LogsRoot:     t.TempDir(),
-		Sources:      map[string]source.Source{"github": fs},
-		Repos:        items.Repos{"allouis/attractor": repoDir},
-		WorkflowsDir: root,
-	})
-	if err := srv.Start(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
+	srv := runFormServer(t, catalog, map[string]source.Source{"github": fs}, items.Repos{"allouis/attractor": repoDir})
 
 	ref := items.ItemRef{Source: "github", Type: "pr", ExternalID: "allouis/attractor#42"}
-	runResp, id := postRunItem(t, srv.URL(), map[string]any{
+	runResp, id := postRunWorkflow(t, srv.URL(), "bug-fix", map[string]any{
 		"item_ref": ref,
-		"pipeline": filepath.Join(dir, "pipeline.dot"),
 	})
 	if runResp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", runResp.StatusCode)
@@ -133,5 +112,20 @@ func TestItemRun_StampsWorkflowName(t *testing.T) {
 	}
 	if got := summary["graph_name"]; got != "bug_fix" {
 		t.Errorf("graph_name = %v, want \"bug_fix\" (sanity: digraph name differs from dir)", got)
+	}
+}
+
+// TestItemsRunEndpointRemoved guards the migration: POST /items/run is gone,
+// superseded by POST /workflows/{name}/run (run-workflow-spec R4). The mux has
+// no such route, so it 404s rather than dispatching.
+func TestItemsRunEndpointRemoved(t *testing.T) {
+	srv := runFormServer(t, t.TempDir(), map[string]source.Source{"github": &fakeSource{}}, items.Repos{})
+	resp, err := http.Post(srv.URL()+"/items/run", "application/json", bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("POST /items/run status = %d, want 404 (endpoint removed)", resp.StatusCode)
 	}
 }

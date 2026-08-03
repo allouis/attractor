@@ -88,9 +88,10 @@ type Config struct {
 	// Sources maps a source name (github, linear) to its Source, backing
 	// GET /items (items-spec §11). Empty disables the endpoint's sources.
 	Sources map[string]source.Source
-	// Repos maps `owner/name` to a local checkout, resolving a dispatched
-	// item's repo to the run's cwd (items-spec I3/I4). Empty means no repo
-	// resolves, so POST /items/run rejects any non-PR / unmapped item.
+	// Repos maps `owner/name` to a local checkout — a boot snapshot of the
+	// config.json repo registry. The run form (POST /workflows/{name}/run)
+	// resolves cwd live from config.json instead, so a repo added at runtime
+	// is runnable without a restart; this field is the daemon's start-time view.
 	Repos items.Repos
 	// WorkflowsDir is the catalog root scanned by GET /workflows for
 	// `<name>/pipeline.dot` definitions (web-ui-spec W2). Empty defaults to
@@ -320,13 +321,6 @@ func (d itemsDeps) SourceNames() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-func (d itemsDeps) RepoPath(repo string) (string, bool) { return d.s.repos.Path(repo) }
-
-func (d itemsDeps) Submit(dot string, vars map[string]string, cwd, repo, tag, workflowName, baseDir string) (string, error) {
-	// Item-dispatched runs use the daemon's default launcher and image.
-	return d.s.submit(dot, vars, cwd, repo, tag, workflowName, baseDir, "", "")
 }
 
 func (d itemsDeps) LinkedRuns(tag string) []httpapi.LinkedRun {
