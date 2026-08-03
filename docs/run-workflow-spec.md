@@ -105,7 +105,7 @@ message; the daemon's `vars=` admission check is the backstop.
 | R2 | `GET /repos` — registered repo list; test | — | done (delivered by config-screen C2: `listRepos` → `doc.ReposList()`) |
 | R3 | `POST /workflows/{name}/run` — unified admission (vars + repo + optional item_ref → submit, baseDir = workflow dir, check seeding); test | R1 | done |
 | R4 | Run modal: workflow dropdown → dynamic prefilled var fields + repo dropdown; item-row and Workflows-view entry points; migrate off `/items/run` and remove it | R1, R2, R3 | done |
-| R5 | Polish: required-var validation, error surfaces, the router-needs-an-item note, empty/loading states | R4 | todo |
+| R5 | Polish: required-var validation, error surfaces, the router-needs-an-item note, empty/loading states | R4 | done |
 
 ## Decision record
 
