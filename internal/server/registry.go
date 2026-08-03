@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -471,7 +472,28 @@ func (r *Run) Summary() map[string]any {
 	if r.repo != "" {
 		resp["repo"] = r.repo
 	}
+	if vars := launchVars(r.initialContext); len(vars) > 0 {
+		resp["vars"] = vars
+	}
 	return resp
+}
+
+// launchVars filters a run's seeded context down to the declared vars a manual
+// re-run resubmits (web-ui-v2-spec U6): the item.* metadata and static check.*
+// commands are seeded server-side at dispatch, not entered by the human, so
+// they are dropped and only the launch inputs (incl. repo) remain.
+func launchVars(seed map[string]string) map[string]string {
+	if len(seed) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for k, v := range seed {
+		if strings.HasPrefix(k, "item.") || strings.HasPrefix(k, "check.") {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // PendingQuestions returns all unanswered questions.
