@@ -740,6 +740,46 @@ function itemBadges(it) {
 let workflowsCache = null;
 let runPickerRef = null;
 
+// buildVarFields renders the Run modal's body: one field per var a workflow
+// declares (run-workflow-spec §"The input contract"), prefilled from `prefill`
+// (an item's vars, or {} for a standalone launch) and editable. `repo` is
+// special — it is both a declared var and the cwd resolver, so it renders as
+// the registered-repo dropdown, not a text input; every other var is a text
+// field. Values are inert data, escaped before they reach markup.
+function buildVarFields(vars, prefill, repos) {
+  prefill = prefill || {};
+  return (vars || []).map(v => {
+    if (v === 'repo') {
+      const opts = ['<option value="">choose a repo…</option>'].concat(
+        (repos || []).map(r => {
+          const sel = r.name === prefill.repo ? ' selected' : '';
+          return `<option value="${escapeHtml(r.name)}"${sel}>${escapeHtml(r.name)}</option>`;
+        })).join('');
+      return `<label>${escapeHtml(v)} <select class="run-var" data-var="repo">${opts}</select></label>`;
+    }
+    return `<label>${escapeHtml(v)} ` +
+      `<input class="run-var" data-var="${escapeHtml(v)}" value="${escapeHtml(prefill[v] || '')}"></label>`;
+  }).join('');
+}
+
+// varsFromFields reshapes the modal's field nodes into the {var:value} map the
+// run POST carries. An empty field is omitted — not sent as "" — so a var the
+// human leaves blank never overlays (and blanks) the value item_ref prefilled
+// server-side; values are trimmed. Pure over the node list for testability.
+function varsFromFields(fields) {
+  const vars = {};
+  for (const f of fields) {
+    const value = f.value.trim();
+    if (value) vars[f.dataset.var] = value;
+  }
+  return vars;
+}
+
+// collectVars reads the live modal fields via varsFromFields.
+function collectVars() {
+  return varsFromFields($('run-var-fields').querySelectorAll('.run-var'));
+}
+
 // fetchWorkflows loads the workflow catalog. GET /workflows returns
 // [{name, path}]; path is the pipeline.dot POST /items/run wants. Only a
 // non-empty successful catalog is cached — a transient failure or an empty
