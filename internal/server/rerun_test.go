@@ -1,11 +1,133 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/allouis/attractor/internal/items"
 	"github.com/allouis/attractor/internal/items/source"
 )
+
+// postRestart POSTs /pipelines/{id}/restart and returns the response.
+func postRestart(t *testing.T, url, id string) *http.Response {
+	t.Helper()
+	resp, err := http.Post(url+"/pipelines/"+id+"/restart", "application/json", bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// pollRunUntil polls GET /pipelines/{id} until status == want (or a deadline).
+func pollRunUntil(t *testing.T, url, id string, want RunStatus) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := http.Get(url + "/pipelines/" + id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var summary map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&summary)
+		resp.Body.Close()
+		if status, _ := summary["status"].(string); status == string(want) {
+			return summary
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run %s never reached %q", id, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// countLines returns the number of newline-terminated lines in a file, or 0
+// when it is absent.
+func countLines(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return bytes.Count(data, []byte("\n"))
+}
+
+// TestRestart_ResumesFromFailedNode proves POST /pipelines/{id}/restart re-runs
+// a failed run from its checkpoint (web-ui-v2-spec U6, re-run-from-failure):
+// node `a` (already completed) is NOT re-executed on resume, and node `b`
+// (fail-once) re-executes and now succeeds, driving the run to completion.
+func TestRestart_ResumesFromFailedNode(t *testing.T) {
+	catalog := t.TempDir()
+	repoDir := t.TempDir()
+	scratch := t.TempDir()
+	counter := filepath.Join(scratch, "counter")
+	sentinel := filepath.Join(scratch, "sentinel")
+	dir := filepath.Join(catalog, "resume")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := `digraph resume {
+		vars="repo"
+		start [shape=Mdiamond]
+		a [type="tool", tool_command="echo x >> ` + counter + `"]
+		b [type="tool", tool_command="[ -f ` + sentinel + ` ] || { touch ` + sentinel + `; exit 1; }"]
+		done [shape=Msquare]
+		start -> a -> b -> done
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "pipeline.dot"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := runFormServer(t, catalog, nil, items.Repos{"allouis/attractor": repoDir})
+
+	_, id := postRunWorkflow(t, srv.URL(), "resume", map[string]any{"repo": "allouis/attractor"})
+	if got := pollRunSummary(t, srv.URL(), id)["status"]; got != string(RunFailed) {
+		t.Fatalf("first run status = %v, want failed", got)
+	}
+	if n := countLines(t, counter); n != 1 {
+		t.Fatalf("counter = %d lines after first run, want 1", n)
+	}
+
+	resp := postRestart(t, srv.URL(), id)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("restart status = %d, want 202", resp.StatusCode)
+	}
+	pollRunUntil(t, srv.URL(), id, RunCompleted)
+	if n := countLines(t, counter); n != 1 {
+		t.Errorf("counter = %d lines after restart, want 1 (node a must not re-run)", n)
+	}
+}
+
+// TestRestart_RejectsNonFailedRun proves restart only applies to a failed run:
+// a completed run has nothing to resume, so restart is a 409.
+func TestRestart_RejectsNonFailedRun(t *testing.T) {
+	catalog := t.TempDir()
+	writeVarsWorkflow(t, catalog, "implement", "repo")
+	srv := runFormServer(t, catalog, nil, items.Repos{"allouis/attractor": t.TempDir()})
+	_, id := postRunWorkflow(t, srv.URL(), "implement", map[string]any{"repo": "allouis/attractor"})
+	if got := pollRunSummary(t, srv.URL(), id)["status"]; got != string(RunCompleted) {
+		t.Fatalf("run status = %v, want completed", got)
+	}
+	resp := postRestart(t, srv.URL(), id)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("restart of completed run = %d, want 409", resp.StatusCode)
+	}
+}
+
+// TestRestart_UnknownRun404 guards the miss path.
+func TestRestart_UnknownRun404(t *testing.T) {
+	srv := runFormServer(t, t.TempDir(), nil, items.Repos{})
+	resp := postRestart(t, srv.URL(), "nope")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("restart of unknown run = %d, want 404", resp.StatusCode)
+	}
+}
 
 // TestRunSummary_ExposesLaunchVars proves the run summary carries the declared
 // vars a manual re-run resubmits (web-ui-v2-spec U6): the run's launch vars,

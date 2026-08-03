@@ -545,6 +545,37 @@ func (r *Run) SubmitAnswer(qid string, payload AnswerPayload) error {
 	}
 }
 
+// prepareRestart resets a failed run's terminal state so the dispatcher can
+// re-launch it (web-ui-v2-spec U6, re-run-from-failure). The engine resumes
+// from the on-disk checkpoint at logsRoot — the already-completed nodes are
+// skipped and the failed node re-executes — so only the terminal bookkeeping
+// is cleared here; the seeded context and logs stay put. Reports false (a
+// no-op) when the run is not failed, so the handler can 409.
+//
+// NOTE: resume reads checkpoint.json under logsRoot, which the direct launcher
+// writes there. A run executed by the local/vm launcher checkpoints inside the
+// child's filesystem, so a restart of one of those falls back to a fresh start
+// from the graph's entry node rather than the failed stage.
+func (r *Run) prepareRestart() bool {
+	r.mu.Lock()
+	if r.status != RunFailed {
+		r.mu.Unlock()
+		return false
+	}
+	r.status = RunQueued
+	r.outcome = nil
+	r.failure = ""
+	r.cancelled = false
+	r.completedAt = time.Time{}
+	// Drop the failed run's in-memory event history so the reopened run view
+	// replays only the resumed timeline (the stale pipeline_failed event would
+	// otherwise keep the failure banner up). events.jsonl on disk is untouched.
+	r.history = nil
+	r.mu.Unlock()
+	r.writeManifest()
+	return true
+}
+
 // Checkpoint returns the run's checkpoint.json bytes if any.
 func (r *Run) Checkpoint() ([]byte, bool) {
 	data, err := os.ReadFile(filepath.Join(r.logsRoot, "checkpoint.json"))
