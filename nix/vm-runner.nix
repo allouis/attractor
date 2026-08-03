@@ -103,7 +103,8 @@ in
     pkgs.jq
     pkgs.coreutils
     runnerScript
-    pkgs.nodejs_22 # node + npm
+    pkgs.nodejs_22 # node + npm + corepack
+    pkgs.pnpm # pnpm workspaces (Ghost and other monorepos)
     pkgs.typescript # tsc
     pkgs.python3 # python + stdlib (unittest, venv)
     pkgs.docker-compose # `docker compose` for containerized test stacks
