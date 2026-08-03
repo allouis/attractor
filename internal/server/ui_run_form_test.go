@@ -77,6 +77,43 @@ func TestVarsFromFields(t *testing.T) {
 	}
 }
 
+// TestMissingRequired: every declared var is a required input (the engine fails
+// a fresh run whose vars= key is unseeded). The form blocks submit on an empty
+// required field — but a var an item prefills server-side is NOT missing even
+// when its field is blank, so item-driven runs aren't wrongly blocked
+// (run-workflow-spec §"Required-var handling").
+func TestMissingRequired(t *testing.T) {
+	// Empty field, nothing prefills it → missing.
+	out := evalUI(t, `JSON.stringify(missingRequired([`+
+		`{dataset:{var:'repo'},value:''},`+
+		`{dataset:{var:'identifier'},value:'ENG-42'}], {}))`)
+	if out != `["repo"]` {
+		t.Errorf("missingRequired = %s, want [\"repo\"]", out)
+	}
+	// Empty field but the item base supplies it → not missing.
+	out = evalUI(t, `JSON.stringify(missingRequired([`+
+		`{dataset:{var:'identifier'},value:''}], {identifier:'ENG-9'}))`)
+	if out != `[]` {
+		t.Errorf("item-prefilled var wrongly flagged missing: %s", out)
+	}
+	// Whitespace-only counts as empty; a filled field is present.
+	out = evalUI(t, `JSON.stringify(missingRequired([`+
+		`{dataset:{var:'title'},value:'  '},`+
+		`{dataset:{var:'url'},value:'http://x'}], {}))`)
+	if out != `["title"]` {
+		t.Errorf("missingRequired = %s, want [\"title\"] (whitespace is empty)", out)
+	}
+
+	// submitRun gates on it before dispatching the POST (wiring guard).
+	src, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(funcSource(t, string(src), "submitRun"), "missingRequired(") {
+		t.Errorf("submitRun does not block on missingRequired before posting")
+	}
+}
+
 // TestWorkflowRunButton: the Workflows view's per-row Run action carries the
 // workflow name on a data-* attribute (the standalone launch entry point,
 // run-workflow-spec §"Standalone launch"), escaped.

@@ -801,6 +801,20 @@ function varsFromFields(fields) {
   return vars;
 }
 
+// missingRequired lists the declared vars the run can't satisfy: every vars=
+// key is required (the engine fails a fresh run on an unseeded one), so an empty
+// field blocks submit — unless the linked item prefills it server-side, in which
+// case a blank field is fine (varsFromFields drops it and the item base fills
+// the gap). Pure over the field nodes + the item prefill, for testability.
+function missingRequired(fields, prefill) {
+  prefill = prefill || {};
+  const missing = [];
+  for (const f of fields) {
+    if (!f.value.trim() && !prefill[f.dataset.var]) missing.push(f.dataset.var);
+  }
+  return missing;
+}
+
 // collectVars reads the live modal fields via varsFromFields.
 function collectVars() {
   return varsFromFields($('run-var-fields').querySelectorAll('.run-var'));
@@ -939,6 +953,11 @@ async function submitRun() {
   if (runSubmitting) return;
   const name = $('run-form-workflow').value;
   if (!name) { setRunFormError('no workflow selected'); return; }
+  // Client-side required-var block: empty declared inputs the item can't supply.
+  // The daemon's vars= admission is the backstop; this saves a doomed round-trip.
+  const fields = $('run-var-fields').querySelectorAll('.run-var');
+  const missing = missingRequired(fields, runFormPrefill);
+  if (missing.length) { setRunFormError('missing required input: ' + missing.join(', ')); return; }
   const vars = collectVars();
   setRunFormError('');
   runSubmitting = true;
