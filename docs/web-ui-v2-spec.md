@@ -74,7 +74,7 @@ browser to APIs the daemon already serves*, not new backend.
 | U3 | **Event timeline**: full scrollable, filterable run event log (via `…/events` SSE + replay cursor), failure reason surfaced prominently at the run header | — | done |
 | U4 | **Diff + artifacts**: show the run's produced change (diff) and browse `…/artifacts/{path}` from the run detail | — | done |
 | U5 | **Gate answering**: render open questions (`…/questions`) inline in run detail; option buttons POST the answer; run resumes; needs-human made loud in the fleet | — | done |
-| U6 | **Run control**: re-run (resubmit workflow+vars+repo) and re-run-from-failure; cancel already shipped | run-workflow | todo |
+| U6 | **Run control**: re-run (resubmit workflow+vars+repo) and re-run-from-failure; cancel already shipped | run-workflow | done |
 | U7 | **Fleet polish**: run filter/search + provenance (item / workflow / repo / started-by) columns and deep-linkable run URLs | U1 | done |
 
 ## Non-goals (v2)
