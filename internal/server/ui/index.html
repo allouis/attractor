@@ -212,6 +212,8 @@
   /* Run diff + artifacts (web-ui-v2-spec U4). The diff renders line-by-line;
      add/del reuse the state tokens so they read in both themes. The artifact
      browser is a list of clickable file rows over GET …/artifacts. */
+  .run-actions { display: flex; gap: var(--space-2); margin: var(--space-2) 0; }
+  .run-actions:empty { display: none; }
   #run-diff, #run-artifacts { margin-top: var(--space-4); }
   #run-diff h3, #run-artifacts h3 { margin: 0 0 var(--space-2); }
   .diff { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
@@ -360,6 +362,7 @@
   <section id="run-view">
     <p><a href="#runs">&larr; all runs</a></p>
     <h2 id="run-title"></h2>
+    <div id="run-actions" class="run-actions"></div>
     <div id="run-blocked"></div>
     <div id="run-failure"></div>
     <div class="layout">
@@ -1352,6 +1355,25 @@ function runCancelButton(p) {
 // run clears its flag on the next poll rather than leaving it nagging.
 function isTerminal(p) {
   return p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled';
+}
+
+// runActionsHtml renders the run-detail control buttons (web-ui-v2-spec U6). A
+// terminal run with a known workflow offers re-run (reopens the Run modal
+// prefilled to resubmit workflow+vars+repo); a failed run additionally offers
+// re-run-from-failure (POST …/restart, resume from checkpoint). A live run
+// offers neither — cancel lives in the fleet. The run id rides a data-* attr
+// (escaped), fired by a delegated click, matching the cancel-button convention.
+function runActionsHtml(summary) {
+  summary = summary || {};
+  const id = escapeHtml(summary.id || '');
+  const buttons = [];
+  if (isTerminal(summary) && summary.workflow_name) {
+    buttons.push(`<button data-rerun data-run-id="${id}">re-run</button>`);
+  }
+  if (summary.status === 'failed') {
+    buttons.push(`<button data-restart data-run-id="${id}">re-run from failure</button>`);
+  }
+  return buttons.join(' ');
 }
 
 // runNeedsHuman gates the needs-human flag on the run still being live, so
