@@ -887,6 +887,7 @@ async function onWorkflowChange() {
   const name = $('run-form-workflow').value;
   const container = $('run-var-fields');
   if (!name) { container.innerHTML = ''; return; }
+  container.innerHTML = loadingState();
   let detail;
   try {
     detail = await fetchWorkflowDetail(name);

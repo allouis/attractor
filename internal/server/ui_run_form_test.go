@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+// funcSource slices the body of the named `function name(…) { … }` out of the
+// page source, up to its closing top-level brace, so an assertion can scope to
+// one function instead of matching a token anywhere on the page.
+func funcSource(t *testing.T, src, name string) string {
+	t.Helper()
+	start := strings.Index(src, "function "+name+"(")
+	if start < 0 {
+		t.Fatalf("function %s not found in page source", name)
+	}
+	end := strings.Index(src[start:], "\n}")
+	if end < 0 {
+		t.Fatalf("no closing brace found for function %s", name)
+	}
+	return src[start : start+end]
+}
+
 // TestBuildVarFields drives the real run-form field builder from the embedded
 // UI (run-workflow-spec §"The Run modal"): one field per declared var,
 // prefilled from the item, with `repo` special-cased as the repo dropdown
@@ -136,6 +152,21 @@ func TestRunFieldBody(t *testing.T) {
 	dup := evalUI(t, `runFieldBody(['repo'], {}, [{name:'a/b',path:'/p'}], false)`)
 	if strings.Count(dup, `data-var="repo"`) != 1 {
 		t.Errorf("repo picker duplicated when repo is a declared var:\n%s", dup)
+	}
+}
+
+// TestOnWorkflowChangeLoading: selecting a workflow shows a loading placeholder
+// in the field body while its vars are fetched (run-workflow-spec §R5,
+// empty/loading states), so the body doesn't flash blank. Source-level like the
+// migration guard — the fetch path is async DOM, verified separately.
+func TestOnWorkflowChangeLoading(t *testing.T) {
+	src, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := funcSource(t, string(src), "onWorkflowChange")
+	if !strings.Contains(fn, "loadingState(") {
+		t.Errorf("onWorkflowChange does not show a loading state while fetching vars:\n%s", fn)
 	}
 }
 
