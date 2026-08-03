@@ -766,6 +766,17 @@ function buildVarFields(vars, prefill, repos) {
   }).join('');
 }
 
+// runFieldBody assembles the modal's field body for a workflow's declared
+// vars: one field each (repo → the dropdown), with `repo` synthesized in front
+// when the workflow doesn't declare it, because it is always the cwd resolver.
+// A var-less standalone launch trails the item-driven note. `hasItem` marks an
+// item-linked open (its vars prefill the fields and supply the run's context).
+function runFieldBody(vars, prefill, repos, hasItem) {
+  vars = vars || [];
+  const fieldVars = vars.includes('repo') ? vars : ['repo', ...vars];
+  return buildVarFields(fieldVars, prefill, repos) + needsItemNote(vars, hasItem);
+}
+
 // needsItemNote warns that a workflow is item-driven: with no fillable var (only
 // the synthesized `repo`) it reads its context from a seeded item at runtime
 // (router → item.type), which a standalone launch cannot supply. Returns the
@@ -870,9 +881,8 @@ async function openRunForm(opts) {
 }
 
 // onWorkflowChange rebuilds the field body for the selected workflow: fetch its
-// declared vars, then render one field each (repo among them → the dropdown).
-// `repo` is always present even when a workflow declares no vars (e.g. router),
-// because it is the cwd resolver — so a run always has a repo to target.
+// declared vars, then hand them to runFieldBody (repo synthesized, item note for
+// a var-less standalone launch).
 async function onWorkflowChange() {
   const name = $('run-form-workflow').value;
   const container = $('run-var-fields');
@@ -885,8 +895,7 @@ async function onWorkflowChange() {
     return;
   }
   const vars = (detail && detail.vars) || [];
-  const fieldVars = vars.includes('repo') ? vars : ['repo', ...vars];
-  container.innerHTML = buildVarFields(fieldVars, runFormPrefill, runFormRepos);
+  container.innerHTML = runFieldBody(vars, runFormPrefill, runFormRepos, !!runFormRef);
 }
 
 // openRunPicker opens the form for an item row: the item_ref rides the run

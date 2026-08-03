@@ -101,6 +101,44 @@ func TestNeedsItemNote(t *testing.T) {
 	}
 }
 
+// TestRunFieldBody: the modal's field body always carries the repo picker (the
+// cwd resolver, synthesized even when a workflow declares no vars), one field
+// per declared var, and the item-driven note only for a var-less standalone
+// launch (run-workflow-spec §"The input contract").
+func TestRunFieldBody(t *testing.T) {
+	// A workflow with a fillable var, standalone: repo picker + the var, no note.
+	body := evalUI(t, `runFieldBody(['identifier'], {}, [{name:'a/b',path:'/p'}], false)`)
+	if !strings.Contains(body, `data-var="repo"`) {
+		t.Errorf("field body missing the synthesized repo picker:\n%s", body)
+	}
+	if !strings.Contains(body, `data-var="identifier"`) {
+		t.Errorf("field body missing the declared var:\n%s", body)
+	}
+	if strings.Contains(body, "needs an") {
+		t.Errorf("workflow with a fillable var should get no item note:\n%s", body)
+	}
+
+	// A var-less workflow, standalone: repo picker + the note.
+	router := evalUI(t, `runFieldBody([], {}, [{name:'a/b',path:'/p'}], false)`)
+	if !strings.Contains(router, `data-var="repo"`) {
+		t.Errorf("var-less field body missing the repo picker:\n%s", router)
+	}
+	if !strings.Contains(router, "needs an") {
+		t.Errorf("var-less standalone launch missing the item note:\n%s", router)
+	}
+
+	// A var-less workflow opened from an item: repo picker, no note.
+	linked := evalUI(t, `runFieldBody([], {repo:'a/b'}, [{name:'a/b',path:'/p'}], true)`)
+	if strings.Contains(linked, "needs an") {
+		t.Errorf("item-linked run should get no item note:\n%s", linked)
+	}
+	// repo declared explicitly is not duplicated into a second picker.
+	dup := evalUI(t, `runFieldBody(['repo'], {}, [{name:'a/b',path:'/p'}], false)`)
+	if strings.Count(dup, `data-var="repo"`) != 1 {
+		t.Errorf("repo picker duplicated when repo is a declared var:\n%s", dup)
+	}
+}
+
 // TestRunFormMigratedOffItemsRun: the Run modal now funnels through the single
 // admission endpoint POST /workflows/{name}/run (run-workflow-spec §Endpoints).
 // The superseded /items/run must not be referenced anywhere in the UI.
