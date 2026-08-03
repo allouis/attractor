@@ -1376,6 +1376,31 @@ function runActionsHtml(summary) {
   return buttons.join(' ');
 }
 
+// parseRef rebuilds the structured item ref from a run's opaque
+// source:type:external_id tag (items.ItemRef.String). The external id may hold
+// its own ':' so the remainder is rejoined; a missing or short tag yields null
+// (a standalone re-run links no item).
+function parseRef(tag) {
+  const parts = (tag || '').split(':');
+  if (parts.length < 3 || !parts[0] || !parts[1] || !parts.slice(2).join(':')) return null;
+  return { source: parts[0], type: parts[1], external_id: parts.slice(2).join(':') };
+}
+
+// rerunOpts reshapes a run summary into the openRunForm options a re-run
+// resubmits (web-ui-v2-spec U6): the workflow to pre-select, the launch vars as
+// the field prefill, and the linked item ref (null when standalone). repo falls
+// back to the summary's repo when the vars map omits it.
+function rerunOpts(summary) {
+  summary = summary || {};
+  const prefill = Object.assign({}, summary.vars);
+  if (!prefill.repo && summary.repo) prefill.repo = summary.repo;
+  return {
+    workflowName: summary.workflow_name,
+    prefill,
+    itemRef: parseRef(summary.item_ref),
+  };
+}
+
 // runNeedsHuman gates the needs-human flag on the run still being live, so
 // a finished run whose question was never formally answered (e.g. it was
 // cancelled mid-wait) stops flagging in the fleet counts and rows.
@@ -1414,12 +1439,41 @@ async function openRun(id) {
   renderTimeline();
   $('node-pane').innerHTML = '<p class="muted">Click a node to inspect it.</p>';
   $('run-artifact-view').innerHTML = '';
+  $('run-actions').innerHTML = '';
+  loadRunActions(id);
   await loadGraph(id);
   attachStream(id);
   loadArtifacts();
   if (dockTimer) clearInterval(dockTimer);
   refreshDock();
   dockTimer = setInterval(refreshDock, 3000);
+}
+
+// loadRunActions fetches the run summary and renders the run-detail controls
+// (re-run / re-run-from-failure). Stored so a delegated click can rebuild the
+// Run modal without re-fetching. A load failure leaves the header actionless
+// rather than blocking the run view.
+let currentRunSummary = null;
+async function loadRunActions(id) {
+  try {
+    const r = await fetch(`/pipelines/${id}`);
+    if (!r.ok) return;
+    currentRunSummary = await r.json();
+  } catch (e) { return; }
+  if (currentRun !== id) return;   // navigated away while fetching
+  $('run-actions').innerHTML = runActionsHtml(currentRunSummary);
+}
+
+// restartRun confirms then POSTs /pipelines/{id}/restart (re-run-from-failure).
+// On success it reopens the run so the graph and stream re-attach to the
+// resumed run; the poll/stream re-reflect the true state on failure.
+async function restartRun(id) {
+  if (!id || !confirm('Re-run this run from where it failed?')) return;
+  try {
+    const r = await postJSON(`/pipelines/${id}/restart`, {});
+    if (!r.ok) return;
+  } catch (e) { return; }
+  openRun(id);
 }
 
 async function loadGraph(id) {
@@ -2331,6 +2385,14 @@ window.addEventListener('load', () => {
   $('run-list')?.addEventListener('click', e => {
     const btn = e.target.closest('button[data-cancel]');
     if (btn) cancelRun(btn.dataset.cancelId);
+  });
+  // Delegated run-detail controls: re-run reopens the Run modal prefilled from
+  // the current run's summary; re-run-from-failure POSTs …/restart.
+  $('run-actions')?.addEventListener('click', e => {
+    const rerun = e.target.closest('button[data-rerun]');
+    if (rerun) { openRunForm(rerunOpts(currentRunSummary)); return; }
+    const restart = e.target.closest('button[data-restart]');
+    if (restart) restartRun(restart.dataset.runId);
   });
   // Delegated Config controls: panels are innerHTML, so one listener on the
   // view handles add/remove/clear for every row; a second marks the view

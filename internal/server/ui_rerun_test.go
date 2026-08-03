@@ -41,3 +41,52 @@ func TestRunActionsHtml(t *testing.T) {
 		t.Errorf("workflow-less failed run should still offer re-run-from-failure:\n%s", rawFailed)
 	}
 }
+
+// TestParseRef drives the item_ref string parser: the summary carries the
+// opaque source:type:external_id tag, and re-run must rebuild the structured
+// ref the Run modal links. The external id keeps any embedded ':' (join the
+// remainder), and a missing/short tag yields null (a standalone re-run).
+func TestParseRef(t *testing.T) {
+	got := evalUI(t, `JSON.stringify(parseRef('github:pr:allouis/attractor#42'))`)
+	want := `{"source":"github","type":"pr","external_id":"allouis/attractor#42"}`
+	if got != want {
+		t.Errorf("parseRef = %s, want %s", got, want)
+	}
+	if out := evalUI(t, `String(parseRef(''))`); out != "null" {
+		t.Errorf("parseRef('') = %s, want null", out)
+	}
+	if out := evalUI(t, `String(parseRef('github:pr'))`); out != "null" {
+		t.Errorf("parseRef of a short tag = %s, want null", out)
+	}
+}
+
+// TestRerunOpts reshapes a run summary into the openRunForm options a re-run
+// resubmits (web-ui-v2-spec U6): the workflow, the launch vars as the field
+// prefill, and the linked item ref rebuilt from the tag.
+func TestRerunOpts(t *testing.T) {
+	got := evalUI(t, `JSON.stringify(rerunOpts({`+
+		`workflow_name:'review-pr', repo:'a/b', `+
+		`vars:{repo:'a/b', identifier:'ENG-42'}, `+
+		`item_ref:'github:pr:a/b#1'}))`)
+	for _, want := range []string{
+		`"workflowName":"review-pr"`,
+		`"identifier":"ENG-42"`,
+		`"repo":"a/b"`,
+		`"source":"github"`,
+		`"external_id":"a/b#1"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rerunOpts missing %q:\n%s", want, got)
+		}
+	}
+
+	// A standalone run (no item_ref) rebuilds no ref; repo falls back to the
+	// summary's repo when the vars map omits it.
+	standalone := evalUI(t, `JSON.stringify(rerunOpts({workflow_name:'impl', repo:'a/b', vars:{}}))`)
+	if !strings.Contains(standalone, `"itemRef":null`) {
+		t.Errorf("standalone rerunOpts should carry a null itemRef:\n%s", standalone)
+	}
+	if !strings.Contains(standalone, `"repo":"a/b"`) {
+		t.Errorf("standalone rerunOpts should backfill repo from the summary:\n%s", standalone)
+	}
+}
