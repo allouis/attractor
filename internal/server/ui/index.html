@@ -306,15 +306,14 @@
     </div>
     <div id="items-warning" role="alert"></div>
     <div id="items-list"></div>
-    <dialog id="run-picker" class="modal">
-      <h3>run item</h3>
-      <label>workflow <select id="run-picker-workflow"></select></label>
-      <label>repo <input id="run-picker-repo" list="run-picker-repos" placeholder="owner/name"></label>
-      <datalist id="run-picker-repos"></datalist>
-      <p id="run-picker-error" class="banner error" hidden></p>
+    <dialog id="run-form" class="modal">
+      <h3>run workflow</h3>
+      <label>workflow <select id="run-form-workflow"></select></label>
+      <div id="run-var-fields"></div>
+      <p id="run-form-error" class="banner error" hidden></p>
       <div class="modal-actions">
-        <button type="button" id="run-picker-cancel">cancel</button>
-        <button type="button" id="run-picker-run">run</button>
+        <button type="button" id="run-form-cancel">cancel</button>
+        <button type="button" id="run-form-run">run</button>
       </div>
     </dialog>
   </section>
@@ -695,17 +694,17 @@ function itemRowHtml(it) {
     </tr>`;
 }
 
-// itemRunButton renders the per-row run trigger. The item ref + repo ride
-// on data-* attributes (escaped) rather than an inline onclick, matching
-// the page's no-inline-JS convention; a delegated click on #items-list
-// opens the picker (web-ui-spec §Items view run action).
+// itemRunButton renders the per-row run trigger. The item ref rides on data-*
+// attributes (escaped) rather than an inline onclick, matching the page's
+// no-inline-JS convention; a delegated click on #items-list opens the run
+// form, which looks the item's vars up in the cache to prefill (run-workflow-
+// spec §"The Run modal").
 function itemRunButton(it) {
   const ref = it.ref || {};
   return `<button data-run` +
     ` data-run-source="${escapeHtml(ref.source || '')}"` +
     ` data-run-type="${escapeHtml(ref.type || '')}"` +
-    ` data-run-id="${escapeHtml(ref.external_id || '')}"` +
-    ` data-run-repo="${escapeHtml(itemRepo(it))}">run</button>`;
+    ` data-run-id="${escapeHtml(ref.external_id || '')}">run</button>`;
 }
 
 // safeUrl returns url only when it resolves to an http(s) scheme; a
@@ -732,13 +731,18 @@ function itemBadges(it) {
   return chip + runs;
 }
 
-// ---- run-action picker -------------------------------------------------
-// The picker turns an item into a run: pick a workflow from the catalog
-// (GET /workflows), confirm the repo, POST /items/run (web-ui-spec §Items
-// view). workflowsCache holds the catalog; runPickerRef holds the item
-// being dispatched while the modal is open.
+// ---- run form ----------------------------------------------------------
+// One modal, two entry points (run-workflow-spec §"The Run modal"): from an
+// item row (item_ref set, fields prefilled from the item) or from the
+// Workflows view (blank, standalone). Both funnel through the single admission
+// endpoint POST /workflows/{name}/run. workflowsCache/reposCache hold the two
+// dropdown sources; runFormRef is the item link (null for standalone) and
+// runFormPrefill/runFormRepos the state a workflow change rebuilds fields from.
 let workflowsCache = null;
-let runPickerRef = null;
+let reposCache = null;
+let runFormRef = null;
+let runFormPrefill = {};
+let runFormRepos = [];
 
 // buildVarFields renders the Run modal's body: one field per var a workflow
 // declares (run-workflow-spec §"The input contract"), prefilled from `prefill`
@@ -780,10 +784,17 @@ function collectVars() {
   return varsFromFields($('run-var-fields').querySelectorAll('.run-var'));
 }
 
+// workflowRunButton is the Workflows view's per-row Run action: the workflow
+// name rides a data-* attribute (escaped), matching the item-row button's
+// no-inline-JS convention; a delegated click opens the form standalone.
+function workflowRunButton(name) {
+  return `<button data-run-workflow="${escapeHtml(name)}">run</button>`;
+}
+
 // fetchWorkflows loads the workflow catalog. GET /workflows returns
-// [{name, path}]; path is the pipeline.dot POST /items/run wants. Only a
+// [{name, path}]; the run form keys the admission URL on name. Only a
 // non-empty successful catalog is cached — a transient failure or an empty
-// result must NOT poison the cache, or one blip would wedge the picker at
+// result must NOT poison the cache, or one blip would wedge the form at
 // "no workflows" for the whole session. A fetch/HTTP failure throws so the
 // caller can surface it and retry on the next open.
 async function fetchWorkflows() {
@@ -795,82 +806,135 @@ async function fetchWorkflows() {
   return list;
 }
 
-// openRunPicker fills the modal from a run button's data-* attributes and
-// the workflow catalog, then shows it. A PR item auto-fills its repo from
-// vars.repo; other items start blank (the datalist suggests repos already
-// seen). The backend maps the repo via repos.toml and 422s an unmapped one.
-async function openRunPicker(btn) {
-  runPickerRef = {
-    source: btn.dataset.runSource,
-    type: btn.dataset.runType,
-    external_id: btn.dataset.runId,
-  };
-  // An item that carries its own repo (a PR, via vars.repo) has that repo
-  // used by the backend regardless of this field, so show it read-only
-  // rather than inviting a silently-ignored edit. Other items keep an
-  // editable field (the datalist suggests known repos).
-  const repoInput = $('run-picker-repo');
-  const itemRepo = btn.dataset.runRepo || '';
-  repoInput.value = itemRepo;
-  repoInput.readOnly = !!itemRepo;
-  repoInput.title = itemRepo ? 'repo comes from the item' : '';
-  setRunError('');
+// fetchRepos loads the registered-repo list backing the repo dropdown (GET
+// /repos → [{name, path}], run-workflow-spec §Endpoints). Cached like the
+// catalog; an empty list does not poison the cache (a repo added via the
+// Config screen shows up on the next open without a session reload).
+async function fetchRepos() {
+  if (reposCache) return reposCache;
+  const r = await fetch('/repos');
+  if (!r.ok) throw new Error('status ' + r.status);
+  const list = await r.json();
+  if (list.length) reposCache = list;
+  return list;
+}
+
+// fetchWorkflowDetail loads one workflow's declared vars (GET /workflows/{name}
+// → {name, path, goal, vars}), the form the modal renders.
+async function fetchWorkflowDetail(name) {
+  const r = await fetch(`/workflows/${encodeURIComponent(name)}`);
+  if (!r.ok) throw new Error('status ' + r.status);
+  return r.json();
+}
+
+// openRunForm is the shared entry: load the catalog + repo list, populate the
+// workflow dropdown (optionally pre-selecting one), then build the fields for
+// the selection. opts.itemRef links an item (its vars prefill the fields);
+// opts.workflowName pre-selects a workflow (the standalone entry).
+async function openRunForm(opts) {
+  opts = opts || {};
+  runFormRef = opts.itemRef || null;
+  runFormPrefill = opts.prefill || {};
+  setRunFormError('');
   let wfs = [];
   try {
     wfs = await fetchWorkflows();
   } catch (e) {
-    setRunError('could not load workflows — reopen to retry');
+    setRunFormError('could not load workflows — reopen to retry');
   }
-  $('run-picker-workflow').innerHTML = wfs.length
-    ? wfs.map(w => `<option value="${escapeHtml(w.path)}">${escapeHtml(w.name)}</option>`).join('')
+  try {
+    runFormRepos = await fetchRepos();
+  } catch (e) {
+    runFormRepos = [];
+    setRunFormError('could not load repos — reopen to retry');
+  }
+  $('run-form-workflow').innerHTML = wfs.length
+    ? wfs.map(w => {
+        const sel = w.name === opts.workflowName ? ' selected' : '';
+        return `<option value="${escapeHtml(w.name)}"${sel}>${escapeHtml(w.name)}</option>`;
+      }).join('')
     : '<option value="">no workflows</option>';
-  fillRepoDatalist();
-  $('run-picker').showModal();
+  await onWorkflowChange();
+  $('run-form').showModal();
 }
 
-// fillRepoDatalist suggests the repos present across the loaded items, so a
-// non-PR item can be pointed at a known checkout without a repo-map endpoint.
-function fillRepoDatalist() {
-  const dl = $('run-picker-repos');
-  if (!dl) return;
-  dl.innerHTML = distinct(itemsCache.map(itemRepo))
-    .map(r => `<option value="${escapeHtml(r)}"></option>`).join('');
+// onWorkflowChange rebuilds the field body for the selected workflow: fetch its
+// declared vars, then render one field each (repo among them → the dropdown).
+// `repo` is always present even when a workflow declares no vars (e.g. router),
+// because it is the cwd resolver — so a run always has a repo to target.
+async function onWorkflowChange() {
+  const name = $('run-form-workflow').value;
+  const container = $('run-var-fields');
+  if (!name) { container.innerHTML = ''; return; }
+  let detail;
+  try {
+    detail = await fetchWorkflowDetail(name);
+  } catch (e) {
+    container.innerHTML = errorState('could not load workflow inputs');
+    return;
+  }
+  const vars = (detail && detail.vars) || [];
+  const fieldVars = vars.includes('repo') ? vars : ['repo', ...vars];
+  container.innerHTML = buildVarFields(fieldVars, runFormPrefill, runFormRepos);
 }
 
-// setRunError shows a picker error (a 422 from an unset/unmapped repo, a
-// failed dispatch), or hides the line when empty.
-function setRunError(text) {
-  const el = $('run-picker-error');
+// openRunPicker opens the form for an item row: the item_ref rides the run
+// button's data-* attributes, and the item's own vars (looked up in the cache)
+// prefill each field — a PR's repo auto-selects via vars.repo.
+function openRunPicker(btn) {
+  const ref = {
+    source: btn.dataset.runSource,
+    type: btn.dataset.runType,
+    external_id: btn.dataset.runId,
+  };
+  const it = itemsCache.find(x => x.ref &&
+    x.ref.source === ref.source && x.ref.type === ref.type &&
+    x.ref.external_id === ref.external_id);
+  return openRunForm({ itemRef: ref, prefill: (it && it.vars) || {} });
+}
+
+// openRunForWorkflow opens the form standalone (no item): a blank var body for
+// the chosen workflow, repo picked from the dropdown.
+function openRunForWorkflow(name) {
+  return openRunForm({ workflowName: name });
+}
+
+// setRunFormError shows a form error (a 422 from an unset/unmapped repo or a
+// failed vars= check, a load failure), or hides the line when empty.
+function setRunFormError(text) {
+  const el = $('run-form-error');
   if (!el) return;
   el.textContent = text || '';
   el.hidden = !text;
 }
 
-// submitRun dispatches the picked item → POST /items/run {item_ref,
-// pipeline, repo}. The backend resolves the repo (a PR auto-fills it, else
-// the field) to the run's cwd and 422s an unset/unmapped one; on success it
-// returns the new run id, which we navigate to via the hash router.
+// submitRun dispatches the form → POST /workflows/{name}/run {repo, vars,
+// item_ref?}. The repo field doubles as the top-level cwd resolver; item_ref,
+// when set, gives the daemon the item vars to base the run on. The backend
+// 422s an unset/unmapped repo or a failed vars= check; on success it returns
+// the new run id, which we navigate to via the hash router.
 let runSubmitting = false;   // in-flight guard: one dispatch per confirm
 async function submitRun() {
-  if (!runPickerRef || runSubmitting) return;
-  const pipeline = $('run-picker-workflow').value;
-  if (!pipeline) { setRunError('no workflow selected'); return; }
-  setRunError('');
+  if (runSubmitting) return;
+  const name = $('run-form-workflow').value;
+  if (!name) { setRunFormError('no workflow selected'); return; }
+  const vars = collectVars();
+  setRunFormError('');
   runSubmitting = true;
-  const btn = $('run-picker-run');
+  const btn = $('run-form-run');
   if (btn) btn.disabled = true;
   try {
     let r;
     try {
-      r = await postJSON('/items/run', {
-        item_ref: runPickerRef,
-        pipeline,
-        repo: $('run-picker-repo').value.trim(),
+      r = await postJSON(`/workflows/${encodeURIComponent(name)}/run`, {
+        repo: vars.repo || '',
+        vars,
+        item_ref: runFormRef || undefined,
       });
-    } catch (e) { setRunError('could not reach the daemon'); return; }
-    if (!r.ok) { setRunError((await r.text()).trim() || `dispatch failed (${r.status})`); return; }
+    } catch (e) { setRunFormError('could not reach the daemon'); return; }
+    if (!r.ok) { setRunFormError((await r.text()).trim() || `run failed (${r.status})`); return; }
     const { id } = await r.json();
-    $('run-picker').close();
+    $('run-form').close();
     location.hash = `#run/${id}`;
   } finally {
     runSubmitting = false;
@@ -879,25 +943,26 @@ async function submitRun() {
 }
 
 // ---- workflows view ----------------------------------------------------
-// The Workflows view browses the workflow catalog (GET /workflows) and,
-// per entry, renders the definition's static graph (GET /workflows/{name}/
-// graph → SVG). Read-only: no run, no SSE (web-ui-spec §Workflows view).
-// showWorkflows lists the catalog; each name links to #workflow/<name>.
+// The Workflows view browses the workflow catalog (GET /workflows), links each
+// entry to its static graph (GET /workflows/{name}/graph → SVG), and offers a
+// per-row Run action (run-workflow-spec §"Standalone launch") that opens the
+// run form blank for that workflow. showWorkflows lists the catalog.
 async function showWorkflows() {
   const listEl = $('workflows-list');
   listEl.innerHTML = loadingState();
   let wfs;
   try {
-    wfs = await fetchWorkflows();   // reuses the run-picker's catalog cache
+    wfs = await fetchWorkflows();   // reuses the run form's catalog cache
   } catch (e) {
     listEl.innerHTML = errorState('could not load workflows');
     return;
   }
   if (!wfs.length) { listEl.innerHTML = emptyState('no workflows'); return; }
   listEl.innerHTML = `<table>
-    <thead><tr><th>workflow</th></tr></thead>
+    <thead><tr><th>workflow</th><th></th></tr></thead>
     <tbody>${wfs.map(w =>
-      `<tr><td><a href="#workflow/${encodeURIComponent(w.name)}">${escapeHtml(w.name)}</a></td></tr>`
+      `<tr><td><a href="#workflow/${encodeURIComponent(w.name)}">${escapeHtml(w.name)}</a></td>` +
+      `<td>${workflowRunButton(w.name)}</td></tr>`
     ).join('')}</tbody></table>`;
 }
 
@@ -2212,8 +2277,15 @@ window.addEventListener('load', () => {
   $('config-view')?.addEventListener('input', () => setConfigDirty(true));
   $('config-view')?.addEventListener('change', onConfigChange);
   $('config-save')?.addEventListener('click', saveConfig);
-  $('run-picker-cancel')?.addEventListener('click', () => $('run-picker').close());
-  $('run-picker-run')?.addEventListener('click', submitRun);
+  // Delegated Workflows-view run trigger: rows are innerHTML, so one listener
+  // opens the form standalone for whichever row's run button was clicked.
+  $('workflows-list')?.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-run-workflow]');
+    if (btn) openRunForWorkflow(btn.dataset.runWorkflow);
+  });
+  $('run-form-workflow')?.addEventListener('change', onWorkflowChange);
+  $('run-form-cancel')?.addEventListener('click', () => $('run-form').close());
+  $('run-form-run')?.addEventListener('click', submitRun);
   // A full unload (reload / close / external nav) bypasses the hash router,
   // so guard it too: the browser shows its native leave prompt when the
   // Config view has unsaved edits.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -57,5 +58,36 @@ func TestVarsFromFields(t *testing.T) {
 		`{dataset:{var:'repo'},value:'a/b'}]))`)
 	if out != `{"identifier":"ENG-42","repo":"a/b"}` {
 		t.Errorf("varsFromFields = %s, want identifier+repo only, trimmed", out)
+	}
+}
+
+// TestWorkflowRunButton: the Workflows view's per-row Run action carries the
+// workflow name on a data-* attribute (the standalone launch entry point,
+// run-workflow-spec §"Standalone launch"), escaped.
+func TestWorkflowRunButton(t *testing.T) {
+	html := evalUI(t, `workflowRunButton('review-pr')`)
+	if !strings.Contains(html, `data-run-workflow="review-pr"`) {
+		t.Errorf("run button missing the workflow handle:\n%s", html)
+	}
+	esc := evalUI(t, `workflowRunButton('<x>')`)
+	if strings.Contains(esc, "<x>") {
+		t.Errorf("run button did not escape the workflow name:\n%s", esc)
+	}
+}
+
+// TestRunFormMigratedOffItemsRun: the Run modal now funnels through the single
+// admission endpoint POST /workflows/{name}/run (run-workflow-spec §Endpoints).
+// The superseded /items/run must not be referenced anywhere in the UI.
+func TestRunFormMigratedOffItemsRun(t *testing.T) {
+	src, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(src)
+	if strings.Contains(html, "/items/run") {
+		t.Errorf("UI still references the removed /items/run endpoint")
+	}
+	if !strings.Contains(html, "/run`,") && !strings.Contains(html, "}/run`") {
+		t.Errorf("UI no longer builds a /workflows/{name}/run POST")
 	}
 }
