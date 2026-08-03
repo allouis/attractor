@@ -15,11 +15,14 @@ same repo can run at once, (b) repo tooling that needs real filesystem
 semantics (SQLite, file locks) works, and (c) a workspace's dependencies
 always match its own lockfile — never another branch's.
 
-Design and rationale: `docs/vm-workspace-spec.md`. Implement the
-recommendation there (per-run jj workspace on the host → mutable working
-copy on **guest-local disk** → per-run dependency install linking from a
-**warm per-repo content-addressed cache volume**). If you deviate from that
-design, say why in the commit message.
+Design and rationale: `docs/vm-workspace-spec.md`. Implement the locked
+decision there: a **per-run jj workspace on the host**, **virtiofs**-mounted
+(not 9p) read-write into the guest, plus a **warm per-repo pnpm store** also
+virtiofs-mounted; the job dir and nix store stay 9p (read-only). The
+mutable copy lives on the host so results are visible in `jj log` with no
+export step. **Fallback:** if the W2 SQLite-over-virtiofs test proves
+unreliable, switch to a guest-local clone with bundle export (spec's
+"Alternatives"). If you deviate, say why in the commit message.
 
 ## Context you need
 
@@ -48,10 +51,12 @@ Correctness (each is an automated test that must exist and pass):
    mutations. Test: run two pipelines concurrently against the same repo,
    each writing a distinct sentinel file / commit; assert neither sentinel
    leaks to the host checkout or the other run.
-2. **SQLite works (the bug that started this):** a pipeline whose tool step
-   runs `pnpm install` (or any SQLite open) **succeeds** in the VM — no
-   `disk I/O error`. This is the acceptance test for guest-local mutable
-   state.
+2. **SQLite works over virtiofs (the bug that started this, and the pivotal
+   gate):** a pipeline whose tool step runs `pnpm install` (or any SQLite
+   open) **succeeds** in the virtiofs-mounted workspace — no `disk I/O
+   error` — and in-guest `jj` (`diff`/`status`/`commit`) works against the
+   host store through the mount. If this cannot be made reliable, invoke the
+   guest-local-clone fallback rather than shipping a flaky mount.
 3. **Dependency correctness:** given two branches/lockfiles pinning
    *different* versions of the same package, two concurrent runs each
    produce a `node_modules` matching **their own** lockfile. Test asserts
@@ -100,9 +105,11 @@ Engineering gate (must hold at the tip):
 ## Constraints
 
 - jj only (never git) for VCS operations in the daemon and tests.
-- Keep the mutable working copy on **guest-local disk**; do not reintroduce
-  a read-write workspace share. A read-only transport share is acceptable.
-- Do not require KVM. Tests must pass under TCG.
+- The mutable working copy is a **host jj workspace mounted over virtiofs**
+  (so it stays host-visible); do **not** reintroduce a read-write **9p**
+  workspace mount. 9p stays only for read-only shares (job dir, nix store).
+- Do not require KVM. Tests must pass under TCG (the real box has KVM; KVM
+  changes speed only, not the virtiofs wiring).
 - Small, atomic, reviewable commits; follow `docs/vm-workspace-spec.md`'s
   milestone ledger and flip each Status to `done` in its final commit.
 - If you build via the self-dev pipeline, run it milestone-by-milestone
@@ -111,8 +118,8 @@ Engineering gate (must hold at the tip):
 ## Out of scope (do not do these)
 
 - KVM enablement / VM performance tuning.
-- virtiofs (only pursue if a milestone proves guest-local alone is
-  insufficient — the spec expects it is not needed for correctness).
+- The guest-local-clone path — build it *only* if W2 shows virtiofs locking
+  is unreliable; otherwise virtiofs is the chosen delivery.
 - Distributed / cross-host placement.
 - UI changes.
 
