@@ -37,7 +37,19 @@ let
       args+=(/mnt/job/source.dot)
 
       echo "attractor-vm-run: attractor ''${args[*]}" >&2
-      exec attractor "''${args[@]}"
+      rc=0
+      attractor "''${args[@]}" || rc=$?
+      # A successful run has already phoned home a terminal event, so the
+      # launcher has returned and the VM is left running for inspection. But a
+      # run that CRASHES before reporting (a pipeline load error, a panic)
+      # emits no terminal event — the launcher would sit waiting while the
+      # guest idles at a shell and the daemon's run stays 'queued' forever.
+      # Power off on a non-zero exit so the launcher's process-exit path fires
+      # and marks the run failed (with the console log).
+      if [ "$rc" -ne 0 ]; then
+        echo "attractor-vm-run: attractor exited $rc; powering off so the daemon sees the crash" >&2
+        systemctl poweroff --no-block || poweroff -f || true
+      fi
     '';
   };
 in
@@ -51,9 +63,16 @@ in
 
   virtualisation = {
     graphics = false;
-    cores = 2;
-    memorySize = 2048;
-    diskSize = 8192;
+    # Sized for containerized app test suites (e.g. Ghost's Docker Compose
+    # stack: MySQL + a Node build). Bump cores/RAM/disk well above the
+    # node/python defaults; the host caps actual use and qcow2 disk is sparse.
+    cores = 6;
+    memorySize = 8192;
+    diskSize = 40960;
+    # Docker inside the guest so pipelines can spin up their own service
+    # containers (databases, etc.) the way repo test scripts expect. Containers
+    # share the guest kernel, so this works even under TCG (no nested KVM).
+    docker.enable = true;
     # Per-run 9p shares; sources are shell variables the launcher sets per
     # run, expanded in the generated runner script (decision D6).
     sharedDirectories = {
@@ -87,12 +106,13 @@ in
     pkgs.nodejs_22 # node + npm
     pkgs.typescript # tsc
     pkgs.python3 # python + stdlib (unittest, venv)
+    pkgs.docker-compose # `docker compose` for containerized test stacks
   ];
 
   systemd.services.attractor-runner = {
     description = "Run this VM's attractor pipeline job";
-    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" ];
-    wants = [ "network-online.target" ];
+    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "docker.service" ];
+    wants = [ "network-online.target" "docker.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
