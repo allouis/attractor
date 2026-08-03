@@ -75,6 +75,32 @@ func TestWorkflowRunButton(t *testing.T) {
 	}
 }
 
+// TestNeedsItemNote: a workflow with no fillable vars (only the synthesized
+// repo) is item-driven — router reads item.type at runtime, which a standalone
+// launch can't supply. The Workflows-view form warns (run-workflow-spec §"The
+// input contract"). A workflow with real vars, or one opened from an item,
+// gets no note.
+func TestNeedsItemNote(t *testing.T) {
+	note := evalUI(t, `needsItemNote([], false)`)
+	if note == "" {
+		t.Errorf("router standalone got no item note")
+	}
+	if !strings.Contains(note, "#items") {
+		t.Errorf("item note does not link to the items view:\n%s", note)
+	}
+	if got := evalUI(t, `needsItemNote(['identifier'], false)`); got != "" {
+		t.Errorf("workflow with a fillable var should get no note, got:\n%s", got)
+	}
+	if got := evalUI(t, `needsItemNote([], true)`); got != "" {
+		t.Errorf("item-linked run should get no note, got:\n%s", got)
+	}
+	// `repo` is synthesized, not a fillable var, so a repo-only workflow is
+	// still item-driven and gets the note.
+	if got := evalUI(t, `needsItemNote(['repo'], false)`); got == "" {
+		t.Errorf("repo-only workflow should get the item note")
+	}
+}
+
 // TestRunFormMigratedOffItemsRun: the Run modal now funnels through the single
 // admission endpoint POST /workflows/{name}/run (run-workflow-spec §Endpoints).
 // The superseded /items/run must not be referenced anywhere in the UI.

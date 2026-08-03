@@ -766,6 +766,17 @@ function buildVarFields(vars, prefill, repos) {
   }).join('');
 }
 
+// needsItemNote warns that a workflow is item-driven: with no fillable var (only
+// the synthesized `repo`) it reads its context from a seeded item at runtime
+// (router → item.type), which a standalone launch cannot supply. Returns the
+// note markup for that case, else '' (real vars to fill, or an item is linked).
+function needsItemNote(vars, hasItem) {
+  const fillable = (vars || []).filter(v => v !== 'repo');
+  if (fillable.length || hasItem) return '';
+  return `<p class="state state-empty">no inputs — this workflow needs an ` +
+    `<a href="#items">item</a> to run.</p>`;
+}
+
 // varsFromFields reshapes the modal's field nodes into the {var:value} map the
 // run POST carries. An empty field is omitted — not sent as "" — so a var the
 // human leaves blank never overlays (and blanks) the value item_ref prefilled
