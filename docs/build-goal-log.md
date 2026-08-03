@@ -13,7 +13,7 @@ loop → record). Small atomic commits; every intervention recorded here.
 | `config-screen-spec.md` | **BUILT (C1–C5 done)** | ✅ |
 | `repo-vm-config-spec.md` | **BUILT (VM1–VM4 done)** | ✅ |
 | `run-workflow-spec.md` | **BUILT (R1–R5 done)** | ✅ |
-| `web-ui-v2-spec.md` | drafted | **U1–U5,U7 done**; U6 waits on run-workflow |
+| `web-ui-v2-spec.md` | **BUILT (U1–U7 done)** | ✅ |
 
 Build order: config-screen C1→C5, then VM1→VM4, then web-UI U1→U7. Web-UI
 U1/U2/U3 are independent of the config work and can interleave.
@@ -206,6 +206,33 @@ config-screen spec commit; advancing it is deferred to the end.
 - **✅ run-workflow-spec fully built** — R1–R5, 15 atomic commits, gate
   green. Launch modal picks any workflow, fills its declared vars, picks a
   registered repo; `/items/run` retired. Unblocks U6.
+
+- **U6 — done** (`~/.attractor/runs/ui-U6`). 8 atomic commits, gate green:
+  re-run + re-run-from-failure buttons in run detail, backed by
+  `POST /pipelines/{id}/restart`; run summary exposes launch vars; plus
+  robustness fixes the review surfaced — recover from a launch panic in
+  the dispatch goroutine, restart only resumable runs, rotate the event
+  log on restart. `onmntslk`…`yzmnqtnu`.
+
+## ✅ GOAL COMPLETE — all four specs built
+
+config-screen (C1–C5) · repo-vm-config (VM1–VM4) · web-UI-v2 (U1–U7) ·
+run-workflow (R1–R5). **181 atomic commits** on the stack, dogfooded
+end-to-end through the `build-review` pipeline (plan→implement→verify→
+5-lens review→record). **Full gate green at the tip:** `go test ./... -race`
+all pass, gofmt clean, no conflicts, `nix build .#attractor` OK.
+
+The self-service test is met: a browser-only teammate can now **launch**
+any workflow (run modal: pick workflow → fill vars → pick repo),
+**watch** it live (graph + event timeline + node output), **debug** a
+failure (stage inspector, diff, artifacts, failure banner), **unblock**
+a gate (inline answers), and **control** it (cancel, re-run) — no shell.
+Config + per-repo VM placement are editable from the Config tab.
+
+Human interventions across the whole build: **zero code fixes** — only
+one empty-commit cleanup (VM3) and one doc status pre-mark (R2, already
+delivered by C2). The review loop caught and fixed real issues itself
+(a `-race` bug, symlinked-artifact serving, several UI races).
 
 ## Interventions
 
