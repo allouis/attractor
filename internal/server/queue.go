@@ -1,6 +1,9 @@
 package server
 
-import "sync"
+import (
+	"log"
+	"sync"
+)
 
 // dispatcher admits queued runs into a bounded set of execution slots,
 // FIFO (service-spec §3). Submissions append to the queue and return
@@ -63,6 +66,15 @@ func (d *dispatcher) run() {
 		}
 		go func(r *Run) {
 			defer func() { <-d.slots }()
+			// A launch panic must not take down the dispatch goroutine (and
+			// with it the whole daemon): recover, log, and free the slot so
+			// the queue keeps draining. The HTTP recoverer only wraps request
+			// handlers, not this background goroutine.
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("dispatch: run %s launch panicked: %v", r.ID, rec)
+				}
+			}()
 			if d.launch != nil {
 				d.launch(r)
 				return

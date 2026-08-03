@@ -34,3 +34,29 @@ func TestCancelledQueuedRunClosesSubscribers(t *testing.T) {
 		t.Fatal("subscriber stream did not close after cancelling a queued run")
 	}
 }
+
+// TestDispatchRecoversFromLaunchPanic proves a panic while launching one run
+// does not kill the dispatch goroutine (and with it the whole daemon): a
+// following run still launches. Guards the re-run-from-failure crash path
+// where a non-relaunchable run reaches execute (web-ui-v2-spec U6).
+func TestDispatchRecoversFromLaunchPanic(t *testing.T) {
+	d := newDispatcher(1)
+	ran := make(chan struct{})
+	d.launch = func(r *Run) {
+		if r.ID == "boom" {
+			panic("launch blew up")
+		}
+		close(ran)
+	}
+	go d.run()
+	defer d.close()
+
+	d.enqueue(&Run{ID: "boom"})
+	d.enqueue(&Run{ID: "ok"})
+
+	select {
+	case <-ran:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dispatch loop died after a launch panic; the next run never launched")
+	}
+}
