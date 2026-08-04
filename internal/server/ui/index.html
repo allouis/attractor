@@ -255,10 +255,10 @@
                 padding: var(--space-4); min-width: 320px; max-width: min(560px, 92vw); }
   .modal::backdrop { background: rgba(0, 0, 0, .4); }
   .modal h3 { margin: 0 0 var(--space-3); }
-  .modal label { display: block; margin-bottom: var(--space-3); color: var(--text-muted); }
-  .modal select, .modal input { font: inherit; width: 100%; min-height: 2.5rem; margin-top: var(--space-1);
-                color: var(--text); background: var(--surface-1);
-                border: 1px solid var(--border); border-radius: 6px; padding: var(--space-1) var(--space-2); }
+  /* Modal form controls are Tailwind Plus form-layout now (ui-tailwind-spec
+     T6c: FIELD_LABEL_CLASS / FIELD_CONTROL_CLASS); only the native-control font
+     needs a nudge, since Preflight is off. */
+  .modal select, .modal input { font: inherit; }
   .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
   /* Config view (config-screen-spec C4): hand-built panels over the whole
      config doc. Panels share the table/banner/button primitives; inputs
@@ -266,9 +266,11 @@
   .config-panel { margin-bottom: var(--space-4); }
   .config-panel h3 { margin: 0 0 var(--space-1); }
   .config-panel .muted { margin-top: 0; }
-  .config-panel input, .config-panel select { font: inherit; width: 100%; min-height: 2.5rem;
-             color: var(--text); background: var(--surface-1);
-             border: 1px solid var(--border); border-radius: 6px; padding: var(--space-1) var(--space-2); }
+  /* Config controls are Tailwind Plus form-layout now (ui-tailwind-spec T6c:
+     form fields via FIELD_CONTROL_CLASS, table cells via w-full sm:w-auto +
+     FIELD_CONTROL_CLASS). width:100% keeps the table cells full-width on the
+     mobile stacked card; font is nudged since Preflight is off. */
+  .config-panel input, .config-panel select { font: inherit; width: 100%; }
   .config-note { color: var(--state-needs-human); font-size: var(--font-sm); }
   .config-actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
   /* Responsive (web-ui-v2-spec U1): on a narrow viewport collapse the
@@ -399,7 +401,7 @@
      nested in a hidden section would open with zero size. -->
 <dialog id="run-form" class="modal">
   <h3>run workflow</h3>
-  <label>workflow <select id="run-form-workflow"></select></label>
+  <label class="block text-sm font-medium text-ink mb-3">workflow<div class="mt-2"><select id="run-form-workflow" class="w-full min-h-10 rounded-md border border-line bg-surface-1 px-3 py-1.5 text-ink focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-accent"></select></div></label>
   <div id="run-var-fields"></div>
   <p id="run-form-error" class="banner error" hidden></p>
   <div class="modal-actions">
@@ -761,11 +763,20 @@ let runFormRef = null;
 let runFormPrefill = {};
 let runFormRepos = [];
 
+// FIELD_LABEL_CLASS / FIELD_CONTROL_CLASS are the Tailwind Plus form-layout
+// (docs/tailwind-components/form-layout.html), token-remapped (ui-tailwind-spec
+// T6c): a strong ink label over a ≥40px-tappable control with a token border /
+// surface and an accent focus ring. FIELD_CONTROL_CLASS is width-free — form
+// fields add `w-full`, the T6b table cells keep `w-full sm:w-auto`.
+const FIELD_LABEL_CLASS = 'block text-sm font-medium text-ink';
+const FIELD_CONTROL_CLASS = 'min-h-10 rounded-md border border-line bg-surface-1 px-3 py-1.5 text-ink placeholder:text-muted focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-accent';
+
 // formField wraps one labelled control (run-form var, Linear key, default
-// provider) as a stacked label/control field. Shared so the run-form modal and
-// the config panels carry one form-layout shape (ui-tailwind-spec T6c).
+// provider) as a stacked label/control field: an ink label, then the control
+// on its own line. Shared so the run-form modal and the config panels carry one
+// form-layout shape (ui-tailwind-spec T6c).
 function formField(labelText, controlHtml) {
-  return `<label>${labelText} ${controlHtml}</label>`;
+  return `<label class="${FIELD_LABEL_CLASS} mb-3">${labelText}<div class="mt-2">${controlHtml}</div></label>`;
 }
 
 // buildVarFields renders the Run modal's body: one field per var a workflow
@@ -783,10 +794,10 @@ function buildVarFields(vars, prefill, repos) {
           const sel = r.name === prefill.repo ? ' selected' : '';
           return `<option value="${escapeHtml(r.name)}"${sel}>${escapeHtml(r.name)}</option>`;
         })).join('');
-      return formField(escapeHtml(v), `<select class="run-var" data-var="repo">${opts}</select>`);
+      return formField(escapeHtml(v), `<select class="run-var w-full ${FIELD_CONTROL_CLASS}" data-var="repo">${opts}</select>`);
     }
     return formField(escapeHtml(v),
-      `<input class="run-var" data-var="${escapeHtml(v)}" value="${escapeHtml(prefill[v] || '')}">`);
+      `<input class="run-var w-full ${FIELD_CONTROL_CLASS}" data-var="${escapeHtml(v)}" value="${escapeHtml(prefill[v] || '')}">`);
   }).join('');
 }
 
@@ -2043,13 +2054,13 @@ function reposPanelHtml(repos, warnings, vmImages) {
 function repoRowHtml(name, rc, warning, vmImages) {
   const checks = rc.checks || {};
   const checkCells = STANDARD_CHECKS.map(c =>
-    cardCell(escapeHtml(c), `<input class="w-full sm:w-auto" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`)).join('');
+    cardCell(escapeHtml(c), `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`)).join('');
   const warn = warning
     ? `<div class="config-note" data-repo-warning>⚠ ${escapeHtml(warning)}</div>` : '';
   const runner = rc.runner || '';
   return `<tr data-repo-row class="${CARD_ROW_CLASS}">
-    ${cardCell('owner/name', `<input class="w-full sm:w-auto" data-repo-name value="${escapeHtml(name)}" placeholder="owner/name">`)}
-    ${cardCell('path', `<input class="w-full sm:w-auto" data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}`)}
+    ${cardCell('owner/name', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-name value="${escapeHtml(name)}" placeholder="owner/name">`)}
+    ${cardCell('path', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}`)}
     ${cardCell('runner', runnerSelectHtml(runner))}
     ${cardCell('image', imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages))}
     ${checkCells}
@@ -2065,7 +2076,7 @@ function repoRowHtml(name, rc, warning, vmImages) {
 function runnerSelectHtml(runner) {
   const opts = ['', 'direct', 'local', 'vm'].map(v =>
     `<option value="${escapeHtml(v)}"${v === runner ? ' selected' : ''}>${v || '(default)'}</option>`).join('');
-  return `<select class="w-full sm:w-auto" data-repo-runner>${opts}</select>`;
+  return `<select class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-runner>${opts}</select>`;
 }
 
 // imageSelectHtml renders the per-repo VM image select: a blank "(default)"
@@ -2092,7 +2103,7 @@ function imageSelectHtml(image, runner, vmImages) {
   // Editable unless an explicit non-vm placement — an unset runner inherits
   // the daemon default (which may be vm), so a pin is meaningful there too.
   const dis = isNonVMPlacement(runner) ? ' disabled' : '';
-  return `<select class="w-full sm:w-auto" data-repo-image${dis}>${opts}</select>`;
+  return `<select class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-image${dis}>${opts}</select>`;
 }
 
 // repoWarning finds the soft save-warning for a repo, matching the backend's
@@ -2117,7 +2128,7 @@ function linearPanelHtml(linear, armedClear) {
   return `<section class="config-panel card" id="config-linear">
     <h3>Linear</h3>
     <p class="muted">API key for the Linear item source — status <strong>${set ? 'set' : 'unset'}</strong>. The stored key is never shown.</p>
-    ${formField('API key', `<input type="password" id="config-linear-key"${armed ? ' disabled' : ''} placeholder="${
+    ${formField('API key', `<input type="password" id="config-linear-key" class="w-full ${FIELD_CONTROL_CLASS}"${armed ? ' disabled' : ''} placeholder="${
       set ? 'leave blank to keep the stored key' : 'enter a key'}">`)}
     <p>${set ? `<button type="button" data-linear-clear>${armed ? 'keep key' : 'clear key'}</button> ` : ''}<span id="config-linear-note" class="config-note">${
       armed ? 'key will be cleared on save' : ''}</span></p>
@@ -2143,7 +2154,7 @@ function providersPanelHtml(doc) {
     <h3>Providers</h3>
     <p class="muted">Agent backends the router dispatches to.</p>
     <p class="config-note">Editing providers takes effect only after a daemon restart.</p>
-    ${formField('default provider', `<select id="config-default-provider"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>`)}
+    ${formField('default provider', `<select id="config-default-provider" class="w-full ${FIELD_CONTROL_CLASS}"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>`)}
     ${dataTable(`<tr>${['provider', 'backend', 'command', 'model_env'].map(h => `<th class="${TH_CLASS}">${h}</th>`).join('')}<th></th></tr>`, rows, 'config-providers-rows')}
     <p><button type="button" data-provider-add>add provider</button></p>
   </section>`;
@@ -2152,10 +2163,10 @@ function providersPanelHtml(doc) {
 // providerRowHtml renders one provider row; a blank name is the add case.
 function providerRowHtml(name, p) {
   return `<tr data-provider-row class="${CARD_ROW_CLASS}">
-    ${cardCell('provider', `<input class="w-full sm:w-auto" data-provider-name value="${escapeHtml(name)}" placeholder="name">`)}
-    ${cardCell('backend', `<input class="w-full sm:w-auto" data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation">`)}
-    ${cardCell('command', `<input class="w-full sm:w-auto" data-provider-command value="${escapeHtml(p.command || '')}">`)}
-    ${cardCell('model_env', `<input class="w-full sm:w-auto" data-provider-model-env value="${escapeHtml(p.model_env || '')}">`)}
+    ${cardCell('provider', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-name value="${escapeHtml(name)}" placeholder="name">`)}
+    ${cardCell('backend', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation">`)}
+    ${cardCell('command', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-command value="${escapeHtml(p.command || '')}">`)}
+    ${cardCell('model_env', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-model-env value="${escapeHtml(p.model_env || '')}">`)}
     ${cardCell('', '<button type="button" data-provider-remove title="remove provider">&times;</button>')}
   </tr>`;
 }

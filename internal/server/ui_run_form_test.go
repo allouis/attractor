@@ -40,7 +40,9 @@ func TestBuildVarFields(t *testing.T) {
 
 	// `repo` renders as a <select> of registered repos, not an <input>.
 	repoHTML := evalUI(t, `buildVarFields(['repo'], {repo:'a/b'}, [{name:'a/b',path:'/p'},{name:'c/d',path:'/q'}])`)
-	if !strings.Contains(repoHTML, `<select class="run-var" data-var="repo">`) {
+	// The repo var is a run-var <select> (class carries the form-layout classes
+	// after run-var since T6c, so match its parts, not the exact attribute run).
+	if !strings.Contains(repoHTML, "<select ") || !strings.Contains(repoHTML, `class="run-var`) || !strings.Contains(repoHTML, `data-var="repo"`) {
 		t.Errorf("repo var did not render as a select:\n%s", repoHTML)
 	}
 	if !strings.Contains(repoHTML, `<option value="a/b" selected>`) {
