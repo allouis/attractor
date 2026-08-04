@@ -107,13 +107,15 @@
           vendorHash = null;
           subPackages = [ "cmd/attractor" "hookshim" ];
           ldflags = [ "-X github.com/allouis/attractor/internal/version.Revision=${rev}" ];
-          nativeBuildInputs = [ pkgs.makeWrapper pkgs.tailwindcss ];
+          nativeBuildInputs = [ pkgs.makeWrapper pkgs.tailwindcss_4 ];
           # Compile the UI's Tailwind stylesheet (tree-shaken from index.html)
           # before go build embeds it. Keeps the shipped CSS in lockstep with the
           # markup; the committed ui/tailwind.css is a dev/go-test fallback.
+          # Tailwind v4 is CSS-first: config lives in ui/input.css (@theme,
+          # @source), no tailwind.config.js.
           preBuild = ''
             export HOME=$TMPDIR
-            ( cd internal/server/ui && tailwindcss -c tailwind.config.js -i input.css -o tailwind.css --minify )
+            ( cd internal/server/ui && tailwindcss -i input.css -o tailwind.css --minify )
           '';
           postInstall = ''
             wrapProgram $out/bin/attractor \

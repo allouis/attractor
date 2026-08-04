@@ -1,18 +1,47 @@
-/* Tailwind entry for the attractor UI. Compiled to tailwind.css (tree-shaken
- * from index.html) and injected into the page by serveUI. Preflight is off
- * (see tailwind.config.js), so this is additive over the existing hand CSS;
- * views migrate to utilities incrementally. The run-graph SVG restyle (T4)
- * and any component layers land here. */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 entry for the attractor UI. Compiled to tailwind.css
+ * (tree-shaken from index.html) and inlined into the page by serveUI.
+ *
+ * ADDITIVE / no preflight: we import only the theme + utilities layers and
+ * deliberately skip `tailwindcss/preflight.css`, so Tailwind's reset never
+ * clobbers the existing hand-styled UI. Utilities layer on top; views migrate
+ * incrementally (T1..T6).
+ *
+ * v4 is CSS-first — no tailwind.config.js. Content is declared with @source;
+ * design tokens live in @theme. `@theme inline` makes colour/size utilities
+ * emit `var(--token)` directly, so `bg-surface-1`, `text-muted`,
+ * `text-state-success`, ... track the runtime light/dark tokens for free. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "./index.html";
+
+@theme inline {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-line: var(--border);
+  --color-accent: var(--accent);
+  --color-attention: var(--attention-ink);
+  --color-state-success: var(--state-success);
+  --color-state-failed: var(--state-failed);
+  --color-state-running: var(--state-running);
+  --color-state-queued: var(--state-queued);
+  --color-state-needs-human: var(--state-needs-human);
+  --color-state-retrying: var(--state-retrying);
+  --color-state-cancelled: var(--state-cancelled);
+  /* preserve the UI's smaller type scale (v4 defaults are larger) */
+  --text-sm: var(--font-sm);
+  --text-base: var(--font-base);
+  --text-lg: var(--font-lg);
+}
 
 /* Run-graph restyle (ui-tailwind-spec T4a). The inline graphviz `dot -Tsvg`
  * output hardcodes black/white; retheme it with the `--` tokens so it tracks
- * light/dark. Scoped to .graph-pane so both the run-detail and static workflow
- * graphs pick it up. CSS on <text>/<path> overrides graphviz's presentation
- * attributes; node status colour is painted as an INLINE style at runtime
- * (paintNode), which beats these rules. */
+ * light/dark. Scoped to .graph-pane. CSS on <text>/<path> overrides graphviz's
+ * presentation attributes; node status colour is painted as an INLINE style at
+ * runtime (paintNode), which beats these rules. */
 .graph-pane svg .graph > polygon { fill: transparent; }
 .graph-pane svg .edge path {
   stroke: var(--text-muted);
