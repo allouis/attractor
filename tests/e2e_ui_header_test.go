@@ -70,6 +70,85 @@ func TestServer_UI_HeaderResponsive(t *testing.T) {
 	}
 }
 
+// TestServer_UI_AppShellMobileMenu guards the app-shell/nav swap (ui-tailwind-spec
+// T6d): the header adopts the Tailwind Plus stacked app-shell — a desktop inline
+// nav that collapses at <640px behind a real mobile menu. The menu is a
+// hamburger button toggling a stacked disclosure panel; hash routing + the theme
+// toggle stay wired. Behaviour (tap-to-open, 390px no-overflow, routing dismiss)
+// is verified by hand (agent-browser); here we guard the static markup + that the
+// injected stylesheet defines the responsive utilities the swap relies on, with
+// no stock gray/indigo palette leaking through.
+func TestServer_UI_AppShellMobileMenu(t *testing.T) {
+	srv := newTestServer(t, server.DefaultHandlers(handler.Codergen{}))
+
+	resp, err := http.Get(srv.URL() + "/ui")
+	must(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	page := string(body)
+
+	header := sliceTag(t, page, "header")
+
+	// Desktop nav is inline at >=640px, collapsed below it: hidden by default,
+	// sm:flex on the wide viewport.
+	nav := sliceTag(t, header, "nav")
+	for _, cls := range []string{"hidden", "sm:flex"} {
+		if !strings.Contains(nav, cls) {
+			t.Errorf("desktop nav missing %q (collapse below sm:):\n%s", cls, nav)
+		}
+	}
+
+	// The hamburger: shown only <640px (sm:hidden), wired to the menu it
+	// controls with an aria-expanded state the toggle flips.
+	if !strings.Contains(header, `id="mobile-menu-button"`) {
+		t.Errorf("header missing the mobile-menu button:\n%s", header)
+	}
+	for _, want := range []string{"sm:hidden", `aria-controls="mobile-menu"`, "aria-expanded"} {
+		if !strings.Contains(header, want) {
+			t.Errorf("mobile-menu button missing %q:\n%s", want, header)
+		}
+	}
+
+	// The disclosure panel: a stacked nav, hidden until toggled and never shown
+	// at >=640px (the inline nav owns the desktop), carrying all four tabs.
+	// Scope from its id to the next </nav> (it is the second, trailing nav).
+	mi := strings.Index(header, `id="mobile-menu"`)
+	if mi < 0 {
+		t.Fatalf("no mobile-menu panel in header:\n%s", header)
+	}
+	menu := header[mi : mi+strings.Index(header[mi:], "</nav>")]
+	if !strings.Contains(menu, "hidden") {
+		t.Errorf("mobile menu not hidden by default:\n%s", menu)
+	}
+	if !strings.Contains(menu, "sm:hidden") {
+		t.Errorf("mobile menu shows at desktop widths (missing sm:hidden):\n%s", menu)
+	}
+	for _, href := range []string{`href="#items"`, `href="#runs"`, `href="#workflows"`, `href="#config"`} {
+		if !strings.Contains(menu, href) {
+			t.Errorf("mobile menu missing nav link %q:\n%s", href, menu)
+		}
+	}
+
+	// Theme toggle survives the swap and stays in the header (reachable on both
+	// layouts).
+	if !strings.Contains(header, `id="theme-toggle"`) {
+		t.Errorf("theme toggle not inside header after app-shell swap:\n%s", header)
+	}
+
+	// Token-remapped: no stock Tailwind Plus gray/indigo palette in the shell.
+	for _, bad := range []string{"gray-", "indigo-"} {
+		if strings.Contains(header, bad) {
+			t.Errorf("header leaked a hardcoded palette %q:\n%s", bad, header)
+		}
+	}
+
+	// The injected stylesheet must define sm:flex (new with the desktop inline
+	// nav) — proves the committed tailwind.css was regenerated from the swap.
+	if !strings.Contains(page, `.sm\:flex`) {
+		t.Errorf("injected stylesheet has no .sm\\:flex utility (stale tailwind.css?)")
+	}
+}
+
 // sliceTag returns the outer markup of the first <tag>…</tag> in src, so an
 // assertion can scope to one element instead of matching a token page-wide.
 func sliceTag(t *testing.T, src, tag string) string {
