@@ -405,6 +405,60 @@ func TestLaunchFailureRecordsForReaper(t *testing.T) {
 	}
 }
 
+// A virtiofsd that dies AFTER boot leaves the guest mount hung: qemu keeps
+// running, the run never phones home, and without a watch the launcher blocks
+// forever. Launch must notice the daemon death, kill the VM, and fail the run.
+func TestLaunchFailsWhenVirtiofsdDies(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	dir := t.TempDir()
+	// Fake virtiofsd: create the requested socket (so startVirtiofsd proceeds
+	// to boot) then die shortly after — a daemon that serves at boot but
+	// crashes mid-run.
+	vfsd := filepath.Join(dir, "fakevfsd.sh")
+	writeExec(t, vfsd, "#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in --socket-path=*) s=\"${a#--socket-path=}\";; esac; done\n: > \"$s\"\nsleep 0.3\n")
+	// Fake VM: a long-running process that never phones home — a booted guest
+	// whose mount just died.
+	runner := filepath.Join(dir, "fakevm.sh")
+	writeExec(t, runner, "#!/bin/sh\nsleep 30\n")
+
+	repo := jjInitRepo(t)
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir()})
+	run := srv.registry.NewRun("digraph{}", nil, nil, repo, nil, "", "", "", nil)
+	run.cwd = repo
+	l := vmLauncher{
+		images: map[string]string{"default": runner}, defaultImage: "default",
+		vmDir: t.TempDir(), guestHost: "10.0.2.2", pollInterval: 20 * time.Millisecond,
+		virtiofsdBin: vfsd, memMiB: 1024,
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- l.Launch(run, "http://127.0.0.1:0") }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Launch returned nil; a mid-run virtiofsd death must fail the run")
+		}
+		if !strings.Contains(err.Error(), "virtiofsd") {
+			t.Fatalf("error %q should name virtiofsd", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("Launch hung after virtiofsd died — no daemon-death watch")
+	}
+	if run.Status() != RunFailed {
+		t.Fatalf("status = %v, want failed", run.Status())
+	}
+}
+
+// writeExec writes an executable script for the fake-daemon tests.
+func writeExec(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The vm launcher's per-run workspace needs a jj-colocated repo. A run
 // whose cwd is a plain (non-jj) directory fails fast with a diagnosable
 // error naming jj, rather than a cryptic `jj workspace add` stderr dump or

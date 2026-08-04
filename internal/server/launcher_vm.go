@@ -386,7 +386,13 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	// the daemons (they must stay up to serve the persisted VM's mounts).
 	var vfsds []*exec.Cmd
 	recorded := false
+	// stopWatch ends the per-daemon watcher goroutines when Launch returns —
+	// on success the daemons are handed to the reaper (still alive), and their
+	// eventual reaper-kill must NOT be misreported as a mid-run death.
+	stopWatch := make(chan struct{})
+	vfsdDied := make(chan error, len(mounts))
 	defer func() {
+		close(stopWatch)
 		for _, d := range vfsds {
 			if d != nil && d.Process != nil {
 				_ = d.Process.Kill()
@@ -398,12 +404,23 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}()
 
 	for _, m := range mounts {
-		d, err := l.startVirtiofsd(m.sock, m.hostDir, filepath.Join(runDir, "virtiofsd-"+m.tag+".log"))
+		d, waitCh, err := l.startVirtiofsd(m.sock, m.hostDir, filepath.Join(runDir, "virtiofsd-"+m.tag+".log"))
 		if err != nil {
 			run.failCrashed("vm launcher: start virtiofsd: " + err.Error())
 			return err
 		}
 		vfsds = append(vfsds, d)
+		tag := m.tag
+		go func() {
+			select {
+			case werr := <-waitCh:
+				select {
+				case vfsdDied <- fmt.Errorf("virtiofsd[%s] exited: %v", tag, werr):
+				case <-stopWatch:
+				}
+			case <-stopWatch:
+			}
+		}()
 	}
 
 	cmd := exec.Command(runnerScript)
@@ -446,6 +463,14 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 				run.failCrashed(fmt.Sprintf("vm exited before completion: %v (see %s/vm-console.log)", werr, runDir))
 			}
 			return werr
+		case derr := <-vfsdDied:
+			// A virtiofsd died: the guest mount it served is now dead, so the
+			// run cannot make progress and qemu would otherwise idle forever.
+			// Kill the VM and fail the run rather than blocking indefinitely.
+			_ = cmd.Process.Kill()
+			<-exited
+			run.failCrashed(fmt.Sprintf("vm launcher: %v; guest mount lost (see %s/vm-console.log)", derr, runDir))
+			return fmt.Errorf("vm launcher: %v", derr)
 		case <-ticker.C:
 			if run.IsCancelled() {
 				_ = cmd.Process.Kill()
@@ -458,38 +483,42 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 
 // startVirtiofsd launches a per-run virtiofsd serving sharedDir over sock
 // (cache=never) and waits for the socket to appear so qemu can connect on
-// boot. Its output goes to logPath. Returns the running process.
-func (l vmLauncher) startVirtiofsd(sock, sharedDir, logPath string) (*exec.Cmd, error) {
+// boot. Its output goes to logPath. On success it returns the running process
+// and a channel that delivers the daemon's exit — the caller watches it so a
+// daemon dying mid-run (which would silently hang the guest mount) fails the
+// run instead of blocking forever. cmd.Wait is called exactly once, in the
+// goroutine feeding waitCh; the caller must not Wait again.
+func (l vmLauncher) startVirtiofsd(sock, sharedDir, logPath string) (*exec.Cmd, <-chan error, error) {
 	logf, err := os.Create(logPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cmd := exec.Command(l.virtiofsdBin, virtiofsdArgs(sock, sharedDir)...)
 	cmd.Stdout = logf
 	cmd.Stderr = logf
 	if err := cmd.Start(); err != nil {
 		logf.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	logf.Close() // the child inherited the fd at exec
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
 	// Wait for the listening socket before booting qemu — but bail
 	// immediately if virtiofsd exits first (bad binary/args), rather than
 	// blocking the whole timeout on a process that will never serve.
-	exited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(exited) }()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	timeout := time.After(5 * time.Second)
 	for {
 		if _, err := os.Stat(sock); err == nil {
-			return cmd, nil
+			return cmd, waitCh, nil
 		}
 		select {
-		case <-exited:
-			return nil, fmt.Errorf("virtiofsd exited before creating socket %s (see %s)", sock, logPath)
+		case werr := <-waitCh:
+			return nil, nil, fmt.Errorf("virtiofsd exited before creating socket %s: %v (see %s)", sock, werr, logPath)
 		case <-timeout:
 			_ = cmd.Process.Kill()
-			return nil, fmt.Errorf("virtiofsd socket %s did not appear (see %s)", sock, logPath)
+			return nil, nil, fmt.Errorf("virtiofsd socket %s did not appear (see %s)", sock, logPath)
 		case <-ticker.C:
 		}
 	}
