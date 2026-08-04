@@ -92,9 +92,24 @@ in
   # Mount the per-run workspace served by the launcher's virtiofsd. The
   # device is the vhost-user-fs tag (`workspace`) wired via QEMU_OPTS; the
   # virtiofs driver gives the rw POSIX semantics 9p lacks (W1).
+  #
+  # The `repo` mount is the target repo ROOT, carrying the shared jj store
+  # AND the colocated `.git` backend it points at. A jj workspace's .jj/repo
+  # points at the store, which lives outside the workspace dir, so in-guest jj
+  # needs it mounted; the launcher repoints the workspace at /mnt/repo/.jj/repo
+  # so guest jj commits into the shared HOST store over virtiofs (W2). rw +
+  # real locking (SQLite op-store) → virtiofs.
   boot.kernelModules = [ "virtiofs" ];
-  fileSystems."/mnt/workspace" = {
+  # Guest mounts MUST go under virtualisation.fileSystems, not the top-level
+  # fileSystems: qemu-vm.nix mkVMOverrides `fileSystems` from
+  # `virtualisation.fileSystems`, so a top-level entry is silently dropped and
+  # never mounted (the guest then has no /mnt/workspace).
+  virtualisation.fileSystems."/mnt/workspace" = {
     device = "workspace";
+    fsType = "virtiofs";
+  };
+  virtualisation.fileSystems."/mnt/repo" = {
+    device = "repo";
     fsType = "virtiofs";
   };
 
@@ -109,6 +124,7 @@ in
   environment.systemPackages = [
     attractorPkg
     pkgs.git
+    pkgs.jujutsu # in-guest jj: pipelines run jj against the host store (W2)
     pkgs.jq
     pkgs.coreutils
     runnerScript
@@ -121,7 +137,8 @@ in
 
   systemd.services.attractor-runner = {
     description = "Run this VM's attractor pipeline job";
-    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "docker.service" ];
+    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "mnt-repo.mount" "docker.service" ];
+    requires = [ "mnt-workspace.mount" "mnt-repo.mount" ];
     wants = [ "network-online.target" "docker.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
