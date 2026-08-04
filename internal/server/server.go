@@ -34,6 +34,7 @@ import (
 	"github.com/allouis/attractor/internal/render"
 	"github.com/allouis/attractor/internal/scheduler"
 	"github.com/allouis/attractor/internal/setup"
+	"github.com/allouis/attractor/internal/version"
 )
 
 // defaultMaxConcurrentRuns bounds runs executing at once when the config
@@ -180,6 +181,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /ui", s.serveUI)
 	mux.HandleFunc("GET /ui/", s.serveUI)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	mux.HandleFunc("GET /version", s.getVersion)
 	s.httpsrv = &http.Server{
 		Handler:           withRecoverer(s.withAuth(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -698,6 +700,15 @@ func (s *Server) getContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, run.Context())
 }
 
+// getVersion reports the running build's release version and git revision.
+// Unauthenticated like /healthz so any probe can read the running build.
+func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":  version.Number,
+		"revision": version.Get(),
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -723,7 +734,7 @@ func withRecoverer(next http.Handler) http.Handler {
 // is configured. Loopback callers and /healthz always pass through.
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.authToken == "" || r.URL.Path == "/healthz" || isLoopback(r.RemoteAddr) {
+		if s.authToken == "" || r.URL.Path == "/healthz" || r.URL.Path == "/version" || isLoopback(r.RemoteAddr) {
 			next.ServeHTTP(w, r)
 			return
 		}
