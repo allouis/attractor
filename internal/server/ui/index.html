@@ -143,7 +143,7 @@
   .toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
              margin-bottom: var(--space-3); }
   .toolbar select, .toolbar input { font: inherit; padding: var(--space-1) var(--space-2);
-             color: var(--text); background: var(--surface-1);
+             min-height: 2.5rem; color: var(--text); background: var(--surface-1);
              border: 1px solid var(--border); border-radius: 6px; }
   .toolbar .check { display: inline-flex; align-items: center; gap: var(--space-1);
              color: var(--text-muted); }
@@ -198,7 +198,8 @@
      a scrollable feed under the graph so the whole history is one glance. */
   #event-timeline { margin-top: var(--space-4); }
   #event-timeline h3 { margin: 0 0 var(--space-2); }
-  .tl-controls { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .tl-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .tl-controls select, .tl-controls input { min-height: 2.5rem; }
   .tl-controls input { flex: 1; }
   .timeline { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
               max-height: 360px; overflow: auto; font: var(--font-sm)/1.45 ui-monospace, monospace; }
@@ -244,7 +245,7 @@
      padded, and colour-coded so a failure never reads like an empty list. */
   .state { color: var(--text-muted); text-align: center; padding: var(--space-5) 0; }
   .state-error { color: var(--state-failed); }
-  button { font: inherit; padding: var(--space-1) var(--space-3); cursor: pointer;
+  button { font: inherit; padding: var(--space-1) var(--space-3); min-height: 2.5rem; cursor: pointer;
            background: var(--surface-1); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
   button:hover { background: var(--surface-2); }
   /* Reusable modal (web-ui-v2-spec U1): a token-styled <dialog>. The
@@ -255,7 +256,7 @@
   .modal::backdrop { background: rgba(0, 0, 0, .4); }
   .modal h3 { margin: 0 0 var(--space-3); }
   .modal label { display: block; margin-bottom: var(--space-3); color: var(--text-muted); }
-  .modal select, .modal input { font: inherit; width: 100%; margin-top: var(--space-1);
+  .modal select, .modal input { font: inherit; width: 100%; min-height: 2.5rem; margin-top: var(--space-1);
                 color: var(--text); background: var(--surface-1);
                 border: 1px solid var(--border); border-radius: 6px; padding: var(--space-1) var(--space-2); }
   .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
@@ -265,7 +266,7 @@
   .config-panel { margin-bottom: var(--space-4); }
   .config-panel h3 { margin: 0 0 var(--space-1); }
   .config-panel .muted { margin-top: 0; }
-  .config-panel input, .config-panel select { font: inherit; width: 100%;
+  .config-panel input, .config-panel select { font: inherit; width: 100%; min-height: 2.5rem;
              color: var(--text); background: var(--surface-1);
              border: 1px solid var(--border); border-radius: 6px; padding: var(--space-1) var(--space-2); }
   .config-note { color: var(--state-needs-human); font-size: var(--font-sm); }
@@ -380,13 +381,13 @@
         <div id="graph" class="graph-pane"></div>
       </div>
       <div>
-        <div id="node-pane" class="card"><p class="muted">Click a node to inspect it.</p></div>
+        <div id="node-pane" class="card min-w-0"><p class="muted">Click a node to inspect it.</p></div>
         <div id="human-dock"></div>
       </div>
     </div>
     <section id="run-diff">
       <h3>Diff</h3>
-      <div id="run-diff-body" class="diff"></div>
+      <div id="run-diff-body" class="diff min-w-0"></div>
     </section>
     <section id="run-artifacts">
       <h3>Artifacts</h3>
@@ -1678,7 +1679,7 @@ function toolCallHtml(raw) {
   let body;
   try { body = JSON.stringify(raw, null, 2); } catch (e) { body = String(raw); }
   return `<details class="tool-call"><summary>${escapeHtml(name)}</summary>` +
-         `<pre>${escapeHtml(body)}</pre></details>`;
+         `<pre class="overflow-x-auto">${escapeHtml(body)}</pre></details>`;
 }
 
 // eventMatchesFilter is the U3 timeline filter predicate. An empty kind keeps
@@ -1793,7 +1794,7 @@ function stageDetailHtml(id, detail, timing, logHtml) {
   const status = detail.status || 'running';
   const calls = (detail.tool_calls || []).map(toolCallHtml).join('');
   const section = (title, body) => body
-    ? `<h4>${title}</h4><pre class="stage-text">${escapeHtml(body)}</pre>` : '';
+    ? `<h4>${title}</h4><pre class="stage-text overflow-x-auto">${escapeHtml(body)}</pre>` : '';
   return `
     <h3>${escapeHtml(id)}</h3>
     <div class="stage-meta">
@@ -1804,7 +1805,7 @@ function stageDetailHtml(id, detail, timing, logHtml) {
     ${section('Response', detail.response)}
     ${calls ? `<h4>Tool calls</h4>${calls}` : ''}
     <h4>Output</h4>
-    <div id="node-log">${logHtml || ''}</div>`;
+    <div id="node-log" class="overflow-x-auto">${logHtml || ''}</div>`;
 }
 
 // selectNode opens the U2 inspector for a node: fetch its stage detail
@@ -1918,8 +1919,8 @@ async function viewArtifact(path) {
     body = body.slice(0, ARTIFACT_RENDER_CAP);
   }
   const inner = isDiffPath(path)
-    ? `<div class="diff">${diffHtml(body)}</div>`
-    : `<pre class="stage-text">${escapeHtml(body)}</pre>`;
+    ? `<div class="diff min-w-0">${diffHtml(body)}</div>`
+    : `<pre class="stage-text overflow-x-auto">${escapeHtml(body)}</pre>`;
   view.innerHTML = `<h4>${escapeHtml(path)}</h4>${note}${inner}`;
 }
 
