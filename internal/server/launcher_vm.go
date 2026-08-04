@@ -23,19 +23,13 @@ type vmLauncher struct {
 	vmDir        string            // root for per-run qcow2 + job dirs
 	guestHost    string            // host as seen from the guest (default 10.0.2.2)
 	pollInterval time.Duration     // how often to check run terminal/cancel
-	virtiofsdBin string            // virtiofsd executable (default "virtiofsd", found on PATH)
-	memMiB       int               // guest RAM; sizes the shared-memory backend (must match nix memorySize)
 }
 
-// defaultVMMemoryMiB mirrors nix/vm-runner.nix virtualisation.memorySize;
-// the vhost-user-fs shared-memory backend must be sized to the guest RAM.
-const defaultVMMemoryMiB = 8192
-
 // guestWorkDir is where the guest copies the ro-delivered workspace onto its
-// OWN ext4 and runs the pipeline (cwd). virtiofsd cache=never can't host the
-// SQLite DBs real tools open (pnpm store index, Nx task DB) — they die with
-// `disk I/O error` — so the mount is transport only and the work surface is
-// guest-local (spec §Empirical pivot, G1). Coupled to the `cp` target in
+// OWN ext4 and runs the pipeline (cwd). A shared mount can't host the SQLite
+// DBs real tools open (pnpm store index, Nx task DB) — they die with `disk I/O
+// error` — so the mount is transport only and the work surface is guest-local
+// (spec §Empirical pivot, G1). Coupled to the `cp` target in
 // nix/vm-runner.nix; the two must agree, like /mnt/workspace did.
 const guestWorkDir = "/work"
 
@@ -58,8 +52,6 @@ func NewVMLauncherWithImages(images map[string]string, defaultImage, vmDir strin
 		vmDir:        vmDir,
 		guestHost:    "10.0.2.2",
 		pollInterval: 500 * time.Millisecond,
-		virtiofsdBin: "virtiofsd",
-		memMiB:       defaultVMMemoryMiB,
 	}
 }
 
@@ -197,20 +189,20 @@ func copyTree(src, dst string) error {
 	return nil
 }
 
-// vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk,
-// the 9p job-share source (ATTRACTOR_JOB_DIR, ro), the mutable working copy
-// (ATTRACTOR_WORKSPACE — the per-run jj workspace, delivered over virtiofs),
-// and QEMU_OPTS carrying the vhost-user-fs device the boot script appends.
-func (l vmLauncher) vmEnv(runDir, jobDir, workspace, qemuOpts string) []string {
-	env := append(os.Environ(),
+// vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk and
+// the three 9p share sources the nix module's sharedDirectories expand —
+// ATTRACTOR_JOB_DIR (job dir, ro), ATTRACTOR_WORKSPACE (per-run jj workspace,
+// ro transport the guest copies to ext4), and ATTRACTOR_REPO (the target repo
+// whose `.jj`/`.git` subtrees are shared for in-guest jj). GS drops virtiofs,
+// so there is no QEMU_OPTS: delivery rides the module's blessed 9p shares, not
+// a hand-wired vhost-user-fs device.
+func (l vmLauncher) vmEnv(runDir, jobDir, workspace, repoDir string) []string {
+	return append(os.Environ(),
 		"NIX_DISK_IMAGE="+filepath.Join(runDir, "vm.qcow2"),
 		"ATTRACTOR_JOB_DIR="+jobDir,
 		"ATTRACTOR_WORKSPACE="+workspace,
+		"ATTRACTOR_REPO="+repoDir,
 	)
-	if qemuOpts != "" {
-		env = append(env, "QEMU_OPTS="+qemuOpts)
-	}
-	return env
 }
 
 // ensureJJRepo verifies dir is a jj repo (colocated checkout), the
@@ -229,7 +221,7 @@ func ensureJJRepo(dir string) error {
 // gitignored node_modules never appears — the run installs its own,
 // matching its own lockfile, and its mutations never touch the host
 // checkout. The workspace lives on the host and shows in `jj log`, the
-// property virtiofs delivery preserves.
+// property the 9p transport preserves.
 func materializeWorkspace(repoDir, dest, name string) error {
 	// Idempotent: a leftover workspace of this name — a prior run whose
 	// cleanup didn't complete (daemon crash) — would make `add` fail with
@@ -246,16 +238,6 @@ func materializeWorkspace(repoDir, dest, name string) error {
 	return nil
 }
 
-// virtiofsMount is one host dir delivered into the guest over virtiofs: a
-// per-run virtiofsd serves hostDir on sock, exported to qemu under tag; the
-// guest mounts tag rw (nix/vm-runner.nix fileSystems). A run has one mount
-// per shared dir (workspace, jj store, …), each its own daemon + socket.
-type virtiofsMount struct {
-	tag     string // vhost-user-fs tag the guest mounts by
-	hostDir string // dir this mount's virtiofsd serves
-	sock    string // per-mount unix socket virtiofsd listens on
-}
-
 // guestRepoMount is the guest dir under which the target repo's jj metadata
 // is delivered: `.jj` (shared store + op-log) at guestRepoMount/.jj and the
 // colocated `.git` (the jj store's object backend) at guestRepoMount/.git.
@@ -269,26 +251,8 @@ type virtiofsMount struct {
 // pointer ("not a git repository"). As siblings under guestRepoMount every
 // internal relative path resolves and in-guest jj commits into the shared
 // HOST store (spec W2 "In-guest VCS"). Must match nix/vm-runner.nix
-// virtualisation.fileSystems."/mnt/repo/.jj" + ".git".
+// sharedDirectories "/mnt/repo/.jj" + "/mnt/repo/.git".
 const guestRepoMount = "/mnt/repo"
-
-// virtiofsMounts is the set of host dirs delivered into the guest over
-// virtiofs for a run: the per-run workspace working copy (rw at
-// /mnt/workspace), and the target repo's `.jj` + colocated `.git` (rw under
-// guestRepoMount) — the shared jj store the workspace commits into. Only
-// those two repo subtrees are shared, never the repo root, so the host
-// working tree (secrets, node_modules) is never exposed to the guest.
-//
-// Concurrency: multiple same-repo runs share this one store over virtiofs;
-// safe concurrent multi-writer access is proven in W4. Until then the safe
-// operating assumption is one live run per repo (spec Milestones: W4).
-func (l vmLauncher) virtiofsMounts(runDir, work, repoDir string) []virtiofsMount {
-	return []virtiofsMount{
-		{tag: "workspace", hostDir: work, sock: filepath.Join(runDir, "vfs-workspace.sock")},
-		{tag: "repojj", hostDir: filepath.Join(repoDir, ".jj"), sock: filepath.Join(runDir, "vfs-repojj.sock")},
-		{tag: "repogit", hostDir: filepath.Join(repoDir, ".git"), sock: filepath.Join(runDir, "vfs-repogit.sock")},
-	}
-}
 
 // pointGuestJJStore rewrites a freshly-materialized workspace's `.jj/repo`
 // pointer to the store inside the guest mount (guestRepoMount/.jj/repo). jj
@@ -319,43 +283,6 @@ func pointJJStore(work, storePath string) (prev []byte, err error) {
 	return prev, os.WriteFile(ptr, []byte(storePath), 0o644)
 }
 
-// virtiofsdArgs builds the per-run virtiofsd invocation: serve sharedDir
-// over a unix socket with cache=never — the strongest coherence + locking
-// mode, required for the SQLite store index and instant host visibility.
-// The spec calls this "none" (the C virtiofsd's name); the Rust virtiofsd
-// we ship (pkgs.virtiofsd) spells the same policy "never" — "none" is
-// rejected as an invalid cache policy. W2 may relax to "auto" if the lock
-// test holds (spec: virtiofsd cache mode).
-func virtiofsdArgs(sock, sharedDir string) []string {
-	return []string{
-		"--socket-path=" + sock,
-		"--shared-dir=" + sharedDir,
-		"--cache=never",
-	}
-}
-
-// virtiofsQemuOpts builds the QEMU_OPTS run-nixos-vm appends to boot with a
-// vhost-user-fs device per mount, each backed by its virtiofsd socket and
-// exported under its tag. vhost-user-fs requires a shared-memory backend, so
-// we add one memory-backend-memfd (share=on) sized to the guest RAM and
-// select it as the machine's memory — all devices share the single backend.
-// The guest mounts each tag rw (nix/vm-runner.nix). Spec W1/W2.
-func virtiofsQemuOpts(mounts []virtiofsMount, memMiB int) string {
-	opts := make([]string, 0, len(mounts)*2+2)
-	for _, m := range mounts {
-		id := "vfs-" + m.tag
-		opts = append(opts,
-			fmt.Sprintf("-chardev socket,id=%s,path=%s", id, m.sock),
-			fmt.Sprintf("-device vhost-user-fs-pci,chardev=%s,tag=%s", id, m.tag),
-		)
-	}
-	opts = append(opts,
-		fmt.Sprintf("-object memory-backend-memfd,id=mem,size=%dM,share=on", memMiB),
-		"-machine memory-backend=mem",
-	)
-	return strings.Join(opts, " ")
-}
-
 func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	if run.cwd == "" {
 		run.failCrashed("vm launcher: run has no cwd (working tree) to share")
@@ -370,7 +297,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	// jj-colocated (spec W1). Precheck before creating any run/job dir so a
 	// plain directory fails fast with a diagnosable error, not a cryptic
 	// `jj workspace add` stderr dump halfway through setup. We do NOT fall
-	// back to a 9p rw mount — the spec forbids reintroducing it.
+	// back to a 9p rw mount of the host checkout — the spec forbids it.
 	if err := ensureJJRepo(run.cwd); err != nil {
 		run.failCrashed(err.Error())
 		return err
@@ -383,10 +310,10 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 
 	// Materialise an isolated per-run jj workspace of the target repo and
-	// deliver it over virtiofs (not a 9p rw share of the host checkout): a
-	// workspace holds only tracked files (no node_modules), lives on the
-	// host (visible in `jj log`), and virtiofs gives the SQLite/flock
-	// semantics the store index needs. Spec W1.
+	// deliver it over READ-ONLY 9p (not a 9p rw share of the host checkout): a
+	// workspace holds only tracked files (no node_modules) and lives on the
+	// host (visible in `jj log`). The guest copies it onto its own ext4 and
+	// runs there — the shared mount is transport only (spec G1/GS).
 	work := filepath.Join(runDir, "work")
 	wsName := "run-" + run.ID
 	if err := materializeWorkspace(run.cwd, work, wsName); err != nil {
@@ -394,11 +321,10 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		return err
 	}
 	// Repoint the workspace's `.jj/repo` at the guest store mount so in-guest
-	// jj reaches the host store through virtiofs (spec W2); the store itself
-	// is the .jj/.git subtree mount below. The rewritten value is guest-only,
-	// so restore the original on any non-success exit — a run kept for
-	// inspection (failure/cancel) then stays host-jj-usable rather than
-	// carrying a dangling pointer through the retention window.
+	// jj reaches the host store through the /mnt/repo 9p share (spec W2). The
+	// rewritten value is guest-only, so restore the original on any non-success
+	// exit — a run kept for inspection (failure/cancel) then stays
+	// host-jj-usable rather than carrying a dangling pointer through retention.
 	origPtr, err := pointGuestJJStore(work)
 	if err != nil {
 		run.failCrashed("vm launcher: point guest jj store: " + err.Error())
@@ -406,59 +332,23 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 	restorePtr := func() { _ = os.WriteFile(filepath.Join(work, ".jj", "repo"), origPtr, 0o644) }
 
-	mounts := l.virtiofsMounts(runDir, work, run.cwd)
-
-	// A workspace (and soon a qcow2) now exists on disk. Every NON-success
-	// exit below — virtiofsd/console/boot failure, crash-before-terminal,
-	// cancel — must (a) not leak the virtiofsd daemons and (b) leave a
-	// vm.json so the reaper reclaims the work dir, qcow2, and jj workspace
-	// on retention; without the record the reaper skips the dir and it leaks
-	// forever (B2). Success flips `recorded` (writing live pids) and detaches
-	// the daemons (they must stay up to serve the persisted VM's mounts).
-	var vfsds []*exec.Cmd
+	// A workspace (and soon a qcow2) now exists on disk. Every NON-success exit
+	// below — console/boot failure, crash-before-terminal, cancel — must leave
+	// a vm.json so the reaper reclaims the work dir, qcow2, and jj workspace on
+	// retention; without the record the reaper skips the dir and it leaks
+	// forever (B2). Success flips `recorded` (writing the live qemu pid).
 	recorded := false
-	// stopWatch ends the per-daemon watcher goroutines when Launch returns —
-	// on success the daemons are handed to the reaper (still alive), and their
-	// eventual reaper-kill must NOT be misreported as a mid-run death.
-	stopWatch := make(chan struct{})
-	vfsdDied := make(chan error, len(mounts))
 	defer func() {
-		close(stopWatch)
-		for _, d := range vfsds {
-			if d != nil && d.Process != nil {
-				_ = d.Process.Kill()
-			}
-		}
 		if !recorded {
-			// Non-success: the mounts are down and the guest (if any) is gone,
-			// so restore the host-valid pointer and record for the reaper.
+			// Non-success: the guest (if any) is gone, so restore the
+			// host-valid pointer and record for the reaper.
 			restorePtr()
 			l.recordVM(vmRecord{RunID: run.ID, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
 		}
 	}()
 
-	for _, m := range mounts {
-		d, waitCh, err := l.startVirtiofsd(m.sock, m.hostDir, filepath.Join(runDir, "virtiofsd-"+m.tag+".log"))
-		if err != nil {
-			run.failCrashed("vm launcher: start virtiofsd: " + err.Error())
-			return err
-		}
-		vfsds = append(vfsds, d)
-		tag := m.tag
-		go func() {
-			select {
-			case werr := <-waitCh:
-				select {
-				case vfsdDied <- fmt.Errorf("virtiofsd[%s] exited: %v", tag, werr):
-				case <-stopWatch:
-				}
-			case <-stopWatch:
-			}
-		}()
-	}
-
 	cmd := exec.Command(runnerScript)
-	cmd.Env = l.vmEnv(runDir, jobDir, work, virtiofsQemuOpts(mounts, l.memMiB))
+	cmd.Env = l.vmEnv(runDir, jobDir, work, run.cwd)
 	console, err := os.Create(filepath.Join(runDir, "vm-console.log"))
 	if err != nil {
 		run.failCrashed("vm launcher: console: " + err.Error())
@@ -479,16 +369,10 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	defer ticker.Stop()
 	for {
 		if run.isTerminal() {
-			// The run finished (phoned home). Leave the VM — and its
-			// virtiofsd daemons, which still serve the mounts — running for
-			// inspection; record every pid for the reaper.
-			pids := make([]int, len(vfsds))
-			for i, d := range vfsds {
-				pids[i] = d.Process.Pid
-			}
-			l.recordVM(vmRecord{RunID: run.ID, Pid: cmd.Process.Pid, VfsdPids: pids, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
+			// The run finished (phoned home). Leave the VM running for
+			// inspection; record its pid for the reaper.
+			l.recordVM(vmRecord{RunID: run.ID, Pid: cmd.Process.Pid, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
 			recorded = true // suppress the defer's failure record
-			vfsds = nil     // hand the daemons off to the reaper (don't kill)
 			return nil
 		}
 		select {
@@ -497,63 +381,12 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 				run.failCrashed(fmt.Sprintf("vm exited before completion: %v (see %s/vm-console.log)", werr, runDir))
 			}
 			return werr
-		case derr := <-vfsdDied:
-			// A virtiofsd died: the guest mount it served is now dead, so the
-			// run cannot make progress and qemu would otherwise idle forever.
-			// Kill the VM and fail the run rather than blocking indefinitely.
-			_ = cmd.Process.Kill()
-			<-exited
-			run.failCrashed(fmt.Sprintf("vm launcher: %v; guest mount lost (see %s/vm-console.log)", derr, runDir))
-			return fmt.Errorf("vm launcher: %v", derr)
 		case <-ticker.C:
 			if run.IsCancelled() {
 				_ = cmd.Process.Kill()
 				<-exited
 				return nil
 			}
-		}
-	}
-}
-
-// startVirtiofsd launches a per-run virtiofsd serving sharedDir over sock
-// (cache=never) and waits for the socket to appear so qemu can connect on
-// boot. Its output goes to logPath. On success it returns the running process
-// and a channel that delivers the daemon's exit — the caller watches it so a
-// daemon dying mid-run (which would silently hang the guest mount) fails the
-// run instead of blocking forever. cmd.Wait is called exactly once, in the
-// goroutine feeding waitCh; the caller must not Wait again.
-func (l vmLauncher) startVirtiofsd(sock, sharedDir, logPath string) (*exec.Cmd, <-chan error, error) {
-	logf, err := os.Create(logPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	cmd := exec.Command(l.virtiofsdBin, virtiofsdArgs(sock, sharedDir)...)
-	cmd.Stdout = logf
-	cmd.Stderr = logf
-	if err := cmd.Start(); err != nil {
-		logf.Close()
-		return nil, nil, err
-	}
-	logf.Close() // the child inherited the fd at exec
-	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
-	// Wait for the listening socket before booting qemu — but bail
-	// immediately if virtiofsd exits first (bad binary/args), rather than
-	// blocking the whole timeout on a process that will never serve.
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.After(5 * time.Second)
-	for {
-		if _, err := os.Stat(sock); err == nil {
-			return cmd, waitCh, nil
-		}
-		select {
-		case werr := <-waitCh:
-			return nil, nil, fmt.Errorf("virtiofsd exited before creating socket %s: %v (see %s)", sock, werr, logPath)
-		case <-timeout:
-			_ = cmd.Process.Kill()
-			return nil, nil, fmt.Errorf("virtiofsd socket %s did not appear (see %s)", sock, logPath)
-		case <-ticker.C:
 		}
 	}
 }
