@@ -283,14 +283,32 @@ func (l vmLauncher) virtiofsMounts(runDir, work, repoDir string) []virtiofsMount
 }
 
 // pointGuestJJStore rewrites a freshly-materialized workspace's `.jj/repo`
-// pointer to the store inside the guest repo-root mount. jj writes it as a
-// RELATIVE path climbing out of the workspace dir to the host repo store — a
-// path that does not exist in the guest, where only the mounts are visible.
-// The host never runs jj INSIDE the workspace dir (cleanup and result
-// inspection use `jj -R <repo>`), so overwriting the pointer for the guest's
-// view is safe. Spec W2.
-func pointGuestJJStore(work string) error {
-	return os.WriteFile(filepath.Join(work, ".jj", "repo"), []byte(guestRepoMount+"/.jj/repo"), 0o644)
+// pointer to the store inside the guest mount (guestRepoMount/.jj/repo). jj
+// writes it as a RELATIVE path climbing out of the workspace dir to the host
+// repo store — a path that does not exist in the guest, where only the mounts
+// are visible.
+//
+// The rewritten value is guest-oriented, so it is NOT valid on the host: a
+// host `jj` run FROM the workspace dir would fail. That is safe because
+// nothing host-side does so — cleanup and result inspection use `jj -R
+// <repo>` against the shared store (where the run's commits and bookmark
+// live), and on any non-success exit Launch restores the original pointer so
+// a kept-for-inspection workspace stays host-usable. Spec W2.
+func pointGuestJJStore(work string) (prev []byte, err error) {
+	return pointJJStore(work, guestRepoMount+"/.jj/repo")
+}
+
+// pointJJStore writes storePath into the workspace's `.jj/repo` pointer — the
+// absolute path at which the store is reachable in the target environment
+// (the guest mount in production; a real dir under test). It returns the
+// pointer's previous contents so the caller can restore it.
+func pointJJStore(work, storePath string) (prev []byte, err error) {
+	ptr := filepath.Join(work, ".jj", "repo")
+	prev, err = os.ReadFile(ptr)
+	if err != nil {
+		return nil, err
+	}
+	return prev, os.WriteFile(ptr, []byte(storePath), 0o644)
 }
 
 // virtiofsdArgs builds the per-run virtiofsd invocation: serve sharedDir
@@ -369,11 +387,16 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 	// Repoint the workspace's `.jj/repo` at the guest store mount so in-guest
 	// jj reaches the host store through virtiofs (spec W2); the store itself
-	// is the .jj/.git subtree mount below.
-	if err := pointGuestJJStore(work); err != nil {
+	// is the .jj/.git subtree mount below. The rewritten value is guest-only,
+	// so restore the original on any non-success exit — a run kept for
+	// inspection (failure/cancel) then stays host-jj-usable rather than
+	// carrying a dangling pointer through the retention window.
+	origPtr, err := pointGuestJJStore(work)
+	if err != nil {
 		run.failCrashed("vm launcher: point guest jj store: " + err.Error())
 		return err
 	}
+	restorePtr := func() { _ = os.WriteFile(filepath.Join(work, ".jj", "repo"), origPtr, 0o644) }
 
 	mounts := l.virtiofsMounts(runDir, work, run.cwd)
 
@@ -399,6 +422,9 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 			}
 		}
 		if !recorded {
+			// Non-success: the mounts are down and the guest (if any) is gone,
+			// so restore the host-valid pointer and record for the reaper.
+			restorePtr()
 			l.recordVM(vmRecord{RunID: run.ID, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
 		}
 	}()

@@ -218,7 +218,7 @@ func TestWorkspaceStoreReachableInGuest(t *testing.T) {
 	if err := materializeWorkspace(repo, work, "run-abc"); err != nil {
 		t.Fatalf("materializeWorkspace: %v", err)
 	}
-	if err := pointGuestJJStore(work); err != nil {
+	if _, err := pointGuestJJStore(work); err != nil {
 		t.Fatalf("pointGuestJJStore: %v", err)
 	}
 	ptr, err := os.ReadFile(filepath.Join(work, ".jj", "repo"))
