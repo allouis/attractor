@@ -9,6 +9,10 @@ import "runtime/debug"
 // can detect skew against its own build.
 const RevisionHeader = "X-Attractor-Revision"
 
+// Number is the human-facing release version, bumped by hand at release
+// time. Distinct from Revision, which is the exact build's git commit.
+const Number = "0.1.0"
+
 // Revision is the git revision, injected at build time via
 // `-ldflags "-X …/internal/version.Revision=<rev>"` (the flake sets it from
 // self.rev). Empty for a plain `go build`, which then falls back to the VCS

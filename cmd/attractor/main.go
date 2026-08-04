@@ -9,8 +9,6 @@ import (
 	"github.com/allouis/attractor/internal/version"
 )
 
-const Version = "0.1.0"
-
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -18,7 +16,7 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "version", "--version", "-v":
-		fmt.Printf("%s (rev %s)\n", Version, version.Get())
+		fmt.Printf("%s (rev %s)\n", version.Number, version.Get())
 	case "help", "--help", "-h":
 		printUsage()
 	case "validate":
