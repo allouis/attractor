@@ -17,7 +17,8 @@ type vmReaper struct {
 	retention time.Duration
 	interval  time.Duration
 	now       func() time.Time
-	kill      func(pid int) error // injectable for tests
+	kill      func(pid int) error              // injectable for tests
+	forget    func(repoDir, name string) error // injectable for tests
 }
 
 // StartVMReaper launches a background reaper GC-ing VMs older than
@@ -36,6 +37,7 @@ func newVMReaper(vmDir string, retention time.Duration) *vmReaper {
 		interval:  time.Hour,
 		now:       time.Now,
 		kill:      killPID,
+		forget:    forgetWorkspace,
 	}
 }
 
@@ -94,6 +96,13 @@ func (r *vmReaper) sweep() []string {
 		// the daemon leaks one per reaped VM (spec W1).
 		if rec.VfsdPid > 0 {
 			_ = r.kill(rec.VfsdPid)
+		}
+		// Forget the per-run jj workspace before removing its dir, else the
+		// host repo accumulates stale run-<id> workspaces pointing at
+		// deleted dirs (spec W1). Legacy records without repo/workspace are
+		// pre-workspace VMs — nothing to forget.
+		if rec.RepoDir != "" && rec.Workspace != "" && r.forget != nil {
+			_ = r.forget(rec.RepoDir, rec.Workspace)
 		}
 		_ = os.RemoveAll(dir)
 		reaped = append(reaped, rec.RunID)

@@ -339,7 +339,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 			// inspection; record both pids for the reaper.
 			vfsdPid := vfsd.Process.Pid
 			stopVFSD = func() {} // hand the daemon off to the reaper
-			l.recordVM(run.ID, runDir, cmd.Process.Pid, vfsdPid)
+			l.recordVM(vmRecord{RunID: run.ID, Pid: cmd.Process.Pid, VfsdPid: vfsdPid, Dir: runDir, RepoDir: run.cwd, Workspace: "run-" + run.ID})
 			return nil
 		}
 		select {
@@ -384,20 +384,37 @@ func (l vmLauncher) startVirtiofsd(sock, sharedDir, logPath string) (*exec.Cmd, 
 	return nil, fmt.Errorf("virtiofsd socket %s did not appear (see %s)", sock, logPath)
 }
 
+// forgetWorkspace deregisters a per-run jj workspace from repoDir's op-log
+// (spec W1). Run before removing the workspace dir so the host repo does
+// not accumulate stale workspaces pointing at deleted dirs. Idempotent: a
+// name that is unknown (already forgotten) is not an error worth failing on.
+func forgetWorkspace(repoDir, name string) error {
+	cmd := exec.Command("jj", "-R", repoDir, "workspace", "forget", name)
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("jj workspace forget %s: %w\n%s", name, err, out)
+	}
+	return nil
+}
+
 // vmRecord marks a persisted VM so the reaper can find and GC it. VfsdPid
-// is the per-run virtiofsd serving the workspace mount; the reaper kills it
-// alongside the qemu process (spec W1).
+// is the per-run virtiofsd serving the workspace mount (killed alongside
+// the qemu process); RepoDir + Workspace let the reaper `jj workspace
+// forget` the per-run workspace before removing its dir (spec W1).
 type vmRecord struct {
 	RunID     string    `json:"run_id"`
 	Pid       int       `json:"pid"`
 	VfsdPid   int       `json:"vfsd_pid,omitempty"`
 	Dir       string    `json:"dir"`
+	RepoDir   string    `json:"repo_dir,omitempty"`
+	Workspace string    `json:"workspace,omitempty"`
 	StartedAt time.Time `json:"started_at"`
 }
 
-// recordVM writes the marker the reaper uses to GC persisted VMs.
-func (l vmLauncher) recordVM(runID, runDir string, pid, vfsdPid int) {
-	rec := vmRecord{RunID: runID, Pid: pid, VfsdPid: vfsdPid, Dir: runDir, StartedAt: time.Now()}
+// recordVM writes the marker the reaper uses to GC persisted VMs. StartedAt
+// is stamped here.
+func (l vmLauncher) recordVM(rec vmRecord) {
+	rec.StartedAt = time.Now()
 	data, _ := json.MarshalIndent(rec, "", "  ")
-	_ = os.WriteFile(filepath.Join(runDir, "vm.json"), data, 0o644)
+	_ = os.WriteFile(filepath.Join(rec.Dir, "vm.json"), data, 0o644)
 }
