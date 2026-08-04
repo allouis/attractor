@@ -241,9 +241,9 @@ func (s *Server) getWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 	// workflow's own directory.
 	var svg []byte
 	if r.URL.Query().Get("expand") != "" {
-		svg, err = render.SVGExpanded(source, dir)
+		svg, err = render.SVGExpanded(source, dir, "")
 	} else {
-		svg, err = render.SVG(source)
+		svg, err = render.SVG(source, "")
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

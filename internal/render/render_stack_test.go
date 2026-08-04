@@ -22,7 +22,7 @@ func TestSVG_RendersDottedAttrPipeline(t *testing.T) {
 		start -> review_loop [condition="outcome=success"]
 		review_loop -> done
 	}`
-	out, err := SVG([]byte(src))
+	out, err := SVG([]byte(src), "")
 	if err != nil {
 		t.Fatalf("SVG failed on dotted-attr pipeline: %v", err)
 	}
@@ -54,6 +54,33 @@ func TestGraphvizSafe_ShapesByType(t *testing.T) {
 	} {
 		if want := `"` + node + `" [shape="` + shape + `"`; !strings.Contains(out, want) {
 			t.Errorf("node %q: want shape %q; DOT:\n%s", node, shape, out)
+		}
+	}
+}
+
+// TestDotArgs_EngineFlag asserts the graphviz command line carries -K<engine>
+// only for a non-empty engine, so the default (empty) keeps the historical
+// `dot -Tsvg` invocation and a chosen engine selects the layout algorithm.
+func TestDotArgs_EngineFlag(t *testing.T) {
+	if got := dotArgs(""); len(got) != 1 || got[0] != "-Tsvg" {
+		t.Errorf("dotArgs(\"\") = %v, want [-Tsvg]", got)
+	}
+	if got := dotArgs("neato"); len(got) != 2 || got[0] != "-Kneato" || got[1] != "-Tsvg" {
+		t.Errorf("dotArgs(\"neato\") = %v, want [-Kneato -Tsvg]", got)
+	}
+}
+
+// TestValidEngine gates the allowlist the graph endpoints screen `?engine=`
+// against, so no arbitrary flag reaches the exec'd `dot`.
+func TestValidEngine(t *testing.T) {
+	for _, e := range []string{"dot", "neato", "fdp", "sfdp", "circo", "twopi"} {
+		if !ValidEngine(e) {
+			t.Errorf("ValidEngine(%q) = false, want true", e)
+		}
+	}
+	for _, e := range []string{"", "bogus", "-Tpng", "dot; rm"} {
+		if ValidEngine(e) {
+			t.Errorf("ValidEngine(%q) = true, want false", e)
 		}
 	}
 }

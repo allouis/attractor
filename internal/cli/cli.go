@@ -312,7 +312,7 @@ func Render(args []string) error {
 	if err != nil {
 		return err
 	}
-	svg, err := render.SVG(src)
+	svg, err := render.SVG(src, "")
 	if err != nil {
 		return err
 	}

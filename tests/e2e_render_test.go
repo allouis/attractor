@@ -20,7 +20,7 @@ func TestRender_SVGOutputIsWellFormed(t *testing.T) {
 	}
 	src, err := os.ReadFile("../testdata/pipelines/smoke.dot")
 	must(t, err)
-	svg, err := render.SVG(src)
+	svg, err := render.SVG(src, "")
 	must(t, err)
 	if !bytes.Contains(svg, []byte("<svg")) {
 		t.Fatalf("output does not look like SVG: %q", svg[:min(120, len(svg))])

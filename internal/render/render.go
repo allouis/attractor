@@ -26,31 +26,56 @@ const maxExpandDepth = 6
 // returning a placeholder, or surfacing an install hint.
 var ErrGraphvizMissing = errors.New("graphviz `dot` not on PATH")
 
+// engines is the allowlist of graphviz layout engines the renderer accepts.
+// Frontends screen an untrusted `?engine=` against ValidEngine so no arbitrary
+// flag reaches the exec'd `dot`. The empty engine means "graphviz default"
+// (dot), so it is intentionally not a member.
+var engines = map[string]bool{
+	"dot": true, "neato": true, "fdp": true,
+	"sfdp": true, "circo": true, "twopi": true,
+}
+
+// ValidEngine reports whether name is a supported graphviz layout engine.
+func ValidEngine(name string) bool { return engines[name] }
+
 // SVG renders the supplied DOT source as SVG bytes. The source is first
 // re-emitted as minimal graphviz DOT (nodes with shape + label, labelled
 // edges) so Attractor-only attributes — whose dotted names like
 // `stack.child_dotfile` graphviz's own parser rejects — are dropped. If
 // the source doesn't parse as an Attractor graph it's passed through
 // unchanged, so a plain graphviz superset still renders.
-func SVG(dotSource []byte) ([]byte, error) {
-	return runDot(graphvizSafe(dotSource))
+// The engine selects the graphviz layout algorithm (`-K<engine>`); an empty
+// engine keeps graphviz's default (dot). Callers pass a ValidEngine-screened
+// value.
+func SVG(dotSource []byte, engine string) ([]byte, error) {
+	return runDot(graphvizSafe(dotSource), engine)
 }
 
 // SVGExpanded renders like SVG but inlines each stack.manager_loop node's
 // child pipeline as a nested cluster subgraph, recursively, so the whole
 // composed workflow is visible in one graph. baseDir is the directory the
 // pipeline was loaded from, used to resolve relative child_dotfile paths.
-func SVGExpanded(dotSource []byte, baseDir string) ([]byte, error) {
-	return runDot(graphvizExpanded(dotSource, baseDir))
+func SVGExpanded(dotSource []byte, baseDir, engine string) ([]byte, error) {
+	return runDot(graphvizExpanded(dotSource, baseDir), engine)
 }
 
-// runDot pipes graphviz-safe DOT through `dot -Tsvg`.
-func runDot(dotSrc []byte) ([]byte, error) {
+// dotArgs builds the graphviz argument list: -Tsvg always, prefixed with
+// -K<engine> when an engine is chosen (empty = graphviz default, dot).
+func dotArgs(engine string) []string {
+	if engine == "" {
+		return []string{"-Tsvg"}
+	}
+	return []string{"-K" + engine, "-Tsvg"}
+}
+
+// runDot pipes graphviz-safe DOT through `dot -Tsvg`, laid out with the given
+// engine (empty = default).
+func runDot(dotSrc []byte, engine string) ([]byte, error) {
 	bin, err := exec.LookPath("dot")
 	if err != nil {
 		return nil, ErrGraphvizMissing
 	}
-	cmd := exec.Command(bin, "-Tsvg")
+	cmd := exec.Command(bin, dotArgs(engine)...)
 	cmd.Stdin = bytes.NewReader(dotSrc)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

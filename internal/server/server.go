@@ -553,7 +553,7 @@ func (s *Server) getGraph(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	svg, err := render.SVG([]byte(run.Source()))
+	svg, err := render.SVG([]byte(run.Source()), "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
