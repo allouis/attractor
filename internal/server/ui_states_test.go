@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -53,5 +54,44 @@ func TestErrorState(t *testing.T) {
 	esc := evalUI(t, `errorState('<script>alert(2)</script>')`)
 	if strings.Contains(esc, "<script>alert(2)</script>") {
 		t.Errorf("error state rendered a message as live markup:\n%s", esc)
+	}
+}
+
+// TestEmptyPanel: the primary empty views (Items, Runs) adopt the Tailwind
+// Plus empty-state (empty-state.html) — a centred icon, heading and subtext —
+// remapped to the UI tokens so light/dark tracks and no stock gray/indigo
+// leaks in (ui-tailwind-spec T6a). Both strings are escaped.
+func TestEmptyPanel(t *testing.T) {
+	html := evalUI(t, `emptyPanel('No runs yet', 'Dispatch a workflow to see runs.')`)
+	for _, want := range []string{"<svg", "No runs yet", "Dispatch a workflow to see runs.", "text-ink", "text-muted", "text-center"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("empty panel missing %q:\n%s", want, html)
+		}
+	}
+	for _, bad := range []string{"gray-", "indigo-", "#"} {
+		if strings.Contains(html, bad) {
+			t.Errorf("empty panel leaked a hardcoded colour %q:\n%s", bad, html)
+		}
+	}
+	esc := evalUI(t, `emptyPanel('<img src=x onerror=alert(1)>', '</h3><script>alert(2)</script>')`)
+	for _, bad := range []string{"<img src=x onerror=", "<script>alert(2)</script>"} {
+		if strings.Contains(esc, bad) {
+			t.Errorf("empty panel rendered attacker input as markup (%q):\n%s", bad, esc)
+		}
+	}
+}
+
+// TestEmptyPanelWired: the Items and Runs lists render through emptyPanel, not
+// the bare one-line placeholder (ui-tailwind-spec T6a — those two views adopt
+// the component; minor placeholders keep emptyState).
+func TestEmptyPanelWired(t *testing.T) {
+	src, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fn := range []string{"renderItems", "renderFleet"} {
+		if !strings.Contains(funcSource(t, string(src), fn), "emptyPanel(") {
+			t.Errorf("%s does not use emptyPanel for its empty view", fn)
+		}
 	}
 }
