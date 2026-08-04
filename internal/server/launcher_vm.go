@@ -181,6 +181,18 @@ func copyTree(src, dst string) error {
 	return nil
 }
 
+// vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk
+// and the share sources the generated boot script expands into its qemu
+// args (ATTRACTOR_JOB_DIR over 9p, ATTRACTOR_WORKSPACE — the mutable
+// working copy).
+func (l vmLauncher) vmEnv(runDir, jobDir, workspace string) []string {
+	return append(os.Environ(),
+		"NIX_DISK_IMAGE="+filepath.Join(runDir, "vm.qcow2"),
+		"ATTRACTOR_JOB_DIR="+jobDir,
+		"ATTRACTOR_WORKSPACE="+workspace,
+	)
+}
+
 func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	if run.cwd == "" {
 		run.failCrashed("vm launcher: run has no cwd (working tree) to share")
@@ -199,11 +211,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 
 	cmd := exec.Command(runnerScript)
-	cmd.Env = append(os.Environ(),
-		"NIX_DISK_IMAGE="+filepath.Join(runDir, "vm.qcow2"),
-		"ATTRACTOR_JOB_DIR="+jobDir,
-		"ATTRACTOR_WORKSPACE="+run.cwd,
-	)
+	cmd.Env = l.vmEnv(runDir, jobDir, run.cwd)
 	console, err := os.Create(filepath.Join(runDir, "vm-console.log"))
 	if err != nil {
 		run.failCrashed("vm launcher: console: " + err.Error())
