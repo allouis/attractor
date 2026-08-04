@@ -466,6 +466,52 @@ func TestVMLauncherRequiresJJRepo(t *testing.T) {
 	}
 }
 
+// The nix module unconditionally 9p-shares $ATTRACTOR_REPO/.git (the jj
+// store's colocated git backend). A jj repo with an EXTERNAL git backend has
+// no root .git, so `jj root` succeeds but that share's source is missing ->
+// mnt-repo-.git.mount fails -> attractor-runner (which requires it) never
+// starts -> no phone-home -> the launcher's wait loop hangs forever. Launch
+// must reject a non-colocated repo up front, naming .git, with no side
+// effects — not boot a VM that can only hang.
+func TestVMLauncherRequiresColocatedGit(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	// A jj repo whose git backend lives elsewhere: `jj root` works, but there
+	// is no colocated root .git. Built jj-only from a throwaway colocated repo.
+	backing := t.TempDir()
+	if out, err := exec.Command("jj", "git", "init", "--colocate", backing).CombinedOutput(); err != nil {
+		t.Fatalf("jj git init --colocate: %v\n%s", err, out)
+	}
+	repo := filepath.Join(t.TempDir(), "external")
+	if out, err := exec.Command("jj", "git", "init", "--git-repo="+filepath.Join(backing, ".git"), repo).CombinedOutput(); err != nil {
+		t.Fatalf("jj git init --git-repo: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git")); !os.IsNotExist(err) {
+		t.Fatalf("fixture has a root .git (err %v); test needs a non-colocated repo", err)
+	}
+
+	vmDir := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir()})
+	run := srv.registry.NewRun("digraph{}", nil, nil, repo, nil, "", "", "", nil)
+	run.cwd = repo
+	l := vmLauncher{images: map[string]string{"default": "/nonexistent"}, defaultImage: "default", vmDir: vmDir, guestHost: "10.0.2.2", pollInterval: time.Millisecond}
+	err := l.Launch(run, "http://127.0.0.1:0")
+	if err == nil {
+		t.Fatal("expected error for a non-colocated (no root .git) repo")
+	}
+	if !strings.Contains(err.Error(), ".git") {
+		t.Fatalf("error %q should name the missing colocated .git", err)
+	}
+	if run.Status() != RunFailed {
+		t.Fatalf("status = %v, want failed", run.Status())
+	}
+	// Fail fast: the precheck fires before any run dir / job dir is created.
+	if entries, _ := os.ReadDir(vmDir); len(entries) != 0 {
+		t.Fatalf("precheck left side effects in vmDir: %v", entries)
+	}
+}
+
 // A vm run with no working tree can't share a workspace; it fails fast
 // rather than booting a useless VM.
 func TestVMLauncherRequiresCwd(t *testing.T) {
