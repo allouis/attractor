@@ -4,13 +4,15 @@
 # artifacts home to the daemon that launched the VM (docs/nix-vm-runner-spec.md).
 #
 # The job dir is a read-only 9p share injected per run by the launcher
-# (decision D6): ATTRACTOR_JOB_DIR (job.json + source.dot). The mutable
-# working copy is a per-run host jj workspace delivered over VIRTIOFS (not
-# 9p) — 9p can't give the SQLite/flock/mmap semantics the pnpm store index
-# and jj need (docs/vm-workspace-spec.md W1). The launcher starts a per-run
-# virtiofsd and passes the vhost-user-fs device via QEMU_OPTS, exported
-# under the tag `workspace`; the guest mounts it rw at /mnt/workspace below.
-# The guest reaches the daemon at 10.0.2.2 over QEMU user networking (D7).
+# (decision D6): ATTRACTOR_JOB_DIR (job.json + source.dot). The per-run host
+# jj workspace is delivered over VIRTIOFS (not 9p) under the tag `workspace`,
+# but as a READ-ONLY TRANSPORT: virtiofsd cache=never can't host the SQLite
+# DBs real tools open (pnpm store index, Nx task DB → `disk I/O error`), so
+# the runner copies it onto the guest's own ext4 (/work) and runs there
+# (docs/vm-workspace-spec.md §Empirical pivot, G1). The launcher starts a
+# per-run virtiofsd and passes the vhost-user-fs device via QEMU_OPTS; the
+# guest mounts it ro at /mnt/workspace below. The guest reaches the daemon at
+# 10.0.2.2 over QEMU user networking (D7).
 { config, lib, pkgs, modulesPath, attractorPkg, ... }:
 let
   runnerScript = pkgs.writeShellApplication {
@@ -102,8 +104,13 @@ in
   };
 
   # Mount the per-run workspace served by the launcher's virtiofsd. The
-  # device is the vhost-user-fs tag (`workspace`) wired via QEMU_OPTS; the
-  # virtiofs driver gives the rw POSIX semantics 9p lacks (W1).
+  # device is the vhost-user-fs tag (`workspace`) wired via QEMU_OPTS.
+  #
+  # READ-ONLY: virtiofsd cache=never can't host the SQLite DBs real tools open
+  # (pnpm store index, Nx task DB → `disk I/O error`), so the mount is a
+  # TRANSPORT only — the runner copies it onto guest ext4 (/work) and runs
+  # there (docs/vm-workspace-spec.md §Empirical pivot, G1). Mounting it ro
+  # keeps the guest from writing back to the shared host workspace by accident.
   #
   # The `repojj` + `repogit` mounts are the target repo's `.jj` (shared jj
   # store) and colocated `.git` (the store's object backend it points at) —
@@ -121,6 +128,7 @@ in
   virtualisation.fileSystems."/mnt/workspace" = {
     device = "workspace";
     fsType = "virtiofs";
+    options = [ "ro" ]; # transport only; the runner copies it to /work (G1)
   };
   virtualisation.fileSystems."/mnt/repo/.jj" = {
     device = "repojj";
