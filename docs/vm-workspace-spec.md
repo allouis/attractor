@@ -10,8 +10,9 @@ Status: **W1–W2 shipped virtiofs delivery; then Ghost empirically disproved
 it** — virtiofsd `cache=none` cannot host SQLite for real tools (pnpm store
 *and* Nx DB both `disk I/O error`). **Current approach is guest-local
 (G1–G4) — see the "Empirical pivot" section at the end; that is the source
-of truth.** The virtiofs decision record below is retained as history. The
-next `todo` milestone is **G1**.
+of truth.** The virtiofs decision record below is retained as history. G1 (guest-local
+copy) is **done**; the next `todo` milestone is **GS** (remove the now-dead
+virtiofs machinery, transport via read-only 9p).
 
 ## The problem (why today's design is wrong)
 
@@ -218,9 +219,10 @@ isolation is free (no shared-store corruption to engineer — W4 dissolves).
 | # | Deliverable | Status |
 |---|---|---|
 | G1 | Launcher/vm-runner materialize the per-run workspace onto guest ext4 (`/work`); pipeline `cwd=/work`; the ro host mount is transport only. Acceptance (ungated host test may stub; gated e2e boots a VM): Ghost `pnpm install` + `pnpm run lint` succeed — no `disk I/O error`. | done |
-| G2 | Results export: guest `jj bundle` (or `jj git push` over the ro-mounted `.git`) of the run tip → job share; host imports as `run/<id>`, visible in host `jj log`, no manual export. | todo |
-| G3 | Warm cache: a host-persisted ext4 cache dir mounted into the guest (NOT virtiofs for SQLite dirs) or a VM-local reused store, so run N+1 skips re-download; dependency-correctness test (two lockfiles → correct node_modules each). | todo |
-| G4 | Reaper/lifecycle unchanged from W5 intent: reclaim guest disk on success, keep failed until retention. | todo |
+| GS | **Drop virtiofs (copy-only makes it dead weight).** With guest-local copy (G1) the workspace needs only read-only *delivery*. Replace the virtiofs delivery with a plain **read-only 9p** share of the per-run workspace (module-blessed, daemon-free): remove the per-run `virtiofsd` startup, the `vhost-user-fs`/`QEMU_OPTS` device wiring, and the virtiofs `virtualisation.fileSystems` mounts; deliver `/mnt/workspace` (and, while in-guest jj is still used, `/mnt/repo/.jj`+`.git`) as ro 9p; the guest copies to ext4 as in G1. Delete the now-dead virtiofs code paths + their unit tests. Gate stays green and the gated `ATTRACTOR_VM_E2E` acceptance still passes (Ghost `pnpm install` + `pnpm run lint`). Net diff: virtiofs gone. | todo |
+| G2 | Results export: guest `jj bundle` (or `jj git push` over the ro-mounted `.git`) of the run tip → job share; host imports as `run/<id>`, visible in host `jj log`, no manual export. | deferred (user, later) |
+| G3 | Warm cache: a host-persisted ext4 cache dir mounted into the guest (NOT virtiofs for SQLite dirs) or a VM-local reused store, so run N+1 skips re-download; dependency-correctness test (two lockfiles → correct node_modules each). | deferred |
+| G4 | Reaper/lifecycle unchanged from W5 intent: reclaim guest disk on success, keep failed until retention. | deferred |
 
 ### Keep from W1/W2
 The mount plumbing (per-run host jj workspace, virtiofs/9p shares, job share,
