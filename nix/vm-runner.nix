@@ -3,16 +3,18 @@
 # `attractor run --report-to` so the pipeline phones its events and
 # artifacts home to the daemon that launched the VM (docs/nix-vm-runner-spec.md).
 #
-# The job dir is a read-only 9p share injected per run by the launcher
-# (decision D6): ATTRACTOR_JOB_DIR (job.json + source.dot). The per-run host
-# jj workspace is delivered over VIRTIOFS (not 9p) under the tag `workspace`,
-# but as a READ-ONLY TRANSPORT: virtiofsd cache=never can't host the SQLite
-# DBs real tools open (pnpm store index, Nx task DB → `disk I/O error`), so
-# the runner copies it onto the guest's own ext4 (/work) and runs there
-# (docs/vm-workspace-spec.md §Empirical pivot, G1). The launcher starts a
-# per-run virtiofsd and passes the vhost-user-fs device via QEMU_OPTS; the
-# guest mounts it ro at /mnt/workspace below. The guest reaches the daemon at
-# 10.0.2.2 over QEMU user networking (D7).
+# All shares are plain 9p (module-blessed sharedDirectories, daemon-free),
+# their sources per-run shell variables the launcher sets (decision D6):
+# ATTRACTOR_JOB_DIR (job.json + source.dot, ro), ATTRACTOR_WORKSPACE (the
+# per-run host jj workspace, ro at /mnt/workspace), and ATTRACTOR_REPO (the
+# target repo, whose `.jj`/`.git` subtrees are shared for in-guest jj).
+#
+# The workspace is a READ-ONLY TRANSPORT: a shared mount can't host the SQLite
+# DBs real tools open (pnpm store index, Nx task DB → `disk I/O error`), so the
+# runner copies it onto the guest's own ext4 (/work) and runs there
+# (docs/vm-workspace-spec.md §Empirical pivot, G1/GS). GS dropped virtiofs
+# (the copy made its locking/mmap semantics dead weight). The guest reaches the
+# daemon at 10.0.2.2 over QEMU user networking (D7).
 { config, lib, pkgs, modulesPath, attractorPkg, ... }:
 let
   runnerScript = pkgs.writeShellApplication {
@@ -51,9 +53,9 @@ let
       url=$(jq -r .report_url "$job")
       cwd=$(jq -r '.cwd // "/work"' "$job")
 
-      # G1: /mnt/workspace is a ro virtiofs TRANSPORT — copy it onto the guest's
-      # own ext4 and run all tools in "$cwd" (/work). Real tools open SQLite DBs
-      # (pnpm store index, Nx task DB) that virtiofsd cache=never cannot host
+      # G1: /mnt/workspace is a ro 9p TRANSPORT — copy it onto the guest's own
+      # ext4 and run all tools in "$cwd" (/work). Real tools open SQLite DBs
+      # (pnpm store index, Nx task DB) that a shared 9p mount cannot host
       # (`disk I/O error`); ext4 gives them real POSIX locking/mmap
       # (docs/vm-workspace-spec.md §Empirical pivot). Only tracked files are
       # delivered (no node_modules), so the copy is cheap; node_modules /
@@ -62,7 +64,7 @@ let
       # commits into the shared HOST store as before (W2, unchanged).
       #
       # Guard both steps: they run under `set -e`, so an unguarded failure (ext4
-      # full on the sparse disk, a copy error off the ro virtiofs mount) would
+      # full on the sparse disk, a copy error off the ro 9p mount) would
       # abort the script BEFORE the attractor poweroff guard below — leaving
       # qemu alive with no phone-home, hanging the launcher forever. Route them
       # through poweroff_run so a copy failure fails the run instead.
@@ -103,53 +105,53 @@ in
     # containers (databases, etc.) the way repo test scripts expect. Containers
     # share the guest kernel, so this works even under TCG (no nested KVM).
     docker.enable = true;
-    # Per-run read-only 9p job share; source is a shell variable the
-    # launcher sets per run, expanded in the generated runner script (D6).
-    # The workspace is NOT here — it comes in over virtiofs (see below).
+    # Per-run 9p shares; each source is a shell variable the launcher sets
+    # per run, expanded in the generated runner script (D6):
+    #
+    #   job        job.json + source.dot (ro by convention — never written).
+    #   workspace  the per-run host jj workspace, mounted ro (see below) — a
+    #              TRANSPORT the runner copies onto guest ext4 (/work) and runs
+    #              there, because a shared mount can't host the SQLite DBs real
+    #              tools open (pnpm store index, Nx task DB → `disk I/O error`;
+    #              docs/vm-workspace-spec.md §Empirical pivot, G1/GS).
+    #   repojj +   the target repo's `.jj` (shared jj store) and colocated
+    #   repogit    `.git` (the store's object backend it points at) — NOT the
+    #              repo root, so the host working tree (source, .env,
+    #              node_modules) is never exposed to the guest. A jj
+    #              workspace's .jj/repo points at the store, which lives
+    #              outside the workspace dir, so in-guest jj needs these; the
+    #              launcher repoints the workspace at /mnt/repo/.jj/repo so
+    #              guest jj commits into the shared HOST store (W2). rw.
     sharedDirectories = {
       job = {
         source = ''"$ATTRACTOR_JOB_DIR"'';
         target = "/mnt/job";
         securityModel = "none";
       };
+      workspace = {
+        source = ''"$ATTRACTOR_WORKSPACE"'';
+        target = "/mnt/workspace";
+        securityModel = "none";
+      };
+      repojj = {
+        source = ''"$ATTRACTOR_REPO/.jj"'';
+        target = "/mnt/repo/.jj";
+        securityModel = "none";
+      };
+      repogit = {
+        source = ''"$ATTRACTOR_REPO/.git"'';
+        target = "/mnt/repo/.git";
+        securityModel = "none";
+      };
     };
   };
 
-  # Mount the per-run workspace served by the launcher's virtiofsd. The
-  # device is the vhost-user-fs tag (`workspace`) wired via QEMU_OPTS.
-  #
-  # READ-ONLY: virtiofsd cache=never can't host the SQLite DBs real tools open
-  # (pnpm store index, Nx task DB → `disk I/O error`), so the mount is a
-  # TRANSPORT only — the runner copies it onto guest ext4 (/work) and runs
-  # there (docs/vm-workspace-spec.md §Empirical pivot, G1). Mounting it ro
-  # keeps the guest from writing back to the shared host workspace by accident.
-  #
-  # The `repojj` + `repogit` mounts are the target repo's `.jj` (shared jj
-  # store) and colocated `.git` (the store's object backend it points at) —
-  # NOT the repo root, so the host working tree (source, .env, node_modules)
-  # is never exposed to the guest. A jj workspace's .jj/repo points at the
-  # store, which lives outside the workspace dir, so in-guest jj needs these
-  # mounted; the launcher repoints the workspace at /mnt/repo/.jj/repo so guest
-  # jj commits into the shared HOST store over virtiofs (W2). rw + real locking
-  # (SQLite op-store) → virtiofs.
-  boot.kernelModules = [ "virtiofs" ];
-  # Guest mounts MUST go under virtualisation.fileSystems, not the top-level
-  # fileSystems: qemu-vm.nix mkVMOverrides `fileSystems` from
-  # `virtualisation.fileSystems`, so a top-level entry is silently dropped and
-  # never mounted (the guest then has no /mnt/workspace).
-  virtualisation.fileSystems."/mnt/workspace" = {
-    device = "workspace";
-    fsType = "virtiofs";
-    options = [ "ro" ]; # transport only; the runner copies it to /work (G1)
-  };
-  virtualisation.fileSystems."/mnt/repo/.jj" = {
-    device = "repojj";
-    fsType = "virtiofs";
-  };
-  virtualisation.fileSystems."/mnt/repo/.git" = {
-    device = "repogit";
-    fsType = "virtiofs";
-  };
+  # Mount /mnt/workspace read-only: it is a transport the runner copies to
+  # /work (G1), so ro keeps the guest from writing back to the shared host
+  # workspace by accident. sharedDirectories already defines this mount's
+  # device/fsType; we only append the `ro` option here (fileSystems options is
+  # a list → the two definitions merge, no conflict).
+  virtualisation.fileSystems."/mnt/workspace".options = [ "ro" ];
 
   # QEMU user networking gives the guest gateway 10.0.2.2 = the host; bring
   # the link up so the run can phone home (decision D7).
