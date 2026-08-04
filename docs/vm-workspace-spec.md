@@ -92,6 +92,27 @@ locking. `jj workspace add`/`forget` mutate R's op log; jj is built for
 concurrent workspace ops (op-log merging) — a spot to watch under load
 (W4).
 
+**Operator notes (delivery, from the W2 build):**
+
+- **What crosses into the guest, rw.** Only the per-run workspace
+  (`/mnt/workspace`) and R's jj store — its `.jj` + colocated `.git` at
+  `/mnt/repo/.jj` + `/mnt/repo/.git`. The repo **root is not** mounted, so
+  R's working tree (source, `.env`/secrets, `node_modules`) never reaches
+  the guest. The store is mounted **read-write** (jj must commit), so a
+  pipeline can write R's shared store — the same trust boundary as the
+  shared pnpm store; keep untrusted code out of runs against a repo whose
+  store you care about.
+- **Same-repo concurrency is unproven until W4.** N concurrent runs share
+  one jj store over virtiofs; safe concurrent multi-writer access is a W4
+  deliverable. Until then the safe operating assumption is **one live run
+  per repo**.
+- **Guest-oriented workspace pointer.** A run's workspace `.jj/repo` is
+  rewritten to the guest mount path while it runs; the launcher restores the
+  host-valid pointer on any non-success exit, so a failed run kept for
+  inspection stays host-`jj`-usable. Inspect results via `jj -R <repo>`
+  (where the run's commits live), not by `cd`-ing into a live run's
+  workspace.
+
 ## Dependencies — the heart of it (answers the node_modules concern)
 
 - jj workspaces materialise **only tracked files**. `node_modules/` is
