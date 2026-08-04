@@ -672,7 +672,7 @@ function applyFilters(list) {
 
 function renderItems() {
   const list = applyFilters(itemsCache);
-  if (!list.length) { $('items-list').innerHTML = emptyState('no items'); return; }
+  if (!list.length) { $('items-list').innerHTML = emptyPanel('No items', 'Items appear here as work is discovered.'); return; }
   const groupBy = $('items-group').value;
   const key = { repo: itemRepo, source: itemSource }[groupBy];
   if (!key) { $('items-list').innerHTML = itemsTable(list); return; }
@@ -1106,9 +1106,9 @@ function renderFleet() {
   // Deep-link seed: once per view entry, after the dynamic options exist so a
   // shared repo/workflow value sticks (web-ui-v2-spec U7).
   if (!runsToolbarSeeded) { seedRunsToolbar(runsFilterFromHash(location.hash)); runsToolbarSeeded = true; }
-  if (!all.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
+  if (!all.length) { $('run-list').innerHTML = emptyPanel('No runs yet', 'Dispatch a workflow to see runs here.'); return; }
   const runs = applyRunFilters(all);
-  if (!runs.length) { $('run-list').innerHTML = emptyState('no runs match the filter'); return; }
+  if (!runs.length) { $('run-list').innerHTML = emptyPanel('No matching runs', 'No runs match the current filter.'); return; }
   $('run-list').innerHTML = runsTableHtml(runs);
 }
 
@@ -2400,6 +2400,20 @@ function stateBadge(status, label, href) {
 }
 function emptyState(msg) {
   return `<p class="state state-empty">${escapeHtml(msg)}</p>`;
+}
+// emptyPanel is the Tailwind Plus empty-state (empty-state.html) remapped to
+// the UI tokens: a centred icon, heading and optional subtext for a primary
+// empty view (the Items and Runs lists). The stock gray icon/subtext become
+// text-muted and the heading text-ink so light/dark tracks. Both strings are
+// escaped. Minor placeholders keep the one-line emptyState.
+function emptyPanel(title, sub) {
+  return `<div class="state-empty text-center">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true" class="mx-auto size-12 text-muted">
+      <path d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <h3 class="mt-2 text-sm font-semibold text-ink">${escapeHtml(title)}</h3>
+    ${sub ? `<p class="mt-1 text-sm text-muted">${escapeHtml(sub)}</p>` : ''}
+  </div>`;
 }
 function loadingState(msg) {
   return `<p class="state state-loading pulse" aria-busy="true">${escapeHtml(msg || 'loading…')}</p>`;
