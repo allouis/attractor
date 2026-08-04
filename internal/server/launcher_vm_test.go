@@ -405,6 +405,53 @@ func TestLaunchFailureRecordsForReaper(t *testing.T) {
 	}
 }
 
+// TestGuestJJStoreMechanism proves the guest-jj-to-host-store path WITHOUT a
+// VM, so the normal `go test` gate exercises it (TestVMWorkspaceAcceptance,
+// which proves the SQLite-over-virtiofs half, is gated behind ATTRACTOR_VM_E2E
+// and never runs in CI). It reproduces exactly what in-guest jj does: rewrite
+// the workspace pointer to where the store is mounted, then commit through it
+// and assert the commit lands in the HOST repo. The two subtree mounts are
+// stood in for by symlinks (.jj + .git as siblings under a mount root), the
+// same layout /mnt/repo/.jj + /mnt/repo/.git give the guest.
+func TestGuestJJStoreMechanism(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	work := filepath.Join(t.TempDir(), "work")
+	if err := materializeWorkspace(repo, work, "run-xyz"); err != nil {
+		t.Fatalf("materializeWorkspace: %v", err)
+	}
+	// Stand in for the guest's two subtree mounts: .jj and .git reachable as
+	// siblings under a mount root, exactly as /mnt/repo/.jj + /mnt/repo/.git.
+	mnt := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(mnt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(repo, ".jj"), filepath.Join(mnt, ".jj")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(repo, ".git"), filepath.Join(mnt, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pointJJStore(work, filepath.Join(mnt, ".jj", "repo")); err != nil {
+		t.Fatalf("pointJJStore: %v", err)
+	}
+
+	// A jj commit through the rewritten pointer, as the guest makes it.
+	if out, err := exec.Command("jj", "-R", work, "describe", "-m", "guest-mechanism ran").CombinedOutput(); err != nil {
+		t.Fatalf("jj describe through rewritten pointer failed — store unreachable (colocated .git not resolving?): %v\n%s", err, out)
+	}
+	// It must have landed in the HOST repo store.
+	out, err := exec.Command("jj", "-R", repo, "log", "--no-graph", "--ignore-working-copy", "-r", "all()", "-T", `description ++ "\n"`).CombinedOutput()
+	if err != nil {
+		t.Fatalf("host jj log: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "guest-mechanism ran") {
+		t.Fatalf("commit did not land in the host store:\n%s", out)
+	}
+}
+
 // A virtiofsd that dies AFTER boot leaves the guest mount hung: qemu keeps
 // running, the run never phones home, and without a watch the launcher blocks
 // forever. Launch must notice the daemon death, kill the VM, and fail the run.
