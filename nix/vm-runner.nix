@@ -124,6 +124,17 @@ in
   networking.useDHCP = lib.mkForce true;
   networking.firewall.enable = false;
 
+  # Target codebases run prebuilt, dynamically-linked node/npm helper binaries
+  # during install (e.g. Ghost's preinstall execs a generic `node`) that
+  # NixOS's stub-ld refuses. nix-ld provides a generic loader + base libs so
+  # those run inside the guest — matching the host (hosts/dimsum.nix).
+  programs.nix-ld.enable = true;
+  programs.nix-ld.libraries = with pkgs; [
+    stdenv.cc.cc.lib
+    zlib
+    openssl
+  ];
+
   # Base tooling + app runtimes. Runtimes are baked into the image
   # (decision D8); add languages here to support more app types (see
   # docs/nix-vm-runner-spec.md V16). Node + TypeScript ship by default.
