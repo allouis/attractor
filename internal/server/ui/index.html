@@ -308,16 +308,6 @@
     </div>
     <div id="items-warning" role="alert"></div>
     <div id="items-list"></div>
-    <dialog id="run-form" class="modal">
-      <h3>run workflow</h3>
-      <label>workflow <select id="run-form-workflow"></select></label>
-      <div id="run-var-fields"></div>
-      <p id="run-form-error" class="banner error" hidden></p>
-      <div class="modal-actions">
-        <button type="button" id="run-form-cancel">cancel</button>
-        <button type="button" id="run-form-run">run</button>
-      </div>
-    </dialog>
   </section>
   <section id="runs-view">
     <div id="run-counts" class="counts"></div>
@@ -404,6 +394,19 @@
     </section>
   </section>
 </main>
+<!-- Run-form modal lives at top level (not inside a routed section) so it
+     renders on every route — the router hides main > section, and a <dialog>
+     nested in a hidden section would open with zero size. -->
+<dialog id="run-form" class="modal">
+  <h3>run workflow</h3>
+  <label>workflow <select id="run-form-workflow"></select></label>
+  <div id="run-var-fields"></div>
+  <p id="run-form-error" class="banner error" hidden></p>
+  <div class="modal-actions">
+    <button type="button" id="run-form-cancel">cancel</button>
+    <button type="button" id="run-form-run">run</button>
+  </div>
+</dialog>
 <script>
 const $ = (id) => document.getElementById(id);
 let es = null;                 // active EventSource

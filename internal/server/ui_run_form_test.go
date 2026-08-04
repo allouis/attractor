@@ -207,6 +207,31 @@ func TestOnWorkflowChangeLoading(t *testing.T) {
 	}
 }
 
+// TestRunFormDialogOutsideRoutedSections: the router hides every `main >
+// section` except the active route via display:none. The run-form <dialog>
+// must live OUTSIDE those sections (a top-level sibling of <main>) — nested in
+// a routed section it opens at 0x0 whenever any other route is active, so the
+// Workflows-list and Run-detail re-run entry points render an invisible modal.
+func TestRunFormDialogOutsideRoutedSections(t *testing.T) {
+	src, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(src)
+	dialog := strings.Index(html, `<dialog id="run-form"`)
+	if dialog < 0 {
+		t.Fatal("run-form dialog not found in page source")
+	}
+	mainEnd := strings.Index(html, "</main>")
+	if mainEnd < 0 {
+		t.Fatal("</main> not found in page source")
+	}
+	if dialog < mainEnd {
+		t.Errorf("run-form dialog is inside <main> (offset %d < </main> at %d); "+
+			"a routed section's display:none makes it open at 0x0", dialog, mainEnd)
+	}
+}
+
 // TestRunFormMigratedOffItemsRun: the Run modal now funnels through the single
 // admission endpoint POST /workflows/{name}/run (run-workflow-spec §Endpoints).
 // The superseded /items/run must not be referenced anywhere in the UI.
