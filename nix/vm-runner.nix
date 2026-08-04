@@ -93,12 +93,14 @@ in
   # device is the vhost-user-fs tag (`workspace`) wired via QEMU_OPTS; the
   # virtiofs driver gives the rw POSIX semantics 9p lacks (W1).
   #
-  # The `repo` mount is the target repo ROOT, carrying the shared jj store
-  # AND the colocated `.git` backend it points at. A jj workspace's .jj/repo
-  # points at the store, which lives outside the workspace dir, so in-guest jj
-  # needs it mounted; the launcher repoints the workspace at /mnt/repo/.jj/repo
-  # so guest jj commits into the shared HOST store over virtiofs (W2). rw +
-  # real locking (SQLite op-store) → virtiofs.
+  # The `repojj` + `repogit` mounts are the target repo's `.jj` (shared jj
+  # store) and colocated `.git` (the store's object backend it points at) —
+  # NOT the repo root, so the host working tree (source, .env, node_modules)
+  # is never exposed to the guest. A jj workspace's .jj/repo points at the
+  # store, which lives outside the workspace dir, so in-guest jj needs these
+  # mounted; the launcher repoints the workspace at /mnt/repo/.jj/repo so guest
+  # jj commits into the shared HOST store over virtiofs (W2). rw + real locking
+  # (SQLite op-store) → virtiofs.
   boot.kernelModules = [ "virtiofs" ];
   # Guest mounts MUST go under virtualisation.fileSystems, not the top-level
   # fileSystems: qemu-vm.nix mkVMOverrides `fileSystems` from
@@ -108,8 +110,12 @@ in
     device = "workspace";
     fsType = "virtiofs";
   };
-  virtualisation.fileSystems."/mnt/repo" = {
-    device = "repo";
+  virtualisation.fileSystems."/mnt/repo/.jj" = {
+    device = "repojj";
+    fsType = "virtiofs";
+  };
+  virtualisation.fileSystems."/mnt/repo/.git" = {
+    device = "repogit";
     fsType = "virtiofs";
   };
 
@@ -137,8 +143,8 @@ in
 
   systemd.services.attractor-runner = {
     description = "Run this VM's attractor pipeline job";
-    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "mnt-repo.mount" "docker.service" ];
-    requires = [ "mnt-workspace.mount" "mnt-repo.mount" ];
+    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "docker.service" ];
+    requires = [ "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" ];
     wants = [ "network-online.target" "docker.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {

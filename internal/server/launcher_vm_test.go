@@ -205,10 +205,10 @@ func TestMaterializeWorkspace(t *testing.T) {
 
 // The per-run jj workspace's `.jj/repo` is a RELATIVE pointer climbing out
 // of the workspace dir to the host repo store — unusable in the guest, where
-// only the mounts exist. W2 delivers the repo ROOT over a second virtiofs
-// mount (guest /mnt/repo — the whole root so the colocated `.git` the jj
-// store points at comes too) and repoints `.jj/repo` at the store inside it,
-// so in-guest jj (status/diff/commit) reaches the shared host store.
+// only the mounts exist. W2 delivers the repo's `.jj` + colocated `.git`
+// subtrees (NOT the repo root — the working tree stays off the guest) under
+// guestRepoMount and repoints `.jj/repo` at the store inside, so in-guest jj
+// (status/diff/commit) reaches the shared host store.
 func TestWorkspaceStoreReachableInGuest(t *testing.T) {
 	if _, err := exec.LookPath("jj"); err != nil {
 		t.Skip("jj not on PATH")
@@ -230,18 +230,23 @@ func TestWorkspaceStoreReachableInGuest(t *testing.T) {
 	}
 
 	l := vmLauncher{}
-	mounts := l.virtiofsMounts("/vm/abc", work, repo)
-	var repoMount *virtiofsMount
-	for i := range mounts {
-		if mounts[i].tag == "repo" {
-			repoMount = &mounts[i]
+	byTag := map[string]virtiofsMount{}
+	for _, m := range l.virtiofsMounts("/vm/abc", work, repo) {
+		byTag[m.tag] = m
+	}
+	// The .jj store subtree and the colocated .git backend are delivered; the
+	// repo ROOT is NOT, so the host working tree (secrets) never reaches the
+	// guest.
+	if got := byTag["repojj"].hostDir; got != filepath.Join(repo, ".jj") {
+		t.Fatalf("repojj hostDir = %q, want %q (the store subtree, not the root)", got, filepath.Join(repo, ".jj"))
+	}
+	if got := byTag["repogit"].hostDir; got != filepath.Join(repo, ".git") {
+		t.Fatalf("repogit hostDir = %q, want the colocated git backend %q", got, filepath.Join(repo, ".git"))
+	}
+	for _, m := range byTag {
+		if m.hostDir == repo {
+			t.Fatalf("a mount serves the repo ROOT %q — exposes the host working tree to the guest", repo)
 		}
-	}
-	if repoMount == nil {
-		t.Fatal("no repo virtiofs mount; guest cannot reach the host jj store")
-	}
-	if repoMount.hostDir != repo {
-		t.Fatalf("repo mount hostDir = %q, want the repo root %q (must carry .jj + colocated .git)", repoMount.hostDir, repo)
 	}
 }
 
@@ -309,13 +314,16 @@ func TestVirtiofsQemuOpts(t *testing.T) {
 func TestVirtiofsQemuOptsMultipleMounts(t *testing.T) {
 	opts := virtiofsQemuOpts([]virtiofsMount{
 		{tag: "workspace", hostDir: "/vm/abc/work", sock: "/run/ws.sock"},
-		{tag: "repo", hostDir: "/repo", sock: "/run/repo.sock"},
+		{tag: "repojj", hostDir: "/repo/.jj", sock: "/run/jj.sock"},
+		{tag: "repogit", hostDir: "/repo/.git", sock: "/run/git.sock"},
 	}, 4096)
 	for _, want := range []string{
 		"-chardev socket,id=vfs-workspace,path=/run/ws.sock",
 		"-device vhost-user-fs-pci,chardev=vfs-workspace,tag=workspace",
-		"-chardev socket,id=vfs-repo,path=/run/repo.sock",
-		"-device vhost-user-fs-pci,chardev=vfs-repo,tag=repo",
+		"-chardev socket,id=vfs-repojj,path=/run/jj.sock",
+		"-device vhost-user-fs-pci,chardev=vfs-repojj,tag=repojj",
+		"-chardev socket,id=vfs-repogit,path=/run/git.sock",
+		"-device vhost-user-fs-pci,chardev=vfs-repogit,tag=repogit",
 		"-machine memory-backend=mem",
 	} {
 		if !strings.Contains(opts, want) {

@@ -248,29 +248,37 @@ type virtiofsMount struct {
 	sock    string // per-mount unix socket virtiofsd listens on
 }
 
-// guestRepoMount is where the target repo ROOT is virtiofs-mounted inside
-// the guest. The whole root — not just `.jj/repo` — must be delivered: the
-// repos are jj-colocated, so the jj store's Git backend points at the
-// sibling `.git` (store/git_target = ../../../.git). Mounting only `.jj/repo`
-// leaves that relative pointer dangling (resolves to /.git in the guest ->
-// "not a git repository"). With the root mounted, `.jj/repo` and `.git` sit
-// together and every internal relative path resolves, so in-guest jj commits
-// into the shared HOST store and lands on the host (spec W2 "In-guest VCS").
-// Must match nix/vm-runner.nix virtualisation.fileSystems."/mnt/repo".
+// guestRepoMount is the guest dir under which the target repo's jj metadata
+// is delivered: `.jj` (shared store + op-log) at guestRepoMount/.jj and the
+// colocated `.git` (the jj store's object backend) at guestRepoMount/.git.
+//
+// We mount ONLY these two subtrees, never the repo root. The working tree —
+// source, `.env` and other secrets, node_modules, uncommitted files — stays
+// off the guest, so an in-guest agent or a pnpm postinstall script can
+// neither read nor write it. Both subtrees are needed because the repos are
+// jj-colocated: the store's Git backend points at the sibling `.git`
+// (store/git_target = ../../../.git), so delivering `.jj` alone dangles that
+// pointer ("not a git repository"). As siblings under guestRepoMount every
+// internal relative path resolves and in-guest jj commits into the shared
+// HOST store (spec W2 "In-guest VCS"). Must match nix/vm-runner.nix
+// virtualisation.fileSystems."/mnt/repo/.jj" + ".git".
 const guestRepoMount = "/mnt/repo"
 
 // virtiofsMounts is the set of host dirs delivered into the guest over
 // virtiofs for a run: the per-run workspace working copy (rw at
-// /mnt/workspace) and the target repo root carrying the shared jj store +
-// colocated git backend (rw at /mnt/repo). The repo mount is what makes
-// in-guest jj work: a jj workspace's `.jj/repo` points at the repo store,
-// which lives OUTSIDE the workspace dir — without this second mount the guest
-// cannot reach it (spec W2). The run works in /mnt/workspace, so the repo
-// root's working files are untouched; only its shared store is written.
+// /mnt/workspace), and the target repo's `.jj` + colocated `.git` (rw under
+// guestRepoMount) — the shared jj store the workspace commits into. Only
+// those two repo subtrees are shared, never the repo root, so the host
+// working tree (secrets, node_modules) is never exposed to the guest.
+//
+// Concurrency: multiple same-repo runs share this one store over virtiofs;
+// safe concurrent multi-writer access is proven in W4. Until then the safe
+// operating assumption is one live run per repo (spec Milestones: W4).
 func (l vmLauncher) virtiofsMounts(runDir, work, repoDir string) []virtiofsMount {
 	return []virtiofsMount{
 		{tag: "workspace", hostDir: work, sock: filepath.Join(runDir, "vfs-workspace.sock")},
-		{tag: "repo", hostDir: repoDir, sock: filepath.Join(runDir, "vfs-repo.sock")},
+		{tag: "repojj", hostDir: filepath.Join(repoDir, ".jj"), sock: filepath.Join(runDir, "vfs-repojj.sock")},
+		{tag: "repogit", hostDir: filepath.Join(repoDir, ".git"), sock: filepath.Join(runDir, "vfs-repogit.sock")},
 	}
 }
 
@@ -361,7 +369,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 	// Repoint the workspace's `.jj/repo` at the guest store mount so in-guest
 	// jj reaches the host store through virtiofs (spec W2); the store itself
-	// is the jjstore mount below.
+	// is the .jj/.git subtree mount below.
 	if err := pointGuestJJStore(work); err != nil {
 		run.failCrashed("vm launcher: point guest jj store: " + err.Error())
 		return err
