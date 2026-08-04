@@ -32,7 +32,19 @@ let
       run_id=$(jq -r .run_id "$job")
       token=$(jq -r '.token // ""' "$job")
       url=$(jq -r .report_url "$job")
-      cwd=$(jq -r '.cwd // "/mnt/workspace"' "$job")
+      cwd=$(jq -r '.cwd // "/work"' "$job")
+
+      # G1: /mnt/workspace is a ro virtiofs TRANSPORT — copy it onto the guest's
+      # own ext4 and run all tools in "$cwd" (/work). Real tools open SQLite DBs
+      # (pnpm store index, Nx task DB) that virtiofsd cache=never cannot host
+      # (`disk I/O error`); ext4 gives them real POSIX locking/mmap
+      # (docs/vm-workspace-spec.md §Empirical pivot). Only tracked files are
+      # delivered (no node_modules), so the copy is cheap; node_modules /
+      # .pnpm-store / .nx are created here on ext4 during the run. The copied
+      # .jj/repo still points at the /mnt/repo store mount, so in-guest jj
+      # commits into the shared HOST store as before (W2, unchanged).
+      mkdir -p "$cwd"
+      cp -a /mnt/workspace/. "$cwd"/
 
       args=(run --report-to "$url" --run-id "$run_id" --report-token "$token"
             --cwd "$cwd" --base-dir /mnt/job --logs /tmp/attractor-run)
