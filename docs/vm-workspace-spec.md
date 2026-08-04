@@ -6,9 +6,12 @@ once**, with tooling that needs real filesystem semantics (SQLite, file
 locks) working, **no stale-dependency bugs**, and the resulting code
 **immediately visible on the host**.
 
-Status: **design settled via a grilling session** (decision record below).
-No code yet. Supersedes the current VM launcher's read-write 9p mount of
-the host checkout.
+Status: **W1–W2 shipped virtiofs delivery; then Ghost empirically disproved
+it** — virtiofsd `cache=none` cannot host SQLite for real tools (pnpm store
+*and* Nx DB both `disk I/O error`). **Current approach is guest-local
+(G1–G4) — see the "Empirical pivot" section at the end; that is the source
+of truth.** The virtiofs decision record below is retained as history. The
+next `todo` milestone is **G1**.
 
 ## The problem (why today's design is wrong)
 
@@ -169,10 +172,10 @@ fallback) run near-native on the real box.
 |---|---|---|
 | W1 | **virtiofs plumbing:** per-run `virtiofsd` (`cache=none`) + qemu `vhost-user-fs` + shared-memory; mount a per-run **host jj workspace** rw at `/mnt/workspace`, replacing the 9p rw mount. Job dir + nix store stay 9p (ro). | done |
 | W2 | **Pivotal acceptance test:** `pnpm install` (SQLite store) **succeeds** in the virtiofs-mounted workspace, and in-guest `jj` (`diff`/`status`/`commit`) works against the host store. Pins the cache mode (start `none`). If it fails, switch to the guest-local-clone fallback. | done |
-| W3 | **Generic cache-mount seam** with the pnpm entry: one **global** store, virtiofs-mounted, shared rw, env-wired; installs link (no re-download); **dependency-correctness test** — two branches/lockfiles pinning different versions → each `node_modules` matches its own. | todo |
-| W4 | **Concurrency:** N VMs of the same repo at once — own workspace + own mount each; shared global store uncorrupted; op-log concurrency holds; isolation + correctness tests. | todo |
-| W5 | **Lifecycle & surfacing:** bookmark the tip (`run/<id>`); reaper reclaims **successful** workspaces, keeps **failed** ones until retention; result visible on host (`jj log`) with no export; document manual store prune. | todo |
-| W6 | Add go/cargo/pip entries to the cache seam (`GOMODCACHE`/`GOCACHE`, `CARGO_HOME`, `PIP_CACHE_DIR`). | todo |
+| W3 | ~~Generic cache-mount seam, virtiofs-mounted global store~~ | **superseded** — virtiofs can't host SQLite (see §Empirical pivot); replaced by G1–G4 |
+| W4 | ~~Concurrency via shared virtiofs store~~ | **superseded** — per-run VMs are already isolated under guest-local (G-milestones) |
+| W5 | **Lifecycle & surfacing** — folded into G2/G4 (results via `jj bundle`; reaper reclaims guest disk) | superseded by G2/G4 |
+| W6 | go/cargo/pip caches — folded into G3's cache seam | superseded by G3 |
 
 ## Open (empirical, resolved during build)
 
@@ -189,3 +192,36 @@ fallback) run near-native on the real box.
 
 The acceptance-driven implementation prompt (executable "definition of
 done") is `docs/vm-workspace-prompt.md`.
+
+## Empirical pivot: guest-local workspace (supersedes the virtiofs *work surface*)
+
+**Finding (Ghost, real workload).** virtiofsd `cache=none` cannot host SQLite
+for real tools. Two independent failures on the mount, both `disk I/O error`:
+- pnpm's store index (`[ERR_SQLITE_ERROR]`), default store `.pnpm-store` on the
+  workspace;
+- Nx's task DB (`SqliteFailure(SystemIoFailure, 5386)`), on the workspace.
+
+The W2 `is-number` fixture passed only because it never stressed SQLite
+locking/mmap. Relocating each tool's DB by env var is unbounded whack-a-mole
+(pnpm store-dir, NX_CACHE_DIRECTORY, and the next tool, and the next).
+
+**Proven fix.** Copy the delivered workspace onto the guest's own ext4
+(`/dev/vda`) and run all tools there. Ghost `pnpm install` **and** `pnpm run
+lint` (Nx, 39 projects) then both succeed, ~60s, no `disk I/O error`.
+
+**Decision.** The *work surface* is guest-local ext4, not the shared mount.
+The host mount is demoted to a read-only **transport**. Two concurrent
+same-repo runs already get separate VMs → separate ext4 → separate stores, so
+isolation is free (no shared-store corruption to engineer — W4 dissolves).
+
+### Milestones (supersede virtiofs W3–W6 delivery)
+| # | Deliverable | Status |
+|---|---|---|
+| G1 | Launcher/vm-runner materialize the per-run workspace onto guest ext4 (`/work`); pipeline `cwd=/work`; the ro host mount is transport only. Acceptance (ungated host test may stub; gated e2e boots a VM): Ghost `pnpm install` + `pnpm run lint` succeed — no `disk I/O error`. | todo |
+| G2 | Results export: guest `jj bundle` (or `jj git push` over the ro-mounted `.git`) of the run tip → job share; host imports as `run/<id>`, visible in host `jj log`, no manual export. | todo |
+| G3 | Warm cache: a host-persisted ext4 cache dir mounted into the guest (NOT virtiofs for SQLite dirs) or a VM-local reused store, so run N+1 skips re-download; dependency-correctness test (two lockfiles → correct node_modules each). | todo |
+| G4 | Reaper/lifecycle unchanged from W5 intent: reclaim guest disk on success, keep failed until retention. | todo |
+
+### Keep from W1/W2
+The mount plumbing (per-run host jj workspace, virtiofs/9p shares, job share,
+phone-home) stays — it is the transport. Only the *work surface* moves to ext4.
