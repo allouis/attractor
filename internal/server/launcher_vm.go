@@ -205,13 +205,22 @@ func (l vmLauncher) vmEnv(runDir, jobDir, workspace, repoDir string) []string {
 	)
 }
 
-// ensureJJRepo verifies dir is a jj repo (colocated checkout), the
-// precondition for materializing a per-run jj workspace. Returns a
-// diagnosable error naming jj when it is not.
+// ensureJJRepo verifies dir is a jj-COLOCATED checkout, the precondition for
+// materializing a per-run jj workspace and for delivering the store to the
+// guest. Two checks: `jj root` (it is a jj repo) AND a root `.git` (the store's
+// colocated git backend). The nix module unconditionally 9p-shares
+// $ATTRACTOR_REPO/.git; a jj repo with an external git backend has no root
+// .git, so `jj root` alone would pass but that share's source is missing ->
+// mnt-repo-.git.mount fails -> attractor-runner never starts -> no phone-home
+// -> the launcher wait loop hangs forever. Reject it up front with a
+// diagnosable error instead. Returns an error naming jj (or .git) when unmet.
 func ensureJJRepo(dir string) error {
 	cmd := exec.Command("jj", "-R", dir, "root")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("vm launcher: %s is not a jj-colocated repo (the vm runner needs jj; see docs/vm-workspace-spec.md): %s", dir, strings.TrimSpace(string(out)))
+	}
+	if fi, err := os.Stat(filepath.Join(dir, ".git")); err != nil || !fi.IsDir() {
+		return fmt.Errorf("vm launcher: %s has no colocated .git — the jj store's git backend must be colocated at the repo root (see docs/vm-workspace-spec.md); an external-backend repo can't deliver its store to the guest", dir)
 	}
 	return nil
 }
