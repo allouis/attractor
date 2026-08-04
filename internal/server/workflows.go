@@ -240,10 +240,11 @@ func (s *Server) getWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 	// nested cluster, resolving relative child_dotfile paths against the
 	// workflow's own directory.
 	var svg []byte
+	engine := graphEngine(r)
 	if r.URL.Query().Get("expand") != "" {
-		svg, err = render.SVGExpanded(source, dir, "")
+		svg, err = render.SVGExpanded(source, dir, engine)
 	} else {
-		svg, err = render.SVG(source, "")
+		svg, err = render.SVG(source, engine)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

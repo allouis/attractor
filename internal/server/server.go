@@ -553,13 +553,25 @@ func (s *Server) getGraph(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	svg, err := render.SVG([]byte(run.Source()), "")
+	svg, err := render.SVG([]byte(run.Source()), graphEngine(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Write(svg)
+}
+
+// graphEngine screens an untrusted `?engine=` against the render allowlist,
+// returning "" (graphviz default, dot) for a missing or unknown value so an
+// unknown engine renders like the default instead of erroring or passing an
+// arbitrary flag to exec. Shared by the run-graph and workflow-graph endpoints.
+func graphEngine(r *http.Request) string {
+	e := r.URL.Query().Get("engine")
+	if render.ValidEngine(e) {
+		return e
+	}
+	return ""
 }
 
 // getArtifact serves a read-only file from the run's logs directory,
