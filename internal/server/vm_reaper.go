@@ -90,6 +90,11 @@ func (r *vmReaper) sweep() []string {
 		if rec.Pid > 0 {
 			_ = r.kill(rec.Pid)
 		}
+		// Kill the per-run virtiofsd serving the workspace mount too, else
+		// the daemon leaks one per reaped VM (spec W1).
+		if rec.VfsdPid > 0 {
+			_ = r.kill(rec.VfsdPid)
+		}
 		_ = os.RemoveAll(dir)
 		reaped = append(reaped, rec.RunID)
 	}
