@@ -56,7 +56,7 @@ the operator's license). The vendored interactivity lib is at
 
 | # | Deliverable | Status |
 |---|---|---|
-| T6a | **Vendor + wire `@tailwindplus/elements`, then adopt badges + empty-states.** Add `//go:embed ui/elements.js` and inline it as a `<script type="module">` (mirror the tailwind inject) so `el-*` elements upgrade. Replace status pills with the `docs/tailwind-components/badges.html` badge (token-remapped, one per run state) and the "no items"/"no runs" states with `empty-state.html`. Verify a custom element upgrades (e.g. an `el-dropdown` test) + pills/empty-states render theme-aware. | todo |
+| T6a | **Vendor + wire `@tailwindplus/elements`, then adopt badges + empty-states.** Add `//go:embed ui/elements.js` and inline it as a `<script type="module">` (mirror the tailwind inject) so `el-*` elements upgrade. Replace status pills with the `docs/tailwind-components/badges.html` badge (token-remapped, one per run state) and the "no items"/"no runs" states with `empty-state.html`. Verify a custom element upgrades (e.g. an `el-dropdown` test) + pills/empty-states render theme-aware. | done |
 | T6b | **Adopt the Tailwind Plus table** (`table.html`) for the Runs + Config lists — token-remapped, preserving the ≤640px stacked-card behaviour from T2/T3. | todo |
 | T6c | **Adopt the form layout** (`form-layout.html`) for the Config panels + the run-form modal — token-remapped, full-width tappable inputs on mobile. | todo |
 | T6d | **App-shell / nav swap** (`app-shell-stacked.html`) — replace the header/nav with the stacked shell + a real mobile menu via `el-disclosure`. Most invasive: keep hash routing + the theme toggle wired. Do last. | todo |
