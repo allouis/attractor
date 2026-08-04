@@ -24,6 +24,20 @@ let
       # tools — decision D8) visible to the pipeline's tool commands, which
       # attractor runs via `sh -c` inheriting this PATH.
       export PATH="/run/current-system/sw/bin:$PATH"
+
+      # Power off so the launcher's process-exit path fires and marks the run
+      # failed. Without this a guest-side failure leaves qemu idling at the
+      # getty autologin, never phoning home, so the launcher's job-wait loop
+      # (launcher_vm.go) blocks forever. Used for every fatal step below. A
+      # SUCCESSFUL run has already phoned home a terminal event, so the launcher
+      # returned and the VM is instead left running for inspection — the success
+      # path never reaches this.
+      poweroff_run() {
+        echo "attractor-vm-run: $1; powering off so the daemon sees the failure" >&2
+        systemctl poweroff --no-block || poweroff -f || true
+        exit 1
+      }
+
       job=/mnt/job/job.json
       for _ in $(seq 1 60); do [ -f "$job" ] && break; sleep 1; done
       if [ ! -f "$job" ]; then
@@ -55,19 +69,10 @@ let
       args+=(/mnt/job/source.dot)
 
       echo "attractor-vm-run: attractor ''${args[*]}" >&2
-      rc=0
-      attractor "''${args[@]}" || rc=$?
-      # A successful run has already phoned home a terminal event, so the
-      # launcher has returned and the VM is left running for inspection. But a
-      # run that CRASHES before reporting (a pipeline load error, a panic)
-      # emits no terminal event — the launcher would sit waiting while the
-      # guest idles at a shell and the daemon's run stays 'queued' forever.
-      # Power off on a non-zero exit so the launcher's process-exit path fires
-      # and marks the run failed (with the console log).
-      if [ "$rc" -ne 0 ]; then
-        echo "attractor-vm-run: attractor exited $rc; powering off so the daemon sees the crash" >&2
-        systemctl poweroff --no-block || poweroff -f || true
-      fi
+      # A run that CRASHES before reporting (a pipeline load error, a panic)
+      # emits no terminal event, so power off on a non-zero exit (see
+      # poweroff_run). A successful run already phoned home and is left running.
+      attractor "''${args[@]}" || poweroff_run "attractor exited $?"
     '';
   };
 in
