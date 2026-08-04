@@ -53,6 +53,40 @@ func TestReaperReapsOnlyExpiredVMs(t *testing.T) {
 	}
 }
 
+// GS dropped virtiofs, but a VM in flight ACROSS the upgrade left a vm.json
+// carrying vfsd_pid/vfsd_pids for daemons the new launcher no longer records.
+// The reaper must still kill those legacy pids, else the daemons orphan
+// permanently (they outlive their qemu, which the reaper does kill). Kept as
+// a back-compat shim for one retention window; new records carry no vfsd pids.
+func TestReaperKillsLegacyVirtiofsdPids(t *testing.T) {
+	vmDir := t.TempDir()
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	dir := filepath.Join(vmDir, "old")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A pre-GS record: qemu pid + both the multi-mount (vfsd_pids) and the
+	// legacy single-daemon (vfsd_pid) shapes.
+	data, _ := json.Marshal(vmRecord{RunID: "old", Pid: 4242, VfsdPids: []int{9191, 9292}, VfsdPid: 9393, Dir: dir, StartedAt: now.Add(-80 * time.Hour)})
+	if err := os.WriteFile(filepath.Join(dir, "vm.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var killed []int
+	r := &vmReaper{
+		vmDir:     vmDir,
+		retention: 72 * time.Hour,
+		now:       func() time.Time { return now },
+		kill:      func(pid int) error { killed = append(killed, pid); return nil },
+	}
+	r.sweep()
+
+	slices.Sort(killed)
+	if !slices.Equal(killed, []int{4242, 9191, 9292, 9393}) {
+		t.Fatalf("killed = %v, want qemu + all legacy virtiofsd pids; orphaned daemons leak on upgrade", killed)
+	}
+}
+
 // Reaping a VM must `jj workspace forget` the per-run workspace, not just
 // os.RemoveAll its dir — otherwise the host repo accumulates stale
 // run-<id> workspaces pointing at deleted dirs, growing unbounded (B1).
