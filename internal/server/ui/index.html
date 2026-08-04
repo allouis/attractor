@@ -1100,12 +1100,16 @@ function renderFleet() {
   $('run-list').innerHTML = runsTableHtml(runs);
 }
 
-// runsTableHtml renders the fleet as a table of runRowHtml rows.
+// runsTableHtml renders the fleet as a table of runRowHtml rows. Mobile-first
+// responsive (ui-tailwind-spec T3): the wide table clips the `by` column on a
+// phone, so at <640px it collapses to stacked cards (block table sub-elements,
+// header hidden — each row carries its own field labels) and restores to a real
+// table at sm.
 function runsTableHtml(runs) {
   const rows = runs.map(runRowHtml).join('');
-  return `<table>
-    <thead><tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
+  return `<table class="block sm:table w-full">
+    <thead class="hidden sm:table-header-group"><tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr></thead>
+    <tbody class="block sm:table-row-group">${rows}</tbody></table>`;
 }
 
 // runsFilter reads the toolbar into the shape runMatchesFilter expects.
@@ -1252,16 +1256,22 @@ function fmtDuration(startIso, endIso) {
 function runRowHtml(p) {
   const chip = runNeedsHuman(p) ? '<span class="chip needs-human">needs human</span>' : '';
   const id = p.id || '';
+  // cell wraps one field so the mobile card reads label/value per line (label
+  // shown only <sm; the table header carries it at ≥sm). border-0 drops the
+  // inherited per-cell separator inside the card, restored as a row border at sm
+  // (ui-tailwind-spec T3, same treatment as repoRowHtml).
+  const cell = (label, inner, muted) =>
+    `<td class="block border-0 sm:table-cell sm:border-b${muted ? ' muted' : ''}"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
   return `
-    <tr>
-      <td><a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a></td>
-      <td class="muted">${runWorkflowCell(p)}</td>
-      <td class="muted">${runItemCell(p)}</td>
-      <td class="muted">${runRepoCell(p)}</td>
-      <td class="muted">${runOriginCell(p)}</td>
-      <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}</td>
-      <td class="muted">${fmtDate(p.started_at)}</td>
-      <td>${runCancelButton(p)}</td>
+    <tr class="block rounded border border-line bg-surface-1 p-3 mb-3 sm:table-row sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:mb-0">
+      ${cell('run', `<a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a>`)}
+      ${cell('workflow', runWorkflowCell(p), true)}
+      ${cell('item', runItemCell(p), true)}
+      ${cell('repo', runRepoCell(p), true)}
+      ${cell('by', runOriginCell(p), true)}
+      ${cell('status', `<span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}`)}
+      ${cell('started', fmtDate(p.started_at), true)}
+      ${cell('', runCancelButton(p))}
     </tr>`;
 }
 
