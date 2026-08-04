@@ -96,7 +96,10 @@
         # Bundled onto attractor's PATH so the `acp` backend finds its command
         # without any host config. codex-acp is already self-wrapped upstream
         # (sets CODEX_PATH to its own bundled codex), so it needs no override.
-        runtimeDeps = [ pkgs.graphviz claude-agent-acp llmPkgs.codex-acp ];
+        # jujutsu + virtiofsd back the vm launcher's per-run workspace: it
+        # runs `jj workspace add` on the host and serves that workspace to the
+        # guest over virtiofsd (docs/vm-workspace-spec.md W1).
+        runtimeDeps = [ pkgs.graphviz claude-agent-acp llmPkgs.codex-acp pkgs.jujutsu pkgs.virtiofsd ];
         attractor = pkgs.buildGoModule {
           pname = "attractor";
           inherit version;

@@ -3,10 +3,14 @@
 # `attractor run --report-to` so the pipeline phones its events and
 # artifacts home to the daemon that launched the VM (docs/nix-vm-runner-spec.md).
 #
-# The two 9p shares are injected per run by the launcher via env vars
-# (decision D6): ATTRACTOR_JOB_DIR (job.json + source.dot) and
-# ATTRACTOR_WORKSPACE (the working tree, read-write). The guest reaches the
-# daemon at 10.0.2.2 over QEMU user networking (decision D7).
+# The job dir is a read-only 9p share injected per run by the launcher
+# (decision D6): ATTRACTOR_JOB_DIR (job.json + source.dot). The mutable
+# working copy is a per-run host jj workspace delivered over VIRTIOFS (not
+# 9p) — 9p can't give the SQLite/flock/mmap semantics the pnpm store index
+# and jj need (docs/vm-workspace-spec.md W1). The launcher starts a per-run
+# virtiofsd and passes the vhost-user-fs device via QEMU_OPTS, exported
+# under the tag `workspace`; the guest mounts it rw at /mnt/workspace below.
+# The guest reaches the daemon at 10.0.2.2 over QEMU user networking (D7).
 { config, lib, pkgs, modulesPath, attractorPkg, ... }:
 let
   runnerScript = pkgs.writeShellApplication {
@@ -73,20 +77,25 @@ in
     # containers (databases, etc.) the way repo test scripts expect. Containers
     # share the guest kernel, so this works even under TCG (no nested KVM).
     docker.enable = true;
-    # Per-run 9p shares; sources are shell variables the launcher sets per
-    # run, expanded in the generated runner script (decision D6).
+    # Per-run read-only 9p job share; source is a shell variable the
+    # launcher sets per run, expanded in the generated runner script (D6).
+    # The workspace is NOT here — it comes in over virtiofs (see below).
     sharedDirectories = {
       job = {
         source = ''"$ATTRACTOR_JOB_DIR"'';
         target = "/mnt/job";
         securityModel = "none";
       };
-      workspace = {
-        source = ''"$ATTRACTOR_WORKSPACE"'';
-        target = "/mnt/workspace";
-        securityModel = "none";
-      };
     };
+  };
+
+  # Mount the per-run workspace served by the launcher's virtiofsd. The
+  # device is the vhost-user-fs tag (`workspace`) wired via QEMU_OPTS; the
+  # virtiofs driver gives the rw POSIX semantics 9p lacks (W1).
+  boot.kernelModules = [ "virtiofs" ];
+  fileSystems."/mnt/workspace" = {
+    device = "workspace";
+    fsType = "virtiofs";
   };
 
   # QEMU user networking gives the guest gateway 10.0.2.2 = the host; bring
