@@ -63,7 +63,9 @@ func TestServer_UI_HeaderResponsive(t *testing.T) {
 	if !strings.Contains(page, "position:sticky") && !strings.Contains(page, "position: sticky") {
 		t.Errorf("injected stylesheet defines no .sticky utility (stale tailwind.css?)")
 	}
-	if !strings.Contains(page, "@media (min-width:640px)") {
+	// The sm: breakpoint. Tailwind v3 emitted 640px, v4 emits the rem
+	// equivalent (40rem); accept either so the guard tracks the utility.
+	if !strings.Contains(page, "@media (min-width:640px)") && !strings.Contains(page, "@media (min-width:40rem)") {
 		t.Errorf("injected stylesheet has no 640px breakpoint (sm: utilities missing?)")
 	}
 }

@@ -50,7 +50,9 @@ func TestServer_UI_GraphEngineSelector(t *testing.T) {
 
 	// The Tailwind touch-target utility must be present in the injected
 	// stylesheet — proof the committed tailwind.css was regenerated.
-	if !strings.Contains(page, "min-height:2.5rem") {
+	// The min-h-10 touch target. Tailwind v3 emitted 2.5rem, v4 emits
+	// calc(var(--spacing) * 10); accept either so the guard tracks the utility.
+	if !strings.Contains(page, "min-height:2.5rem") && !strings.Contains(page, "min-height:calc(var(--spacing) * 10)") {
 		t.Errorf("injected stylesheet has no min-h-10 (≥40px touch target) utility (stale tailwind.css?)")
 	}
 }
