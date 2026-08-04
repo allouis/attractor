@@ -287,10 +287,10 @@
 <header class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-0 px-4 py-3 font-semibold">
   <a class="brand mr-5" href="#items">attractor</a>
   <nav class="flex flex-wrap grow gap-4 font-normal">
-    <a id="nav-items" href="#items">Items</a>
-    <a id="nav-runs" href="#runs">Runs</a>
-    <a id="nav-workflows" href="#workflows">Workflows</a>
-    <a id="nav-config" href="#config">Config</a>
+    <a id="nav-items" data-tab="items" href="#items">Items</a>
+    <a id="nav-runs" data-tab="runs" href="#runs">Runs</a>
+    <a id="nav-workflows" data-tab="workflows" href="#workflows">Workflows</a>
+    <a id="nav-config" data-tab="config" href="#config">Config</a>
   </nav>
   <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle theme" class="font-normal">&#9790;</button>
 </header>
@@ -498,15 +498,16 @@ function confirmLeaveConfig() {
 }
 
 // ---- routing -----------------------------------------------------------
-// TABS is the top-level tab registry: hash → nav-link id, view section id,
-// and the enter handler that renders it. One place drives both route()'s
-// dispatch and highlightNav()'s active marking, so adding a tab is a single
-// entry rather than edits scattered across the two (web-ui-spec nav shell).
+// TABS is the top-level tab registry: hash → view section id and the enter
+// handler that renders it. One place drives both route()'s dispatch and
+// highlightNav()'s active marking, so adding a tab is a single entry rather
+// than edits scattered across the two (web-ui-spec nav shell). Nav links key
+// off the hash via a data-tab attribute, so a tab needs no per-link id here.
 const TABS = {
-  items:     { nav: 'nav-items',     view: 'items-view',     enter: showItems },
-  runs:      { nav: 'nav-runs',      view: 'runs-view',      enter: showRuns },
-  workflows: { nav: 'nav-workflows', view: 'workflows-view', enter: showWorkflows },
-  config:    { nav: 'nav-config',    view: 'config-view',    enter: showConfig },
+  items:     { view: 'items-view',     enter: showItems },
+  runs:      { view: 'runs-view',      enter: showRuns },
+  workflows: { view: 'workflows-view', enter: showWorkflows },
+  config:    { view: 'config-view',    enter: showConfig },
 };
 
 // teardownRun stops the run-detail stream + dock poll when leaving a run.
@@ -537,11 +538,12 @@ function route() {
   tab.enter();
 }
 
-// highlightNav marks the active tab; run detail counts as the Runs tab.
+// highlightNav marks the active tab across every nav link (the desktop inline
+// nav and the mobile menu both carry data-tab), so one selector reaches both;
+// run detail counts as the Runs tab.
 function highlightNav(name) {
-  for (const t in TABS) {
-    const el = $(TABS[t].nav);
-    if (el) el.classList.toggle('active', t === name);
+  for (const el of document.querySelectorAll('[data-tab]')) {
+    el.classList.toggle('active', el.dataset.tab === name);
   }
 }
 
