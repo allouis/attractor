@@ -39,13 +39,10 @@ func jjRun(t *testing.T, repo string, args ...string) string {
 //	    -run TestVMWorkspaceAcceptance -count=1 -timeout 40m
 func TestVMWorkspaceAcceptance(t *testing.T) {
 	if os.Getenv("ATTRACTOR_VM_E2E") == "" {
-		t.Skip("set ATTRACTOR_VM_E2E=1 to boot a real vm-runner VM (slow; needs qemu + virtiofsd; G1 acceptance)")
+		t.Skip("set ATTRACTOR_VM_E2E=1 to boot a real vm-runner VM (slow; needs qemu; G1/GS acceptance)")
 	}
 	if _, err := exec.LookPath("jj"); err != nil {
 		t.Skip("jj not on PATH")
-	}
-	if _, err := exec.LookPath("virtiofsd"); err != nil {
-		t.Skip("virtiofsd not on PATH (enter `nix develop`)")
 	}
 	// The run-nixos-vm boot script from `nix build .#vm-runner`. Default to
 	// the ./result symlink; override with ATTRACTOR_VM_RUNNER.
