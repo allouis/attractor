@@ -284,15 +284,31 @@
 </style>
 </head>
 <body>
-<header class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-0 px-4 py-3 font-semibold">
-  <a class="brand mr-5" href="#items">attractor</a>
-  <nav class="flex flex-wrap grow gap-4 font-normal">
-    <a id="nav-items" data-tab="items" href="#items">Items</a>
-    <a id="nav-runs" data-tab="runs" href="#runs">Runs</a>
-    <a id="nav-workflows" data-tab="workflows" href="#workflows">Workflows</a>
-    <a id="nav-config" data-tab="config" href="#config">Config</a>
+<!-- App shell (ui-tailwind-spec T6d): Tailwind Plus stacked shell, token-remapped.
+     The desktop inline nav (hidden sm:flex) collapses at <640px behind a real
+     mobile menu — a hamburger toggling the #mobile-menu disclosure. Hash routing
+     drives both navs (data-tab, highlightNav); the theme toggle sits in the top
+     row on every width. -->
+<header class="sticky top-0 z-20 border-b border-line bg-surface-0 font-semibold">
+  <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+    <a class="brand mr-5" href="#items">attractor</a>
+    <nav class="hidden sm:flex flex-wrap grow gap-4 font-normal">
+      <a id="nav-items" data-tab="items" href="#items">Items</a>
+      <a id="nav-runs" data-tab="runs" href="#runs">Runs</a>
+      <a id="nav-workflows" data-tab="workflows" href="#workflows">Workflows</a>
+      <a id="nav-config" data-tab="config" href="#config">Config</a>
+    </nav>
+    <div class="flex items-center gap-2">
+      <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle theme" class="font-normal">&#9790;</button>
+      <button id="mobile-menu-button" type="button" class="sm:hidden font-normal" aria-controls="mobile-menu" aria-expanded="false" aria-label="Toggle menu" onclick="toggleMobileMenu()">&#9776;</button>
+    </div>
+  </div>
+  <nav id="mobile-menu" hidden class="sm:hidden border-t border-line px-2 pb-2 font-normal">
+    <a data-tab="items" href="#items" class="flex items-center min-h-10">Items</a>
+    <a data-tab="runs" href="#runs" class="flex items-center min-h-10">Runs</a>
+    <a data-tab="workflows" href="#workflows" class="flex items-center min-h-10">Workflows</a>
+    <a data-tab="config" href="#config" class="flex items-center min-h-10">Config</a>
   </nav>
-  <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle theme" class="font-normal">&#9790;</button>
 </header>
 <main>
   <section id="items-view">
@@ -475,6 +491,20 @@ function toggleTheme() {
   syncToggle();
 }
 
+// ---- mobile menu -------------------------------------------------------
+// The app-shell nav collapses at <640px behind a hamburger (ui-tailwind-spec
+// T6d). setMobileMenu drives the #mobile-menu disclosure by its `hidden`
+// attribute and keeps the button's aria-expanded in sync; the panel is
+// sm:hidden, so at >=640px the inline nav owns navigation regardless of state.
+function setMobileMenu(open) {
+  const menu = $('mobile-menu');
+  if (!menu) return;
+  menu.hidden = !open;
+  $('mobile-menu-button')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function toggleMobileMenu() { setMobileMenu($('mobile-menu').hidden); }
+function closeMobileMenu() { setMobileMenu(false); }
+
 // showView switches the single visible top-level section by id, recording it
 // so the route guard knows which view is being left.
 function showView(name) {
@@ -522,6 +552,7 @@ function teardownRun() {
 // every view switch. An unknown tab falls back to Items (the default land).
 function route() {
   if (!confirmLeaveConfig()) return;   // stay put on a cancelled leave
+  closeMobileMenu();                   // any navigation collapses the mobile menu
   stopRunsPoll();
   const m = location.hash.match(/^#run\/(.+)$/);
   if (m) { openRun(m[1]); return; }
