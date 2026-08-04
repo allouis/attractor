@@ -19,12 +19,15 @@ func jjRun(t *testing.T, repo string, args ...string) string {
 	return string(out)
 }
 
-// TestVMWorkspaceAcceptance is W2's pivotal, authoritative gate: it boots a
-// real vm-runner VM against a per-run jj workspace delivered over virtiofs
-// and asserts the two failure surfaces the spec exists to fix now work —
-// `pnpm install` with its SQLite store on the mount (no `disk I/O error`),
-// and in-guest `jj` committing into the shared HOST store (visible in the
-// host's `jj log`, no export step). See docs/vm-workspace-spec.md W2 and
+// TestVMWorkspaceAcceptance is G1's pivotal, authoritative gate: it boots a
+// real vm-runner VM and asserts the failure surfaces the pivot exists to fix
+// now work on the GUEST-LOCAL ext4 work surface (/work) the runner copies the
+// ro-delivered workspace onto — `pnpm install` (SQLite store index) AND `pnpm
+// run lint` (Nx SQLite task DB) both succeed with no `disk I/O error`, and
+// in-guest `jj` still commits into the shared HOST store (visible in the
+// host's `jj log`, no export step). Over virtiofs both SQLite surfaces died
+// (`disk I/O error`); on ext4 they must pass. See
+// docs/vm-workspace-spec.md §Empirical pivot (G1) and
 // testdata/pipelines/vm-workspace-acceptance.dot.
 //
 // Empirical + slow (a NixOS VM boot + pnpm install under TCG), so it is
@@ -36,7 +39,7 @@ func jjRun(t *testing.T, repo string, args ...string) string {
 //	    -run TestVMWorkspaceAcceptance -count=1 -timeout 40m
 func TestVMWorkspaceAcceptance(t *testing.T) {
 	if os.Getenv("ATTRACTOR_VM_E2E") == "" {
-		t.Skip("set ATTRACTOR_VM_E2E=1 to boot a real vm-runner VM (slow; needs qemu + virtiofsd; W2 acceptance)")
+		t.Skip("set ATTRACTOR_VM_E2E=1 to boot a real vm-runner VM (slow; needs qemu + virtiofsd; G1 acceptance)")
 	}
 	if _, err := exec.LookPath("jj"); err != nil {
 		t.Skip("jj not on PATH")
@@ -54,9 +57,11 @@ func TestVMWorkspaceAcceptance(t *testing.T) {
 		t.Skipf("vm-runner boot script not found (%v); run `nix build .#vm-runner` or set ATTRACTOR_VM_RUNNER", err)
 	}
 
-	// Fixture: a jj-colocated repo with a package.json (a tracked file, so it
-	// materialises into the workspace) whose one tiny zero-dep package forces
-	// pnpm to open/write its SQLite store index.
+	// Fixture: a jj-colocated repo whose tracked files (so they materialise
+	// into the workspace, then get copied to /work) exercise BOTH SQLite
+	// surfaces the pivot names. is-number forces pnpm to open/write its store
+	// index; a minimal Nx project + a `lint` target forces Nx to open its task
+	// DB when `pnpm run lint` runs `nx run pkg:lint`.
 	repo := t.TempDir()
 	if out, err := exec.Command("jj", "git", "init", repo).CombinedOutput(); err != nil {
 		t.Fatalf("jj git init: %v\n%s", err, out)
@@ -65,10 +70,24 @@ func TestVMWorkspaceAcceptance(t *testing.T) {
   "name": "vm-workspace-acceptance",
   "version": "1.0.0",
   "private": true,
-  "dependencies": { "is-number": "7.0.0" }
+  "scripts": { "lint": "nx run pkg:lint" },
+  "dependencies": { "is-number": "7.0.0" },
+  "devDependencies": { "nx": "19.8.4" }
 }
 `)
-	writeFixture(t, repo, ".gitignore", "node_modules\n.pnpm-store\n")
+	// Minimal Nx workspace: nx.json marks the root; a single project with a
+	// lint target Nx runs via nx:run-commands (a trivial no-op command — the
+	// point is that Nx opens its SQLite task DB on /work, not the command).
+	writeFixture(t, repo, "nx.json", `{ "$schema": "./node_modules/nx/schemas/nx-schema.json" }
+`)
+	writeFixture(t, repo, "packages/pkg/project.json", `{
+  "name": "pkg",
+  "targets": {
+    "lint": { "executor": "nx:run-commands", "options": { "command": "node -e \"process.exit(0)\"" } }
+  }
+}
+`)
+	writeFixture(t, repo, ".gitignore", "node_modules\n.pnpm-store\n.nx\n")
 	jjRun(t, repo, "describe", "-m", "acceptance fixture")
 
 	source, err := os.ReadFile("../../testdata/pipelines/vm-workspace-acceptance.dot")
@@ -108,9 +127,16 @@ func TestVMWorkspaceAcceptance(t *testing.T) {
 	if run.Status() != RunCompleted {
 		t.Fatalf("run status = %s, want completed; console:\n%s", run.Status(), tail(string(console), 8000))
 	}
-	// The bug that started the spec: pnpm's SQLite store index on the share.
+	// The pipeline ran on the guest-local ext4 work surface, not the ro
+	// transport mount — the whole point of the G1 pivot.
+	if !strings.Contains(string(console), "--cwd /work") {
+		t.Fatalf("run did not use the guest-local work dir (/work); console:\n%s", tail(string(console), 8000))
+	}
+	// The bugs that started the pivot: both SQLite surfaces (pnpm's store index
+	// and Nx's task DB) died with `disk I/O error` over virtiofs. On ext4 they
+	// must not.
 	if strings.Contains(string(console), "disk I/O error") {
-		t.Fatalf("pnpm hit `disk I/O error` — SQLite over virtiofs is broken; invoke the guest-local-clone fallback (W2)")
+		t.Fatalf("hit `disk I/O error` — SQLite still broken on the work surface (pnpm store or Nx task DB); the guest-local copy did not take effect (G1)")
 	}
 	// In-guest jj committed into the shared host store — visible on the host
 	// with no export step (spec W2 "Result surfacing" precondition).
@@ -121,10 +147,15 @@ func TestVMWorkspaceAcceptance(t *testing.T) {
 	}
 }
 
-// writeFixture writes a fixture file into repo.
+// writeFixture writes a fixture file into repo, creating parent dirs so a
+// nested path (e.g. packages/pkg/project.json) works.
 func writeFixture(t *testing.T, repo, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
+	path := filepath.Join(repo, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

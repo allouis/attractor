@@ -1,28 +1,37 @@
-// W2 pivotal acceptance pipeline (docs/vm-workspace-spec.md). Run inside a
-// vm-runner VM, its two tool steps prove the virtiofs delivery works for the
-// exact failure surfaces that motivated the spec:
+// G1 pivotal acceptance pipeline (docs/vm-workspace-spec.md §Empirical pivot).
+// Run inside a vm-runner VM, its tool steps prove the guest-local work surface
+// fixes the exact failure surfaces that motivated the pivot:
 //
 //   deps — `pnpm install` with a workspace-local store, so the store's SQLite
-//          `index.db` lives on the virtiofs mount. On 9p this died with
-//          `[ERR_SQLITE_ERROR] disk I/O error`; over virtiofs it must succeed.
-//   vcs  — in-guest `jj describe`/`status`, which resolve the workspace's
-//          `.jj/repo` pointer to the /mnt/jj-store mount and write to the
-//          shared HOST store. The description marker is then visible in the
-//          host repo's `jj log` with no export step.
+//          `index.db` lands on the WORK SURFACE. Over virtiofs this died with
+//          `[ERR_SQLITE_ERROR] disk I/O error`; on the guest's ext4 /work it
+//          must succeed.
+//   lint — `pnpm run lint` (Nx), so Nx's SQLite task DB is opened on /work.
+//          Nx over virtiofs died with `SqliteFailure(SystemIoFailure, 5386)`;
+//          on ext4 it must succeed. Second, independent SQLite surface.
+//   vcs  — in-guest `jj describe`/`status`, run in /work. The copied
+//          `.jj/repo` still resolves to the /mnt/repo store mount and writes
+//          to the shared HOST store, so the marker is visible in the host
+//          repo's `jj log` with no export step (W2, unchanged by G1).
 //
-// Deterministic tool nodes (shape=parallelogram) — no LLM backend needed.
+// All steps run in the pipeline cwd (/work) — NOT /mnt/workspace, which is a
+// ro transport the runner copied here. Deterministic tool nodes
+// (shape=parallelogram) — no LLM backend needed.
 
 digraph vm_workspace_acceptance {
-    goal = "prove pnpm (SQLite store) + in-guest jj work over virtiofs"
+    goal = "prove pnpm + Nx (SQLite) work on the guest-local ext4 work surface"
 
     start [shape=Mdiamond]
     deps  [shape=parallelogram,
-           tool_command="cd /mnt/workspace && pnpm install --store-dir /mnt/workspace/.pnpm-store"]
+           tool_command="pnpm install --store-dir .pnpm-store"]
+    lint  [shape=parallelogram,
+           tool_command="pnpm run lint"]
     vcs   [shape=parallelogram,
-           tool_command="cd /mnt/workspace && jj describe -m 'vm-workspace-acceptance ran' && jj status"]
+           tool_command="jj describe -m 'vm-workspace-acceptance ran' && jj status"]
     done  [shape=Msquare]
 
     start -> deps
-    deps -> vcs  [condition="outcome=success"]
-    vcs -> done  [condition="outcome=success"]
+    deps -> lint  [condition="outcome=success"]
+    lint -> vcs   [condition="outcome=success"]
+    vcs -> done   [condition="outcome=success"]
 }
