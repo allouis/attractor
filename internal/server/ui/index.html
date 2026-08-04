@@ -1517,7 +1517,9 @@ function paintNode(id, cls) {
                   failed: 'var(--state-failed)', retrying: 'var(--state-retrying)' }[cls];
   g.classList.toggle('pulse', cls === 'running');
   g.querySelectorAll('polygon, ellipse, path').forEach(shape => {
-    if (color) shape.setAttribute('stroke', color);
+    // Inline style, not a presentation attribute: the graph restyle sets a
+    // default node stroke via the stylesheet, which an attribute would lose to.
+    if (color) shape.style.stroke = color;
   });
 }
 

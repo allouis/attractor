@@ -6,3 +6,32 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Run-graph restyle (ui-tailwind-spec T4a). The inline graphviz `dot -Tsvg`
+ * output hardcodes black/white; retheme it with the `--` tokens so it tracks
+ * light/dark. Scoped to .graph-pane so both the run-detail and static workflow
+ * graphs pick it up. CSS on <text>/<path> overrides graphviz's presentation
+ * attributes; node status colour is painted as an INLINE style at runtime
+ * (paintNode), which beats these rules. */
+.graph-pane svg .graph > polygon { fill: transparent; }
+.graph-pane svg .edge path {
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  fill: none;
+}
+.graph-pane svg .edge polygon {
+  fill: var(--text-muted);
+  stroke: var(--text-muted);
+}
+.graph-pane svg .node polygon,
+.graph-pane svg .node ellipse,
+.graph-pane svg .node path {
+  fill: var(--surface-1);
+  stroke: var(--border);
+}
+.graph-pane svg .node text,
+.graph-pane svg .edge text {
+  fill: var(--text);
+  font-family: system-ui, sans-serif;
+}
