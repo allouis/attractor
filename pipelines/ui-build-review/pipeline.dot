@@ -1,0 +1,87 @@
+// build-review — the generic milestone-build pipeline, but with the
+// review step replaced by the shared multi-lens review-core fanout
+// (five adversarial lenses + a synth verdict), looping implement/fix
+// against review until the verdict passes (no blocking comments left).
+//
+//   BASE=$(jj log -r @- --no-graph -T change_id | tr -d '[:space:]')
+//   attractor run --backend acp \
+//     --var spec=docs/web-ui-spec.md --var review_base=$BASE \
+//     --logs ~/.attractor/runs/webui-W1 pipelines/build-review/pipeline.dot
+//
+// review_base is the change id of the commit BEFORE this run's first
+// milestone commit; the review lenses diff `--from $review_base --to @`
+// so they see exactly this milestone's change. Advance it between runs.
+//
+// Loop shape:
+//   plan -> implement -> verify -> review_loop
+//   verify   fail -> implement        (test/gate failures, same thread)
+//   review_loop success -> record     (synth PASS: no blocking findings)
+//   review_loop fail    -> fix        (synth FAIL: blocking findings)
+//   fix -> verify -> review_loop ...  (re-review after every fix)
+//
+// The fix node reads the synth's blocking findings from
+// $context.stack.child.failure_reason (manager_loop surfaces the child's
+// failure reason into the parent context) and the change itself from
+// `jj diff --from $context.review_base --to @`.
+
+digraph build_review {
+    goal = "Implement the next todo milestone from $context.spec"
+    acp_command = "claude-agent-acp"
+    cwd = "/home/agent/attractor"
+    vars = "spec,review_base"
+    max_node_visits = 10
+
+    start [shape=Mdiamond]
+
+    plan [type="codergen.acp", thread_id="build", fidelity="full",
+          timeout="20m", prompt="@prompts/plan.md"]
+
+    implement [type="codergen.acp", thread_id="build", fidelity="full",
+               timeout="120m", goal_gate=true, retry_target="plan",
+               prompt="@prompts/implement.md"]
+
+    // Gate: race tests + gofmt + no-conflicts. `nix build` omitted to keep
+    // memory pressure down; dep-changing milestones run it in-stage.
+    verify [type="tool", timeout="20m",
+            tool_command="cd /home/agent/attractor && nix develop -c go test ./... -race -count=1 && test -z \"$(nix develop -c gofmt -l . 2>/dev/null)\" && test -z \"$(jj resolve --list 2>/dev/null)\""]
+
+    // Visual QA: an agent drives the running UI over agent-browser (every
+    // view, mobile + desktop, light + dark), looks at screenshots, and FIXES
+    // any UX/layout/theme defects it finds in-node (regenerating the
+    // stylesheet), re-checking until the app is genuinely polished. Catches
+    // what `go test` can't. Its own thread, so it starts fresh.
+    ui_review [type="codergen.acp", thread_id="uiqa", fidelity="full",
+               timeout="40m", prompt="@prompts/ui-review.md"]
+
+    // Multi-lens review of this milestone's change, run inline as a child
+    // pipeline. synth's PASS/FAIL verdict becomes this node's outcome.
+    // Absolute child path: manager_loop resolves stack.child_dotfile
+    // relative to the process cwd, so a repo-relative path would miss.
+    review_loop [type="stack.manager_loop",
+                 timeout="45m",
+                 stack.child_dotfile="/home/agent/attractor/pipelines/review-core/pipeline.dot",
+                 stack.child.var.diff_cmd="jj diff --from $context.review_base --to @"]
+
+    // Reached only after a FAIL verdict, so the child's findings are set.
+    fix [type="codergen.acp", thread_id="build", fidelity="full",
+         timeout="120m", prompt="@prompts/fix.md"]
+
+    record [type="codergen.acp", thread_id="build", fidelity="full",
+            timeout="15m", prompt="@prompts/record.md"]
+
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> implement
+    implement -> verify      [condition="outcome=success"]
+    implement -> plan        [condition="outcome=fail", label="Replan"]
+    verify -> ui_review       [condition="outcome=success"]
+    verify -> implement       [condition="outcome=fail", label="Fix gate"]
+    ui_review -> review_loop   [condition="outcome=success", label="UI clean"]
+    ui_review -> implement     [condition="outcome=fail", label="UI unfixable → replan"]
+    review_loop -> record     [condition="outcome=success", label="Verdict PASS"]
+    review_loop -> fix        [condition="outcome=fail", label="Verdict FAIL"]
+    fix -> verify             [condition="outcome=success"]
+    fix -> plan               [condition="outcome=fail", label="Replan"]
+    record -> done
+}
