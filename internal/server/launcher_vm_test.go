@@ -228,35 +228,17 @@ func TestWorkspaceStoreReachableInGuest(t *testing.T) {
 	if want := guestRepoMount + "/.jj/repo"; string(ptr) != want {
 		t.Fatalf(".jj/repo = %q, want the store inside the guest repo mount %q", ptr, want)
 	}
-
-	l := vmLauncher{}
-	byTag := map[string]virtiofsMount{}
-	for _, m := range l.virtiofsMounts("/vm/abc", work, repo) {
-		byTag[m.tag] = m
-	}
-	// The .jj store subtree and the colocated .git backend are delivered; the
-	// repo ROOT is NOT, so the host working tree (secrets) never reaches the
-	// guest.
-	if got := byTag["repojj"].hostDir; got != filepath.Join(repo, ".jj") {
-		t.Fatalf("repojj hostDir = %q, want %q (the store subtree, not the root)", got, filepath.Join(repo, ".jj"))
-	}
-	if got := byTag["repogit"].hostDir; got != filepath.Join(repo, ".git") {
-		t.Fatalf("repogit hostDir = %q, want the colocated git backend %q", got, filepath.Join(repo, ".git"))
-	}
-	for _, m := range byTag {
-		if m.hostDir == repo {
-			t.Fatalf("a mount serves the repo ROOT %q — exposes the host working tree to the guest", repo)
-		}
-	}
 }
 
-// vmEnv points ATTRACTOR_WORKSPACE at the per-run jj workspace (NOT the
-// host checkout — that was the old 9p rw mount) and carries the virtiofs
-// QEMU_OPTS so run-nixos-vm boots the vhost-user-fs device. Guards against
-// reintroducing a 9p rw workspace mount (spec W1 constraint).
-func TestVMEnvUsesWorkspaceAndQemuOpts(t *testing.T) {
+// vmEnv points ATTRACTOR_WORKSPACE at the per-run jj workspace (NOT the host
+// checkout — that was the old 9p rw mount) and ATTRACTOR_REPO at the target
+// repo whose `.jj`/`.git` the nix module 9p-shares for in-guest jj. GS drops
+// virtiofs, so there is no QEMU_OPTS: the workspace + repo now ride the
+// module's blessed 9p sharedDirectories, not a hand-wired vhost-user-fs
+// device. Guards against reintroducing QEMU_OPTS/virtiofs delivery.
+func TestVMEnvUsesWorkspaceAndRepo(t *testing.T) {
 	l := vmLauncher{}
-	env := l.vmEnv("/vm/abc", "/vm/abc/job", "/vm/abc/work", "-device vhost-user-fs-pci,tag=workspace")
+	env := l.vmEnv("/vm/abc", "/vm/abc/job", "/vm/abc/work", "/repo")
 	find := func(key string) string {
 		for _, e := range env {
 			if strings.HasPrefix(e, key+"=") {
@@ -268,70 +250,16 @@ func TestVMEnvUsesWorkspaceAndQemuOpts(t *testing.T) {
 	if got := find("ATTRACTOR_WORKSPACE"); got != "/vm/abc/work" {
 		t.Errorf("ATTRACTOR_WORKSPACE = %q, want the jj workspace path", got)
 	}
-	if got := find("QEMU_OPTS"); !strings.Contains(got, "vhost-user-fs-pci") {
-		t.Errorf("QEMU_OPTS = %q, want the virtiofs device opts", got)
+	if got := find("ATTRACTOR_REPO"); got != "/repo" {
+		t.Errorf("ATTRACTOR_REPO = %q, want the target repo path (for the 9p .jj/.git shares)", got)
+	}
+	for _, e := range env {
+		if strings.HasPrefix(e, "QEMU_OPTS=") {
+			t.Errorf("QEMU_OPTS set (%q); GS drops virtiofs — no vhost-user-fs device", e)
+		}
 	}
 	if got := find("NIX_DISK_IMAGE"); got != "/vm/abc/vm.qcow2" {
 		t.Errorf("NIX_DISK_IMAGE = %q", got)
-	}
-}
-
-// virtiofsdArgs pins cache=never (the Rust virtiofsd's name for the spec's
-// "none": strongest coherence + locking — needed for the SQLite store and
-// instant host visibility) and wires the per-run socket + shared dir.
-func TestVirtiofsdArgs(t *testing.T) {
-	args := strings.Join(virtiofsdArgs("/run/vfs.sock", "/vm/abc/work"), " ")
-	for _, want := range []string{"--socket-path=/run/vfs.sock", "--shared-dir=/vm/abc/work", "--cache=never"} {
-		if !strings.Contains(args, want) {
-			t.Errorf("virtiofsdArgs missing %q in %q", want, args)
-		}
-	}
-}
-
-// virtiofsQemuOpts builds a vhost-user-fs device per mount + the single
-// shared-memory backend they mandate, so the guest can mount each host dir
-// rw over virtiofs (spec W1). Without memory-backend-memfd,share=on qemu
-// refuses vhost-user-fs.
-func TestVirtiofsQemuOpts(t *testing.T) {
-	opts := virtiofsQemuOpts([]virtiofsMount{
-		{tag: "workspace", hostDir: "/vm/abc/work", sock: "/run/vfs.sock"},
-	}, 8192)
-	for _, want := range []string{
-		"-chardev socket,id=vfs-workspace,path=/run/vfs.sock",
-		"-device vhost-user-fs-pci,chardev=vfs-workspace,tag=workspace",
-		"-object memory-backend-memfd,id=mem,size=8192M,share=on",
-		"-machine memory-backend=mem",
-	} {
-		if !strings.Contains(opts, want) {
-			t.Errorf("virtiofsQemuOpts missing %q in %q", want, opts)
-		}
-	}
-}
-
-// Multiple mounts each get their own chardev+device pair but share the ONE
-// memory-backend-memfd — qemu allows a single vhost-user shared-mem backend
-// for all vhost-user-fs devices (spec W2: workspace + jj store mounts).
-func TestVirtiofsQemuOptsMultipleMounts(t *testing.T) {
-	opts := virtiofsQemuOpts([]virtiofsMount{
-		{tag: "workspace", hostDir: "/vm/abc/work", sock: "/run/ws.sock"},
-		{tag: "repojj", hostDir: "/repo/.jj", sock: "/run/jj.sock"},
-		{tag: "repogit", hostDir: "/repo/.git", sock: "/run/git.sock"},
-	}, 4096)
-	for _, want := range []string{
-		"-chardev socket,id=vfs-workspace,path=/run/ws.sock",
-		"-device vhost-user-fs-pci,chardev=vfs-workspace,tag=workspace",
-		"-chardev socket,id=vfs-repojj,path=/run/jj.sock",
-		"-device vhost-user-fs-pci,chardev=vfs-repojj,tag=repojj",
-		"-chardev socket,id=vfs-repogit,path=/run/git.sock",
-		"-device vhost-user-fs-pci,chardev=vfs-repogit,tag=repogit",
-		"-machine memory-backend=mem",
-	} {
-		if !strings.Contains(opts, want) {
-			t.Errorf("virtiofsQemuOpts missing %q in %q", want, opts)
-		}
-	}
-	if n := strings.Count(opts, "memory-backend-memfd"); n != 1 {
-		t.Errorf("want exactly one shared memory backend, got %d in %q", n, opts)
 	}
 }
 
@@ -368,10 +296,10 @@ func TestMaterializeWorkspaceIdempotent(t *testing.T) {
 	}
 }
 
-// A run that fails AFTER materializing (here: virtiofsd never serves) must
-// still leave a vm.json so the reaper reclaims the work dir, qcow2, and jj
-// workspace on retention — otherwise the reaper skips the dir and it leaks
-// forever (B2).
+// A run that fails AFTER materializing (here: the boot script does not
+// exist) must still leave a vm.json so the reaper reclaims the work dir,
+// qcow2, and jj workspace on retention — otherwise the reaper skips the dir
+// and it leaks forever (B2).
 func TestLaunchFailureRecordsForReaper(t *testing.T) {
 	if _, err := exec.LookPath("jj"); err != nil {
 		t.Skip("jj not on PATH")
@@ -384,10 +312,9 @@ func TestLaunchFailureRecordsForReaper(t *testing.T) {
 	l := vmLauncher{
 		images: map[string]string{"default": "/nonexistent-runner"}, defaultImage: "default",
 		vmDir: vmDir, guestHost: "10.0.2.2", pollInterval: time.Millisecond,
-		virtiofsdBin: "false", memMiB: 4096, // `false` starts then exits → never serves the socket
 	}
 	if err := l.Launch(run, "http://127.0.0.1:0"); err == nil {
-		t.Fatal("expected failure (virtiofsd never serves)")
+		t.Fatal("expected failure (boot script missing)")
 	}
 	if run.Status() != RunFailed {
 		t.Fatalf("status = %v, want failed", run.Status())
@@ -407,8 +334,8 @@ func TestLaunchFailureRecordsForReaper(t *testing.T) {
 
 // TestGuestJJStoreMechanism proves the guest-jj-to-host-store path WITHOUT a
 // VM, so the normal `go test` gate exercises it (TestVMWorkspaceAcceptance,
-// which proves the SQLite-over-virtiofs half, is gated behind ATTRACTOR_VM_E2E
-// and never runs in CI). It reproduces exactly what in-guest jj does: rewrite
+// which proves the SQLite-on-ext4 half, is gated behind ATTRACTOR_VM_E2E and
+// never runs in CI). It reproduces exactly what in-guest jj does: rewrite
 // the workspace pointer to where the store is mounted, then commit through it
 // and assert the commit lands in the HOST repo. The two subtree mounts are
 // stood in for by symlinks (.jj + .git as siblings under a mount root), the
@@ -454,7 +381,7 @@ func TestGuestJJStoreMechanism(t *testing.T) {
 
 // G1: the guest copies the ro-delivered workspace onto its own ext4 (/work)
 // and runs all tools there, because SQLite (pnpm store index, Nx task DB)
-// can't live on the virtiofs mount (spec §Empirical pivot). This proves the
+// can't live on a shared 9p mount (spec §Empirical pivot). This proves the
 // COPY does not break in-guest jj: a workspace copied to a new path, with its
 // `.jj/repo` pointed at the store mount, still commits into the shared HOST
 // store. Reproduces the guest step (`cp -a /mnt/workspace/. /work/`) WITHOUT a
@@ -506,60 +433,6 @@ func TestGuestLocalWorkspaceCopyJJ(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "copied-workspace ran") {
 		t.Fatalf("commit from the copied workspace did not land in the host store:\n%s", out)
-	}
-}
-
-// A virtiofsd that dies AFTER boot leaves the guest mount hung: qemu keeps
-// running, the run never phones home, and without a watch the launcher blocks
-// forever. Launch must notice the daemon death, kill the VM, and fail the run.
-func TestLaunchFailsWhenVirtiofsdDies(t *testing.T) {
-	if _, err := exec.LookPath("jj"); err != nil {
-		t.Skip("jj not on PATH")
-	}
-	dir := t.TempDir()
-	// Fake virtiofsd: create the requested socket (so startVirtiofsd proceeds
-	// to boot) then die shortly after — a daemon that serves at boot but
-	// crashes mid-run.
-	vfsd := filepath.Join(dir, "fakevfsd.sh")
-	writeExec(t, vfsd, "#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in --socket-path=*) s=\"${a#--socket-path=}\";; esac; done\n: > \"$s\"\nsleep 0.3\n")
-	// Fake VM: a long-running process that never phones home — a booted guest
-	// whose mount just died.
-	runner := filepath.Join(dir, "fakevm.sh")
-	writeExec(t, runner, "#!/bin/sh\nsleep 30\n")
-
-	repo := jjInitRepo(t)
-	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir()})
-	run := srv.registry.NewRun("digraph{}", nil, nil, repo, nil, "", "", "", nil)
-	run.cwd = repo
-	l := vmLauncher{
-		images: map[string]string{"default": runner}, defaultImage: "default",
-		vmDir: t.TempDir(), guestHost: "10.0.2.2", pollInterval: 20 * time.Millisecond,
-		virtiofsdBin: vfsd, memMiB: 1024,
-	}
-
-	done := make(chan error, 1)
-	go func() { done <- l.Launch(run, "http://127.0.0.1:0") }()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("Launch returned nil; a mid-run virtiofsd death must fail the run")
-		}
-		if !strings.Contains(err.Error(), "virtiofsd") {
-			t.Fatalf("error %q should name virtiofsd", err)
-		}
-	case <-time.After(15 * time.Second):
-		t.Fatal("Launch hung after virtiofsd died — no daemon-death watch")
-	}
-	if run.Status() != RunFailed {
-		t.Fatalf("status = %v, want failed", run.Status())
-	}
-}
-
-// writeExec writes an executable script for the fake-daemon tests.
-func writeExec(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
 	}
 }
 

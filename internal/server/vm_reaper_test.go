@@ -53,67 +53,6 @@ func TestReaperReapsOnlyExpiredVMs(t *testing.T) {
 	}
 }
 
-// A persisted VM carries a per-run virtiofsd (serving the workspace mount);
-// the reaper must kill it alongside the qemu process or the daemon leaks
-// (spec W1). A record with no vfsd_pid (legacy / never recorded) kills only
-// the qemu pid.
-func TestReaperKillsVirtiofsd(t *testing.T) {
-	vmDir := t.TempDir()
-	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
-	dir := filepath.Join(vmDir, "old")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := json.Marshal(vmRecord{RunID: "old", Pid: 4242, VfsdPid: 9191, Dir: dir, StartedAt: now.Add(-80 * time.Hour)})
-	if err := os.WriteFile(filepath.Join(dir, "vm.json"), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var killed []int
-	r := &vmReaper{
-		vmDir:     vmDir,
-		retention: 72 * time.Hour,
-		now:       func() time.Time { return now },
-		kill:      func(pid int) error { killed = append(killed, pid); return nil },
-	}
-	r.sweep()
-
-	slices.Sort(killed)
-	if !slices.Equal(killed, []int{4242, 9191}) {
-		t.Fatalf("killed = %v, want both qemu (4242) and virtiofsd (9191) pids", killed)
-	}
-}
-
-// A multi-mount VM (workspace + jj store) records every virtiofsd pid in
-// VfsdPids; the reaper must kill them all alongside qemu, else a daemon
-// leaks per reaped VM (spec W2).
-func TestReaperKillsAllVfsd(t *testing.T) {
-	vmDir := t.TempDir()
-	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
-	dir := filepath.Join(vmDir, "old")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := json.Marshal(vmRecord{RunID: "old", Pid: 4242, VfsdPids: []int{9191, 9292}, Dir: dir, StartedAt: now.Add(-80 * time.Hour)})
-	if err := os.WriteFile(filepath.Join(dir, "vm.json"), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var killed []int
-	r := &vmReaper{
-		vmDir:     vmDir,
-		retention: 72 * time.Hour,
-		now:       func() time.Time { return now },
-		kill:      func(pid int) error { killed = append(killed, pid); return nil },
-	}
-	r.sweep()
-
-	slices.Sort(killed)
-	if !slices.Equal(killed, []int{4242, 9191, 9292}) {
-		t.Fatalf("killed = %v, want qemu + both virtiofsd pids", killed)
-	}
-}
-
 // Reaping a VM must `jj workspace forget` the per-run workspace, not just
 // os.RemoveAll its dir — otherwise the host repo accumulates stale
 // run-<id> workspaces pointing at deleted dirs, growing unbounded (B1).
