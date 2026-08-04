@@ -203,6 +203,48 @@ func TestMaterializeWorkspace(t *testing.T) {
 	}
 }
 
+// The per-run jj workspace's `.jj/repo` is a RELATIVE pointer climbing out
+// of the workspace dir to the host repo store — unusable in the guest, where
+// only the mounts exist. W2 delivers the repo ROOT over a second virtiofs
+// mount (guest /mnt/repo — the whole root so the colocated `.git` the jj
+// store points at comes too) and repoints `.jj/repo` at the store inside it,
+// so in-guest jj (status/diff/commit) reaches the shared host store.
+func TestWorkspaceStoreReachableInGuest(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	work := filepath.Join(t.TempDir(), "work")
+	if err := materializeWorkspace(repo, work, "run-abc"); err != nil {
+		t.Fatalf("materializeWorkspace: %v", err)
+	}
+	if err := pointGuestJJStore(work); err != nil {
+		t.Fatalf("pointGuestJJStore: %v", err)
+	}
+	ptr, err := os.ReadFile(filepath.Join(work, ".jj", "repo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := guestRepoMount + "/.jj/repo"; string(ptr) != want {
+		t.Fatalf(".jj/repo = %q, want the store inside the guest repo mount %q", ptr, want)
+	}
+
+	l := vmLauncher{}
+	mounts := l.virtiofsMounts("/vm/abc", work, repo)
+	var repoMount *virtiofsMount
+	for i := range mounts {
+		if mounts[i].tag == "repo" {
+			repoMount = &mounts[i]
+		}
+	}
+	if repoMount == nil {
+		t.Fatal("no repo virtiofs mount; guest cannot reach the host jj store")
+	}
+	if repoMount.hostDir != repo {
+		t.Fatalf("repo mount hostDir = %q, want the repo root %q (must carry .jj + colocated .git)", repoMount.hostDir, repo)
+	}
+}
+
 // vmEnv points ATTRACTOR_WORKSPACE at the per-run jj workspace (NOT the
 // host checkout — that was the old 9p rw mount) and carries the virtiofs
 // QEMU_OPTS so run-nixos-vm boots the vhost-user-fs device. Guards against
@@ -229,12 +271,12 @@ func TestVMEnvUsesWorkspaceAndQemuOpts(t *testing.T) {
 	}
 }
 
-// virtiofsdArgs pins cache=none (strongest coherence + locking — needed
-// for the SQLite store and instant host visibility, spec virtiofsd cache
-// mode) and wires the per-run socket + shared dir.
+// virtiofsdArgs pins cache=never (the Rust virtiofsd's name for the spec's
+// "none": strongest coherence + locking — needed for the SQLite store and
+// instant host visibility) and wires the per-run socket + shared dir.
 func TestVirtiofsdArgs(t *testing.T) {
 	args := strings.Join(virtiofsdArgs("/run/vfs.sock", "/vm/abc/work"), " ")
-	for _, want := range []string{"--socket-path=/run/vfs.sock", "--shared-dir=/vm/abc/work", "--cache=none"} {
+	for _, want := range []string{"--socket-path=/run/vfs.sock", "--shared-dir=/vm/abc/work", "--cache=never"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("virtiofsdArgs missing %q in %q", want, args)
 		}
@@ -267,13 +309,13 @@ func TestVirtiofsQemuOpts(t *testing.T) {
 func TestVirtiofsQemuOptsMultipleMounts(t *testing.T) {
 	opts := virtiofsQemuOpts([]virtiofsMount{
 		{tag: "workspace", hostDir: "/vm/abc/work", sock: "/run/ws.sock"},
-		{tag: "jjstore", hostDir: "/repo/.jj/repo", sock: "/run/jj.sock"},
+		{tag: "repo", hostDir: "/repo", sock: "/run/repo.sock"},
 	}, 4096)
 	for _, want := range []string{
 		"-chardev socket,id=vfs-workspace,path=/run/ws.sock",
 		"-device vhost-user-fs-pci,chardev=vfs-workspace,tag=workspace",
-		"-chardev socket,id=vfs-jjstore,path=/run/jj.sock",
-		"-device vhost-user-fs-pci,chardev=vfs-jjstore,tag=jjstore",
+		"-chardev socket,id=vfs-repo,path=/run/repo.sock",
+		"-device vhost-user-fs-pci,chardev=vfs-repo,tag=repo",
 		"-machine memory-backend=mem",
 	} {
 		if !strings.Contains(opts, want) {

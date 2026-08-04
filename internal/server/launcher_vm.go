@@ -248,15 +248,55 @@ type virtiofsMount struct {
 	sock    string // per-mount unix socket virtiofsd listens on
 }
 
+// guestRepoMount is where the target repo ROOT is virtiofs-mounted inside
+// the guest. The whole root — not just `.jj/repo` — must be delivered: the
+// repos are jj-colocated, so the jj store's Git backend points at the
+// sibling `.git` (store/git_target = ../../../.git). Mounting only `.jj/repo`
+// leaves that relative pointer dangling (resolves to /.git in the guest ->
+// "not a git repository"). With the root mounted, `.jj/repo` and `.git` sit
+// together and every internal relative path resolves, so in-guest jj commits
+// into the shared HOST store and lands on the host (spec W2 "In-guest VCS").
+// Must match nix/vm-runner.nix virtualisation.fileSystems."/mnt/repo".
+const guestRepoMount = "/mnt/repo"
+
+// virtiofsMounts is the set of host dirs delivered into the guest over
+// virtiofs for a run: the per-run workspace working copy (rw at
+// /mnt/workspace) and the target repo root carrying the shared jj store +
+// colocated git backend (rw at /mnt/repo). The repo mount is what makes
+// in-guest jj work: a jj workspace's `.jj/repo` points at the repo store,
+// which lives OUTSIDE the workspace dir — without this second mount the guest
+// cannot reach it (spec W2). The run works in /mnt/workspace, so the repo
+// root's working files are untouched; only its shared store is written.
+func (l vmLauncher) virtiofsMounts(runDir, work, repoDir string) []virtiofsMount {
+	return []virtiofsMount{
+		{tag: "workspace", hostDir: work, sock: filepath.Join(runDir, "vfs-workspace.sock")},
+		{tag: "repo", hostDir: repoDir, sock: filepath.Join(runDir, "vfs-repo.sock")},
+	}
+}
+
+// pointGuestJJStore rewrites a freshly-materialized workspace's `.jj/repo`
+// pointer to the store inside the guest repo-root mount. jj writes it as a
+// RELATIVE path climbing out of the workspace dir to the host repo store — a
+// path that does not exist in the guest, where only the mounts are visible.
+// The host never runs jj INSIDE the workspace dir (cleanup and result
+// inspection use `jj -R <repo>`), so overwriting the pointer for the guest's
+// view is safe. Spec W2.
+func pointGuestJJStore(work string) error {
+	return os.WriteFile(filepath.Join(work, ".jj", "repo"), []byte(guestRepoMount+"/.jj/repo"), 0o644)
+}
+
 // virtiofsdArgs builds the per-run virtiofsd invocation: serve sharedDir
-// over a unix socket with cache=none — the strongest coherence + locking
-// mode, required for the SQLite store index and instant host visibility
-// (spec: virtiofsd cache mode; W2 may relax to auto if the lock test holds).
+// over a unix socket with cache=never — the strongest coherence + locking
+// mode, required for the SQLite store index and instant host visibility.
+// The spec calls this "none" (the C virtiofsd's name); the Rust virtiofsd
+// we ship (pkgs.virtiofsd) spells the same policy "never" — "none" is
+// rejected as an invalid cache policy. W2 may relax to "auto" if the lock
+// test holds (spec: virtiofsd cache mode).
 func virtiofsdArgs(sock, sharedDir string) []string {
 	return []string{
 		"--socket-path=" + sock,
 		"--shared-dir=" + sharedDir,
-		"--cache=none",
+		"--cache=never",
 	}
 }
 
@@ -319,10 +359,15 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		run.failCrashed("vm launcher: materialize workspace: " + err.Error())
 		return err
 	}
-
-	mounts := []virtiofsMount{
-		{tag: "workspace", hostDir: work, sock: filepath.Join(runDir, "vfs-workspace.sock")},
+	// Repoint the workspace's `.jj/repo` at the guest store mount so in-guest
+	// jj reaches the host store through virtiofs (spec W2); the store itself
+	// is the jjstore mount below.
+	if err := pointGuestJJStore(work); err != nil {
+		run.failCrashed("vm launcher: point guest jj store: " + err.Error())
+		return err
 	}
+
+	mounts := l.virtiofsMounts(runDir, work, run.cwd)
 
 	// A workspace (and soon a qcow2) now exists on disk. Every NON-success
 	// exit below — virtiofsd/console/boot failure, crash-before-terminal,
@@ -404,7 +449,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 }
 
 // startVirtiofsd launches a per-run virtiofsd serving sharedDir over sock
-// (cache=none) and waits for the socket to appear so qemu can connect on
+// (cache=never) and waits for the socket to appear so qemu can connect on
 // boot. Its output goes to logPath. Returns the running process.
 func (l vmLauncher) startVirtiofsd(sock, sharedDir, logPath string) (*exec.Cmd, error) {
 	logf, err := os.Create(logPath)
