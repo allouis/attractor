@@ -94,14 +94,12 @@
   }
   * { box-sizing: border-box; }
   body { font: var(--font-base)/1.5 system-ui, sans-serif; margin: 0; color: var(--text); background: var(--surface-0); }
-  header { display: flex; align-items: center; justify-content: space-between;
-           padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-weight: 600; }
+  /* Header/nav layout is Tailwind (ui-tailwind-spec T1); these rules keep the
+     link colour, underline reset, tap padding and the JS-toggled active
+     underline that utilities don't express. */
   header a { color: inherit; text-decoration: none; }
-  header .brand { margin-right: var(--space-5); }
-  nav { display: flex; gap: var(--space-4); flex: 1; font-weight: 400; }
-  nav a { color: var(--text-muted); padding: var(--space-1) 0; border-bottom: 2px solid transparent; }
+  nav a { color: var(--text-muted); padding: var(--space-2) 0; border-bottom: 2px solid transparent; }
   nav a.active { color: var(--text); border-bottom-color: var(--accent); }
-  #theme-toggle { font-weight: 400; }
   main { padding: var(--space-3) var(--space-4); }
   /* One view visible at a time; the router shows the routed section. */
   main > section { display: none; }
@@ -273,26 +271,25 @@
   .config-note { color: var(--state-needs-human); font-size: var(--font-sm); }
   .config-actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
   /* Responsive (web-ui-v2-spec U1): on a narrow viewport collapse the
-     two-column run/workflow detail to a single column, let the header nav
-     wrap instead of overflowing, and tighten table cells + page padding. */
+     two-column run/workflow detail to a single column and tighten table cells
+     + page padding. Header wrap is Tailwind now (ui-tailwind-spec T1). */
   @media (max-width: 720px) {
     main { padding: var(--space-3); }
-    header { flex-wrap: wrap; row-gap: var(--space-2); }
     .layout { grid-template-columns: 1fr; }
     th, td { padding: var(--space-2); }
   }
 </style>
 </head>
 <body>
-<header>
-  <a class="brand" href="#items">attractor</a>
-  <nav>
+<header class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-0 px-4 py-3 font-semibold">
+  <a class="brand mr-5" href="#items">attractor</a>
+  <nav class="flex flex-wrap grow gap-4 font-normal">
     <a id="nav-items" href="#items">Items</a>
     <a id="nav-runs" href="#runs">Runs</a>
     <a id="nav-workflows" href="#workflows">Workflows</a>
     <a id="nav-config" href="#config">Config</a>
   </nav>
-  <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle theme">&#9790;</button>
+  <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle theme" class="font-normal">&#9790;</button>
 </header>
 <main>
   <section id="items-view">
