@@ -92,6 +92,18 @@ func (r *vmReaper) sweep() []string {
 		if rec.Pid > 0 {
 			_ = r.kill(rec.Pid)
 		}
+		// Back-compat: GS dropped virtiofs, but a VM in flight across the
+		// upgrade recorded its virtiofsd daemons here. Kill them so they don't
+		// orphan (they outlive the qemu we just killed). New records carry
+		// none; VfsdPid is the pre-multi-mount single-daemon shape.
+		for _, pid := range rec.VfsdPids {
+			if pid > 0 {
+				_ = r.kill(pid)
+			}
+		}
+		if rec.VfsdPid > 0 {
+			_ = r.kill(rec.VfsdPid)
+		}
 		// Forget the per-run jj workspace before removing its dir, else the
 		// host repo accumulates stale run-<id> workspaces pointing at
 		// deleted dirs (spec W1). Legacy records without repo/workspace are
