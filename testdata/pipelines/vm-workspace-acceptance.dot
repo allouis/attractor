@@ -1,0 +1,28 @@
+// W2 pivotal acceptance pipeline (docs/vm-workspace-spec.md). Run inside a
+// vm-runner VM, its two tool steps prove the virtiofs delivery works for the
+// exact failure surfaces that motivated the spec:
+//
+//   deps — `pnpm install` with a workspace-local store, so the store's SQLite
+//          `index.db` lives on the virtiofs mount. On 9p this died with
+//          `[ERR_SQLITE_ERROR] disk I/O error`; over virtiofs it must succeed.
+//   vcs  — in-guest `jj describe`/`status`, which resolve the workspace's
+//          `.jj/repo` pointer to the /mnt/jj-store mount and write to the
+//          shared HOST store. The description marker is then visible in the
+//          host repo's `jj log` with no export step.
+//
+// Deterministic tool nodes (shape=parallelogram) — no LLM backend needed.
+
+digraph vm_workspace_acceptance {
+    goal = "prove pnpm (SQLite store) + in-guest jj work over virtiofs"
+
+    start [shape=Mdiamond]
+    deps  [shape=parallelogram,
+           tool_command="cd /mnt/workspace && pnpm install --store-dir /mnt/workspace/.pnpm-store"]
+    vcs   [shape=parallelogram,
+           tool_command="cd /mnt/workspace && jj describe -m 'vm-workspace-acceptance ran' && jj status"]
+    done  [shape=Msquare]
+
+    start -> deps
+    deps -> vcs  [condition="outcome=success"]
+    vcs -> done  [condition="outcome=success"]
+}
