@@ -109,8 +109,8 @@ func TestWriteJobMaterializesJobDir(t *testing.T) {
 	if job.ReportURL != "http://10.0.2.2:7681" {
 		t.Fatalf("report_url = %q, want guest-rewritten", job.ReportURL)
 	}
-	if job.Cwd != "/mnt/workspace" {
-		t.Fatalf("cwd = %q", job.Cwd)
+	if job.Cwd != guestWorkDir {
+		t.Fatalf("cwd = %q, want the guest-local work dir %q", job.Cwd, guestWorkDir)
 	}
 	if job.Vars["k"] != "v" {
 		t.Fatalf("vars = %v", job.Vars)

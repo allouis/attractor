@@ -31,6 +31,14 @@ type vmLauncher struct {
 // the vhost-user-fs shared-memory backend must be sized to the guest RAM.
 const defaultVMMemoryMiB = 8192
 
+// guestWorkDir is where the guest copies the ro-delivered workspace onto its
+// OWN ext4 and runs the pipeline (cwd). virtiofsd cache=never can't host the
+// SQLite DBs real tools open (pnpm store index, Nx task DB) — they die with
+// `disk I/O error` — so the mount is transport only and the work surface is
+// guest-local (spec §Empirical pivot, G1). Coupled to the `cp` target in
+// nix/vm-runner.nix; the two must agree, like /mnt/workspace did.
+const guestWorkDir = "/work"
+
 // NewVMLauncher returns a Launcher that boots nix/vm-runner.nix VMs from a
 // single script, registered as the "default" image. runnerScript is the
 // run-nixos-vm path (from `nix build .#vm-runner`); vmDir roots each run's
@@ -133,7 +141,7 @@ func (l vmLauncher) writeJob(run *Run, reportURL string) (jobDir string, err err
 		RunID:     run.ID,
 		Token:     run.Token(),
 		ReportURL: guestReportURL(reportURL, l.guestHost),
-		Cwd:       "/mnt/workspace",
+		Cwd:       guestWorkDir,
 		Vars:      run.initialContext,
 	}
 	data, err := json.MarshalIndent(job, "", "  ")
