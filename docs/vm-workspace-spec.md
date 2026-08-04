@@ -219,11 +219,34 @@ isolation is free (no shared-store corruption to engineer — W4 dissolves).
 | # | Deliverable | Status |
 |---|---|---|
 | G1 | Launcher/vm-runner materialize the per-run workspace onto guest ext4 (`/work`); pipeline `cwd=/work`; the ro host mount is transport only. Acceptance (ungated host test may stub; gated e2e boots a VM): Ghost `pnpm install` + `pnpm run lint` succeed — no `disk I/O error`. | done |
-| GS | **Drop virtiofs (copy-only makes it dead weight).** With guest-local copy (G1) the workspace needs only read-only *delivery*. Replace the virtiofs delivery with a plain **read-only 9p** share of the per-run workspace (module-blessed, daemon-free): remove the per-run `virtiofsd` startup, the `vhost-user-fs`/`QEMU_OPTS` device wiring, and the virtiofs `virtualisation.fileSystems` mounts; deliver `/mnt/workspace` (and, while in-guest jj is still used, `/mnt/repo/.jj`+`.git`) as ro 9p; the guest copies to ext4 as in G1. Delete the now-dead virtiofs code paths + their unit tests. Gate stays green and the gated `ATTRACTOR_VM_E2E` acceptance still passes (Ghost `pnpm install` + `pnpm run lint`). Net diff: virtiofs gone. | todo |
+| GS | **Drop virtiofs (copy-only makes it dead weight).** With guest-local copy (G1) the workspace needs only read-only *delivery*. Replace the virtiofs delivery with plain **9p** shares (module-blessed, daemon-free): remove the per-run `virtiofsd` startup, the `vhost-user-fs`/`QEMU_OPTS` device wiring, and the virtiofs `virtualisation.fileSystems` mounts. Deliver `/mnt/workspace` as **read-only** 9p (transport; the guest copies to ext4 as in G1). The repo store `/mnt/repo/.jj`+`.git` is delivered **read-write** 9p, *not* ro — the original "ro" plan was wrong here: in-guest jj auto-snapshots and commits on nearly every command, so its store mount must be writable. This does **not** re-open the pivot's failure mode: unlike the SQLite tools (pnpm/Nx) that forced the ext4 copy, jj's store is plain files (op-store, op-heads, git objects, not SQLite), and the gated `ATTRACTOR_VM_E2E` **proves** in-guest jj commits land in the host store over plain 9p. Delete the now-dead virtiofs code paths + their unit tests. Gate stays green and the gated `ATTRACTOR_VM_E2E` acceptance still passes (Ghost `pnpm install` + `pnpm run lint`, **plus** an in-guest jj commit visible in the host `jj log`). Requires jj-**colocated** repos (`jj root` + a root `.git`): the launcher rejects an external-git-backend repo up front, since the module 9p-shares `$ATTRACTOR_REPO/.git`. Net diff: virtiofs gone. | todo |
 | G2 | Results export: guest `jj bundle` (or `jj git push` over the ro-mounted `.git`) of the run tip → job share; host imports as `run/<id>`, visible in host `jj log`, no manual export. | deferred (user, later) |
 | G3 | Warm cache: a host-persisted ext4 cache dir mounted into the guest (NOT virtiofs for SQLite dirs) or a VM-local reused store, so run N+1 skips re-download; dependency-correctness test (two lockfiles → correct node_modules each). | deferred |
 | G4 | Reaper/lifecycle unchanged from W5 intent: reclaim guest disk on success, keep failed until retention. | deferred |
 
 ### Keep from W1/W2
-The mount plumbing (per-run host jj workspace, virtiofs/9p shares, job share,
+The mount plumbing (per-run host jj workspace, 9p shares, job share,
 phone-home) stays — it is the transport. Only the *work surface* moves to ext4.
+
+### GS notes (empirical corrections + rollout)
+- **jj *does* work over 9p (corrects the historical decision record).** The
+  locked record above (§Decision record: "9p can't provide the locking/mmap
+  SQLite **and jj** need; virtiofs does") is superseded for jj by GS's result.
+  That claim held for the SQLite tools (pnpm store index, Nx task DB) — which is
+  why the *work surface* copies to ext4 (G1) — but jj's store is plain files
+  (op-store, op-heads, git objects), and the gated `ATTRACTOR_VM_E2E` proves an
+  in-guest jj commit lands in the host store over a plain **rw** 9p mount. So
+  the store stays a shared rw mount, not virtiofs; GS's win (virtiofs gone) is
+  intact. The only shared *rw* surface is the VCS store, and same-repo
+  concurrency is still bounded to one live run per repo (unchanged from W2).
+- **Colocation is required.** in-guest jj reaches the host store through the
+  9p share of `$ATTRACTOR_REPO/.git`, so the target repo must be
+  jj-**colocated** (a root `.git`). The launcher prechecks this (`jj root` +
+  `.git`) and rejects an external-backend repo up front — otherwise its missing
+  `.git` share would fail `mnt-repo-.git.mount`, the runner would never start,
+  and the launcher would wait forever.
+- **Upgrade note (virtiofsd orphans).** GS records no per-run daemons, but a VM
+  in flight *across* the upgrade left a `vm.json` naming its `virtiofsd`. The
+  reaper still kills those legacy `vfsd_pid`/`vfsd_pids` (read-only back-compat),
+  so no operator drain is needed; the shim can be dropped once no pre-GS VM
+  remains within the retention window.
