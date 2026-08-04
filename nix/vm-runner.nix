@@ -59,8 +59,14 @@ let
       # .pnpm-store / .nx are created here on ext4 during the run. The copied
       # .jj/repo still points at the /mnt/repo store mount, so in-guest jj
       # commits into the shared HOST store as before (W2, unchanged).
-      mkdir -p "$cwd"
-      cp -a /mnt/workspace/. "$cwd"/
+      #
+      # Guard both steps: they run under `set -e`, so an unguarded failure (ext4
+      # full on the sparse disk, a copy error off the ro virtiofs mount) would
+      # abort the script BEFORE the attractor poweroff guard below — leaving
+      # qemu alive with no phone-home, hanging the launcher forever. Route them
+      # through poweroff_run so a copy failure fails the run instead.
+      mkdir -p "$cwd" || poweroff_run "mkdir $cwd failed"
+      cp -a /mnt/workspace/. "$cwd"/ || poweroff_run "workspace copy to $cwd failed"
 
       args=(run --report-to "$url" --run-id "$run_id" --report-token "$token"
             --cwd "$cwd" --base-dir /mnt/job --logs /tmp/attractor-run)
