@@ -1947,13 +1947,17 @@ function reposPanelHtml(repos, warnings, vmImages) {
   const rows = names.length
     ? names.map(name => repoRowHtml(name, repos[name] || {}, repoWarning(name, warnings), vmImages)).join('')
     : `<tr data-empty-hint><td class="muted" colspan="${cols}">No repos registered — add one.</td></tr>`;
+  // Mobile-first responsive (ui-tailwind-spec T2): the wide table overflows a
+  // phone, so at <640px it collapses to stacked cards (block table sub-elements,
+  // header hidden — each row carries its own field labels) and restores to a
+  // real table at sm.
   return `<section class="config-panel card" id="config-repos">
     <h3>Repos</h3>
     <p class="muted">Registered repos and their check commands — the run-form dropdown and the check backbone read these.</p>
-    <table>
-      <thead><tr><th>owner/name</th><th>path</th><th>runner</th><th>image</th>${
+    <table class="block sm:table w-full">
+      <thead class="hidden sm:table-header-group"><tr><th>owner/name</th><th>path</th><th>runner</th><th>image</th>${
         STANDARD_CHECKS.map(c => `<th>${escapeHtml(c)}</th>`).join('')}<th></th></tr></thead>
-      <tbody id="config-repos-rows">${rows}</tbody>
+      <tbody id="config-repos-rows" class="block sm:table-row-group">${rows}</tbody>
     </table>
     <p><button type="button" data-repo-add>add repo</button></p>
   </section>`;
@@ -1966,18 +1970,23 @@ function reposPanelHtml(repos, warnings, vmImages) {
 // the top banner (config-screen-spec C5).
 function repoRowHtml(name, rc, warning, vmImages) {
   const checks = rc.checks || {};
+  // cell wraps one field so the mobile card reads label/value per line (label
+  // shown only <sm; the table header carries it at ≥sm). border-0 drops the
+  // inherited per-cell separator inside the card, restored as a row border at sm.
+  const cell = (label, inner) =>
+    `<td class="block border-0 sm:table-cell sm:border-b"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
   const checkCells = STANDARD_CHECKS.map(c =>
-    `<td><input data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}"></td>`).join('');
+    cell(escapeHtml(c), `<input class="w-full sm:w-auto" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`)).join('');
   const warn = warning
     ? `<div class="config-note" data-repo-warning>⚠ ${escapeHtml(warning)}</div>` : '';
   const runner = rc.runner || '';
-  return `<tr data-repo-row>
-    <td><input data-repo-name value="${escapeHtml(name)}" placeholder="owner/name"></td>
-    <td><input data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}</td>
-    <td>${runnerSelectHtml(runner)}</td>
-    <td>${imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages)}</td>
+  return `<tr data-repo-row class="block rounded border border-line bg-surface-1 p-3 mb-3 sm:table-row sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:mb-0">
+    ${cell('owner/name', `<input class="w-full sm:w-auto" data-repo-name value="${escapeHtml(name)}" placeholder="owner/name">`)}
+    ${cell('path', `<input class="w-full sm:w-auto" data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}`)}
+    ${cell('runner', runnerSelectHtml(runner))}
+    ${cell('image', imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages))}
     ${checkCells}
-    <td><button type="button" data-repo-remove title="remove repo">&times;</button></td>
+    ${cell('', '<button type="button" data-repo-remove title="remove repo">&times;</button>')}
   </tr>`;
 }
 
@@ -1989,7 +1998,7 @@ function repoRowHtml(name, rc, warning, vmImages) {
 function runnerSelectHtml(runner) {
   const opts = ['', 'direct', 'local', 'vm'].map(v =>
     `<option value="${escapeHtml(v)}"${v === runner ? ' selected' : ''}>${v || '(default)'}</option>`).join('');
-  return `<select data-repo-runner>${opts}</select>`;
+  return `<select class="w-full sm:w-auto" data-repo-runner>${opts}</select>`;
 }
 
 // imageSelectHtml renders the per-repo VM image select: a blank "(default)"
@@ -2016,7 +2025,7 @@ function imageSelectHtml(image, runner, vmImages) {
   // Editable unless an explicit non-vm placement — an unset runner inherits
   // the daemon default (which may be vm), so a pin is meaningful there too.
   const dis = isNonVMPlacement(runner) ? ' disabled' : '';
-  return `<select data-repo-image${dis}>${opts}</select>`;
+  return `<select class="w-full sm:w-auto" data-repo-image${dis}>${opts}</select>`;
 }
 
 // repoWarning finds the soft save-warning for a repo, matching the backend's
@@ -2070,9 +2079,9 @@ function providersPanelHtml(doc) {
     <label>default provider
       <select id="config-default-provider"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>
     </label>
-    <table>
-      <thead><tr><th>provider</th><th>backend</th><th>command</th><th>model_env</th><th></th></tr></thead>
-      <tbody id="config-providers-rows">${rows}</tbody>
+    <table class="block sm:table w-full">
+      <thead class="hidden sm:table-header-group"><tr><th>provider</th><th>backend</th><th>command</th><th>model_env</th><th></th></tr></thead>
+      <tbody id="config-providers-rows" class="block sm:table-row-group">${rows}</tbody>
     </table>
     <p><button type="button" data-provider-add>add provider</button></p>
   </section>`;
@@ -2080,12 +2089,15 @@ function providersPanelHtml(doc) {
 
 // providerRowHtml renders one provider row; a blank name is the add case.
 function providerRowHtml(name, p) {
-  return `<tr data-provider-row>
-    <td><input data-provider-name value="${escapeHtml(name)}" placeholder="name"></td>
-    <td><input data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation"></td>
-    <td><input data-provider-command value="${escapeHtml(p.command || '')}"></td>
-    <td><input data-provider-model-env value="${escapeHtml(p.model_env || '')}"></td>
-    <td><button type="button" data-provider-remove title="remove provider">&times;</button></td>
+  // Same stacked-card-at-<640px treatment as repoRowHtml (ui-tailwind-spec T2).
+  const cell = (label, inner) =>
+    `<td class="block border-0 sm:table-cell sm:border-b"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
+  return `<tr data-provider-row class="block rounded border border-line bg-surface-1 p-3 mb-3 sm:table-row sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:mb-0">
+    ${cell('provider', `<input class="w-full sm:w-auto" data-provider-name value="${escapeHtml(name)}" placeholder="name">`)}
+    ${cell('backend', `<input class="w-full sm:w-auto" data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation">`)}
+    ${cell('command', `<input class="w-full sm:w-auto" data-provider-command value="${escapeHtml(p.command || '')}">`)}
+    ${cell('model_env', `<input class="w-full sm:w-auto" data-provider-model-env value="${escapeHtml(p.model_env || '')}">`)}
+    ${cell('', '<button type="button" data-provider-remove title="remove provider">&times;</button>')}
   </tr>`;
 }
 
