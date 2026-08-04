@@ -217,7 +217,7 @@ isolation is free (no shared-store corruption to engineer — W4 dissolves).
 ### Milestones (supersede virtiofs W3–W6 delivery)
 | # | Deliverable | Status |
 |---|---|---|
-| G1 | Launcher/vm-runner materialize the per-run workspace onto guest ext4 (`/work`); pipeline `cwd=/work`; the ro host mount is transport only. Acceptance (ungated host test may stub; gated e2e boots a VM): Ghost `pnpm install` + `pnpm run lint` succeed — no `disk I/O error`. | todo |
+| G1 | Launcher/vm-runner materialize the per-run workspace onto guest ext4 (`/work`); pipeline `cwd=/work`; the ro host mount is transport only. Acceptance (ungated host test may stub; gated e2e boots a VM): Ghost `pnpm install` + `pnpm run lint` succeed — no `disk I/O error`. | done |
 | G2 | Results export: guest `jj bundle` (or `jj git push` over the ro-mounted `.git`) of the run tip → job share; host imports as `run/<id>`, visible in host `jj log`, no manual export. | todo |
 | G3 | Warm cache: a host-persisted ext4 cache dir mounted into the guest (NOT virtiofs for SQLite dirs) or a VM-local reused store, so run N+1 skips re-download; dependency-correctness test (two lockfiles → correct node_modules each). | todo |
 | G4 | Reaper/lifecycle unchanged from W5 intent: reclaim guest disk on success, keep failed until retention. | todo |
