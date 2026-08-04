@@ -1097,8 +1097,13 @@ function renderFleet() {
   if (!all.length) { $('run-list').innerHTML = emptyState('no runs yet'); return; }
   const runs = applyRunFilters(all);
   if (!runs.length) { $('run-list').innerHTML = emptyState('no runs match the filter'); return; }
+  $('run-list').innerHTML = runsTableHtml(runs);
+}
+
+// runsTableHtml renders the fleet as a table of runRowHtml rows.
+function runsTableHtml(runs) {
   const rows = runs.map(runRowHtml).join('');
-  $('run-list').innerHTML = `<table>
+  return `<table>
     <thead><tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
