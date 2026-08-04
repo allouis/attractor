@@ -740,9 +740,7 @@ function itemBadges(it) {
   const chip = it.in_progress ? '<span class="badge in-progress">in progress</span>' : '';
   const runs = (it.linked_runs || []).map(run => {
     const id = run.id || '';
-    const status = escapeHtml(run.status || '');
-    return `<a class="badge status ${status}" href="#run/${escapeHtml(id)}"` +
-           ` title="${status}">${escapeHtml(id.slice(0, 8))}</a>`;
+    return stateBadge(run.status, id.slice(0, 8), `#run/${id}`);
   }).join('');
   return chip + runs;
 }
@@ -1283,7 +1281,7 @@ function runRowHtml(p) {
       ${cell('item', runItemCell(p), true)}
       ${cell('repo', runRepoCell(p), true)}
       ${cell('by', runOriginCell(p), true)}
-      ${cell('status', `<span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span>${chip}`)}
+      ${cell('status', `${stateBadge(p.status)}${chip}`)}
       ${cell('started', fmtDate(p.started_at), true)}
       ${cell('', runCancelButton(p))}
     </tr>`;
@@ -1798,7 +1796,7 @@ function stageDetailHtml(id, detail, timing, logHtml) {
   return `
     <h3>${escapeHtml(id)}</h3>
     <div class="stage-meta">
-      <span class="badge status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+      ${stateBadge(status)}
       <span class="muted">${fmtDuration(timing.start, timing.end)}</span>
     </div>
     ${section('Prompt', detail.prompt)}
@@ -2384,6 +2382,22 @@ async function answer(qid, body) {
 // land in (web-ui-v2-spec U1): an empty result, an in-flight load, and a
 // failure — each reads differently. Pure helpers returning inert markup; the
 // message is escaped because some carry backend/error text.
+// stateBadge renders a run-state pill: the Tailwind Plus badge shape
+// (badges.html — inline-flex, rounded, inset ring) carrying its per-state
+// colour through the existing `.status.<state>` token rule, so one colour maps
+// to each run state and light/dark tracks (ui-tailwind-spec T6a). The ring
+// inherits `currentColor` (the state colour), tinted; the surface stays
+// neutral. label defaults to the state word; href turns it into a link (the
+// Items view tints a run-id link by its run state). All three are escaped.
+function stateBadge(status, label, href) {
+  const s = escapeHtml(status || '');
+  const text = escapeHtml(label != null ? label : (status || ''));
+  const cls = `status ${s} inline-flex items-center rounded-md bg-surface-1 ` +
+    `px-2 py-1 text-sm font-medium ring-1 ring-inset ring-current/25`;
+  return href
+    ? `<a class="${cls}" href="${escapeHtml(href)}" title="${s}">${text}</a>`
+    : `<span class="${cls}">${text}</span>`;
+}
 function emptyState(msg) {
   return `<p class="state state-empty">${escapeHtml(msg)}</p>`;
 }
