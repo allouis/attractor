@@ -193,6 +193,23 @@ func (l vmLauncher) vmEnv(runDir, jobDir, workspace string) []string {
 	)
 }
 
+// materializeWorkspace adds an isolated jj workspace of repoDir at dest,
+// named name (spec W1). jj workspaces materialise only TRACKED files, so a
+// gitignored node_modules never appears — the run installs its own,
+// matching its own lockfile, and its mutations never touch the host
+// checkout. The workspace lives on the host and shows in `jj log`, the
+// property virtiofs delivery preserves.
+func materializeWorkspace(repoDir, dest, name string) error {
+	// --revision @ bases the workspace on the host repo's current working
+	// state (default would base on @-, dropping uncommitted work).
+	cmd := exec.Command("jj", "-R", repoDir, "workspace", "add", "--name", name, "--revision", "@", dest)
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("jj workspace add: %w\n%s", err, out)
+	}
+	return nil
+}
+
 func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	if run.cwd == "" {
 		run.failCrashed("vm launcher: run has no cwd (working tree) to share")

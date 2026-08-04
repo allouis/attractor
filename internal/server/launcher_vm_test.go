@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -147,6 +148,58 @@ func TestCopyTree(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dst, "sneaky")); !os.IsNotExist(err) {
 		t.Fatalf("symlink was copied into the job share (err %v)", err)
+	}
+}
+
+// materializeWorkspace adds an isolated jj workspace holding only the
+// repo's TRACKED files — never gitignored node_modules — so a run mutates
+// its own copy, not the host checkout (spec: per-run jj workspace, W1).
+func TestMaterializeWorkspace(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := t.TempDir()
+	jj := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("jj", append([]string{"-R", repo}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("jj %v: %v\n%s", args, err, out)
+		}
+	}
+	if out, err := exec.Command("jj", "git", "init", repo).CombinedOutput(); err != nil {
+		t.Fatalf("jj git init: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "foo.txt"), []byte("tracked"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("node_modules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "node_modules", "x.js"), []byte("junk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jj("describe", "-m", "init")
+
+	work := filepath.Join(t.TempDir(), "work")
+	if err := materializeWorkspace(repo, work, "run-abc"); err != nil {
+		t.Fatalf("materializeWorkspace: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(work, "foo.txt")); err != nil || string(got) != "tracked" {
+		t.Fatalf("foo.txt = %q (err %v); tracked file not materialized", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(work, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("node_modules leaked into workspace (err %v); must install per run", err)
+	}
+	out, err := exec.Command("jj", "-R", repo, "workspace", "list").CombinedOutput()
+	if err != nil {
+		t.Fatalf("workspace list: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "run-abc") {
+		t.Fatalf("workspace list missing run-abc:\n%s", out)
 	}
 }
 
