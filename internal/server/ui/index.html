@@ -761,6 +761,13 @@ let runFormRef = null;
 let runFormPrefill = {};
 let runFormRepos = [];
 
+// formField wraps one labelled control (run-form var, Linear key, default
+// provider) as a stacked label/control field. Shared so the run-form modal and
+// the config panels carry one form-layout shape (ui-tailwind-spec T6c).
+function formField(labelText, controlHtml) {
+  return `<label>${labelText} ${controlHtml}</label>`;
+}
+
 // buildVarFields renders the Run modal's body: one field per var a workflow
 // declares (run-workflow-spec §"The input contract"), prefilled from `prefill`
 // (an item's vars, or {} for a standalone launch) and editable. `repo` is
@@ -776,10 +783,10 @@ function buildVarFields(vars, prefill, repos) {
           const sel = r.name === prefill.repo ? ' selected' : '';
           return `<option value="${escapeHtml(r.name)}"${sel}>${escapeHtml(r.name)}</option>`;
         })).join('');
-      return `<label>${escapeHtml(v)} <select class="run-var" data-var="repo">${opts}</select></label>`;
+      return formField(escapeHtml(v), `<select class="run-var" data-var="repo">${opts}</select>`);
     }
-    return `<label>${escapeHtml(v)} ` +
-      `<input class="run-var" data-var="${escapeHtml(v)}" value="${escapeHtml(prefill[v] || '')}"></label>`;
+    return formField(escapeHtml(v),
+      `<input class="run-var" data-var="${escapeHtml(v)}" value="${escapeHtml(prefill[v] || '')}">`);
   }).join('');
 }
 
@@ -2110,8 +2117,8 @@ function linearPanelHtml(linear, armedClear) {
   return `<section class="config-panel card" id="config-linear">
     <h3>Linear</h3>
     <p class="muted">API key for the Linear item source — status <strong>${set ? 'set' : 'unset'}</strong>. The stored key is never shown.</p>
-    <label>API key <input type="password" id="config-linear-key"${armed ? ' disabled' : ''} placeholder="${
-      set ? 'leave blank to keep the stored key' : 'enter a key'}"></label>
+    ${formField('API key', `<input type="password" id="config-linear-key"${armed ? ' disabled' : ''} placeholder="${
+      set ? 'leave blank to keep the stored key' : 'enter a key'}">`)}
     <p>${set ? `<button type="button" data-linear-clear>${armed ? 'keep key' : 'clear key'}</button> ` : ''}<span id="config-linear-note" class="config-note">${
       armed ? 'key will be cleared on save' : ''}</span></p>
   </section>`;
@@ -2136,9 +2143,7 @@ function providersPanelHtml(doc) {
     <h3>Providers</h3>
     <p class="muted">Agent backends the router dispatches to.</p>
     <p class="config-note">Editing providers takes effect only after a daemon restart.</p>
-    <label>default provider
-      <select id="config-default-provider"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>
-    </label>
+    ${formField('default provider', `<select id="config-default-provider"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>`)}
     ${dataTable(`<tr>${['provider', 'backend', 'command', 'model_env'].map(h => `<th class="${TH_CLASS}">${h}</th>`).join('')}<th></th></tr>`, rows, 'config-providers-rows')}
     <p><button type="button" data-provider-add>add provider</button></p>
   </section>`;
