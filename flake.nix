@@ -96,10 +96,10 @@
         # Bundled onto attractor's PATH so the `acp` backend finds its command
         # without any host config. codex-acp is already self-wrapped upstream
         # (sets CODEX_PATH to its own bundled codex), so it needs no override.
-        # jujutsu + virtiofsd back the vm launcher's per-run workspace: it
-        # runs `jj workspace add` on the host and serves that workspace to the
-        # guest over virtiofsd (docs/vm-workspace-spec.md W1).
-        runtimeDeps = [ pkgs.graphviz claude-agent-acp llmPkgs.codex-acp pkgs.jujutsu pkgs.virtiofsd ];
+        # jujutsu backs the vm launcher's per-run workspace: it runs
+        # `jj workspace add` on the host, delivered to the guest over ro 9p
+        # (docs/vm-workspace-spec.md — guest-local pivot; virtiofs dropped, GS).
+        runtimeDeps = [ pkgs.graphviz claude-agent-acp llmPkgs.codex-acp pkgs.jujutsu ];
         attractor = pkgs.buildGoModule {
           pname = "attractor";
           inherit version;
@@ -107,7 +107,14 @@
           vendorHash = null;
           subPackages = [ "cmd/attractor" "hookshim" ];
           ldflags = [ "-X github.com/allouis/attractor/internal/version.Revision=${rev}" ];
-          nativeBuildInputs = [ pkgs.makeWrapper ];
+          nativeBuildInputs = [ pkgs.makeWrapper pkgs.tailwindcss ];
+          # Compile the UI's Tailwind stylesheet (tree-shaken from index.html)
+          # before go build embeds it. Keeps the shipped CSS in lockstep with the
+          # markup; the committed ui/tailwind.css is a dev/go-test fallback.
+          preBuild = ''
+            export HOME=$TMPDIR
+            ( cd internal/server/ui && tailwindcss -c tailwind.config.js -i input.css -o tailwind.css --minify )
+          '';
           postInstall = ''
             wrapProgram $out/bin/attractor \
               --prefix PATH : ${pkgs.lib.makeBinPath runtimeDeps}

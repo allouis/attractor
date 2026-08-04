@@ -1,0 +1,8 @@
+/* Tailwind entry for the attractor UI. Compiled to tailwind.css (tree-shaken
+ * from index.html) and injected into the page by serveUI. Preflight is off
+ * (see tailwind.config.js), so this is additive over the existing hand CSS;
+ * views migrate to utilities incrementally. The run-graph SVG restyle (T4)
+ * and any component layers land here. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
