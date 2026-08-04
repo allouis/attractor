@@ -41,8 +41,9 @@ let
       job=/mnt/job/job.json
       for _ in $(seq 1 60); do [ -f "$job" ] && break; sleep 1; done
       if [ ! -f "$job" ]; then
-        echo "attractor-vm-run: no job.json on /mnt/job (share not mounted?)" >&2
-        exit 1
+        # Same hang class as the copy guard: a bare `exit 1` here leaves qemu
+        # alive with no phone-home, blocking the launcher forever.
+        poweroff_run "no job.json on /mnt/job (share not mounted?)"
       fi
 
       run_id=$(jq -r .run_id "$job")
