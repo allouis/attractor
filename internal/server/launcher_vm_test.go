@@ -203,6 +203,36 @@ func TestMaterializeWorkspace(t *testing.T) {
 	}
 }
 
+// virtiofsdArgs pins cache=none (strongest coherence + locking — needed
+// for the SQLite store and instant host visibility, spec virtiofsd cache
+// mode) and wires the per-run socket + shared dir.
+func TestVirtiofsdArgs(t *testing.T) {
+	args := strings.Join(virtiofsdArgs("/run/vfs.sock", "/vm/abc/work"), " ")
+	for _, want := range []string{"--socket-path=/run/vfs.sock", "--shared-dir=/vm/abc/work", "--cache=none"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("virtiofsdArgs missing %q in %q", want, args)
+		}
+	}
+}
+
+// virtiofsQemuOpts builds the vhost-user-fs device + the shared-memory
+// backend it mandates, so the guest can mount the host workspace rw over
+// virtiofs (spec W1). Without memory-backend-memfd,share=on qemu refuses
+// vhost-user-fs.
+func TestVirtiofsQemuOpts(t *testing.T) {
+	opts := virtiofsQemuOpts("/run/vfs.sock", "workspace", 8192)
+	for _, want := range []string{
+		"-chardev socket,id=vfs-workspace,path=/run/vfs.sock",
+		"-device vhost-user-fs-pci,chardev=vfs-workspace,tag=workspace",
+		"-object memory-backend-memfd,id=mem,size=8192M,share=on",
+		"-machine memory-backend=mem",
+	} {
+		if !strings.Contains(opts, want) {
+			t.Errorf("virtiofsQemuOpts missing %q in %q", want, opts)
+		}
+	}
+}
+
 // A vm run with no working tree can't share a workspace; it fails fast
 // rather than booting a useless VM.
 func TestVMLauncherRequiresCwd(t *testing.T) {

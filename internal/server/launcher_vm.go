@@ -210,6 +210,33 @@ func materializeWorkspace(repoDir, dest, name string) error {
 	return nil
 }
 
+// virtiofsdArgs builds the per-run virtiofsd invocation: serve sharedDir
+// over a unix socket with cache=none — the strongest coherence + locking
+// mode, required for the SQLite store index and instant host visibility
+// (spec: virtiofsd cache mode; W2 may relax to auto if the lock test holds).
+func virtiofsdArgs(sock, sharedDir string) []string {
+	return []string{
+		"--socket-path=" + sock,
+		"--shared-dir=" + sharedDir,
+		"--cache=none",
+	}
+}
+
+// virtiofsQemuOpts builds the QEMU_OPTS run-nixos-vm appends to boot with a
+// vhost-user-fs device backed by virtiofsd's socket, exported as tag. The
+// device requires a shared-memory backend, so we add memory-backend-memfd
+// (share=on) sized to the guest RAM and select it as the machine's memory.
+// The guest mounts tag rw (nix/vm-runner.nix). Spec W1.
+func virtiofsQemuOpts(sock, tag string, memMiB int) string {
+	id := "vfs-" + tag
+	return strings.Join([]string{
+		fmt.Sprintf("-chardev socket,id=%s,path=%s", id, sock),
+		fmt.Sprintf("-device vhost-user-fs-pci,chardev=%s,tag=%s", id, tag),
+		fmt.Sprintf("-object memory-backend-memfd,id=mem,size=%dM,share=on", memMiB),
+		"-machine memory-backend=mem",
+	}, " ")
+}
+
 func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	if run.cwd == "" {
 		run.failCrashed("vm launcher: run has no cwd (working tree) to share")
