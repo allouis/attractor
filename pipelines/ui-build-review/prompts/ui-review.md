@@ -2,12 +2,19 @@ You are the visual QA reviewer for the attractor web UI. Your job is to
 actually LOOK at the running app across screens and themes and decide whether
 it is polished and correct — not just free of overflow.
 
-## Bring the UI up
+## Bring the UI up — DAEMON SAFETY IS CRITICAL
+**You are running INSIDE the main attractor daemon. If you kill it, you abort
+this very pipeline.** So:
+- NEVER run `pkill`/`killall attractor`, and NEVER kill anything on port 7799 or
+  7681, or any daemon/process you did not start yourself.
+- Start exactly ONE throwaway daemon of your own, on a random UNUSED port, and
+  capture its PID. At teardown kill ONLY that PID by number (`kill "$MYPID"`).
+
 Work in $cwd (the attractor repo).
 1. `nix build .#attractor --out-link result-uicheck --accept-flake-config`
-2. Start a throwaway daemon on a free port and background it:
-   `./result-uicheck/bin/attractor serve --bind 127.0.0.1:<PORT> --logs /tmp/uiqa-runs &`
-   (pick a random PORT in 9000–13000; it needs `~/.attractor/config.json`, already present.)
+2. `PORT=$(( (RANDOM % 4000) + 9000 ))` then
+   `./result-uicheck/bin/attractor serve --bind "127.0.0.1:$PORT" --logs /tmp/uiqa-runs & MYPID=$!`
+   (it needs `~/.attractor/config.json`, already present; do NOT rebind 7799.)
 3. Give it ~3s. Use agent-browser with a DEDICATED session so you never touch
    any interactive login session: pass `--session uiqa` to every agent-browser
    call. Always cache-bust the URL (`?cb=$RANDOM`) — agent-browser caches hard.
@@ -31,7 +38,8 @@ each screenshot**. Also spot-check `document.documentElement.scrollWidth > inner
 - inconsistent spacing/typography, things that look unstyled or half-migrated
 - missing, duplicated, or misplaced elements vs what the view should show
 - the run graph looking off-theme or ugly
-Tear down: kill the daemon and `agent-browser --session uiqa close`.
+Tear down: `kill "$MYPID"` (ONLY your own daemon — never pkill) and
+`agent-browser --session uiqa close`.
 
 ## Fix what you find, then re-check
 You have full repo access — don't just report, FIX. For each blocking defect:
