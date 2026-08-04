@@ -30,7 +30,7 @@ blocks. The graph is graphviz `dot -Tsvg` (inline SVG) with hardcoded
 
 | # | Deliverable | Status |
 |---|---|---|
-| T1 | **Shell/header responsive.** Header + nav (`<header><nav>…`) to Tailwind; on ≤640px the nav collapses (wrap or a menu) and the theme toggle stays reachable; fix the sticky-header tap-intercept (taps on nav must land, not hit the header). No overflow at 390px. | todo |
+| T1 | **Shell/header responsive.** Header + nav (`<header><nav>…`) to Tailwind; on ≤640px the nav collapses (wrap or a menu) and the theme toggle stays reachable; fix the sticky-header tap-intercept (taps on nav must land, not hit the header). No overflow at 390px. | done |
 | T2 | **Config tables → cards.** The Repos and Providers editable tables overflow to ~572px. On ≤640px render each row as a stacked card (label/value per line) using Tailwind; keep the desktop table at ≥640px. Inputs full-width + tappable on mobile. | todo |
 | T3 | **Runs table responsive.** The run-list table clips the `by` column. On ≤640px show a stacked/card row (run id, workflow, repo, status, when) with no clipped columns; desktop table unchanged. | todo |
 | T4 | **Graph restyle + engine selector.** (a) Restyle the inline run-graph SVG with tokens: edges use `--border`/`--text-muted` with clean stroke weight + rounded caps (no black), nodes use `--surface-1`/`--border`, text uses `--text` + the UI font — theme-aware. Put the rules in `ui/input.css`. (b) Add a graphviz **engine selector**: `render.SVG` takes an engine, `runDot` passes `-K<engine>`; the daemon graph endpoint accepts `?engine=` (allowlist: dot, neato, fdp, sfdp, circo, twopi); the run-detail view gets a small dropdown that re-renders the graph with the chosen engine. Default stays `dot`. | todo |
