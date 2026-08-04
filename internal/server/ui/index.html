@@ -365,7 +365,20 @@
     <div id="run-blocked"></div>
     <div id="run-failure"></div>
     <div class="layout">
-      <div id="graph" class="graph-pane"></div>
+      <div>
+        <label class="flex items-center gap-2 mb-2 text-muted text-sm">
+          layout
+          <select id="graph-engine" class="min-h-10 px-2 rounded border border-line bg-surface-1 text-base">
+            <option value="dot">dot</option>
+            <option value="neato">neato</option>
+            <option value="fdp">fdp</option>
+            <option value="sfdp">sfdp</option>
+            <option value="circo">circo</option>
+            <option value="twopi">twopi</option>
+          </select>
+        </label>
+        <div id="graph" class="graph-pane"></div>
+      </div>
       <div>
         <div id="node-pane" class="card"><p class="muted">Click a node to inspect it.</p></div>
         <div id="human-dock"></div>
@@ -1494,8 +1507,12 @@ async function restartRun(id) {
 }
 
 async function loadGraph(id) {
+  // The layout dropdown forwards a graphviz engine; dot is the default, so it
+  // needs no query param (the server treats absent/unknown as dot).
+  const engine = $('graph-engine')?.value;
+  const q = engine && engine !== 'dot' ? `?engine=${encodeURIComponent(engine)}` : '';
   try {
-    const r = await fetch(`/pipelines/${id}/graph`);
+    const r = await fetch(`/pipelines/${id}/graph${q}`);
     $('graph').innerHTML = r.ok ? await r.text() : errorState('graph unavailable');
   } catch (e) { $('graph').innerHTML = errorState('graph unavailable'); return; }
   // Make each graphviz node clickable; its DOT id lives in <title>.
@@ -2398,6 +2415,8 @@ window.addEventListener('load', () => {
   }
   $('runs-filter-text')?.addEventListener('input', onRunsFilterChange);
   $('workflow-expand')?.addEventListener('change', renderWorkflowGraph);
+  // Re-render the current run's graph with the chosen graphviz layout engine.
+  $('graph-engine')?.addEventListener('change', () => { if (currentRun) loadGraph(currentRun); });
   // Event-timeline filters (web-ui-v2-spec U3): seed the kind dropdown from the
   // known kinds, then re-render on either control changing.
   const kindSel = $('tl-kind');
