@@ -241,12 +241,14 @@ func TestVirtiofsdArgs(t *testing.T) {
 	}
 }
 
-// virtiofsQemuOpts builds the vhost-user-fs device + the shared-memory
-// backend it mandates, so the guest can mount the host workspace rw over
-// virtiofs (spec W1). Without memory-backend-memfd,share=on qemu refuses
-// vhost-user-fs.
+// virtiofsQemuOpts builds a vhost-user-fs device per mount + the single
+// shared-memory backend they mandate, so the guest can mount each host dir
+// rw over virtiofs (spec W1). Without memory-backend-memfd,share=on qemu
+// refuses vhost-user-fs.
 func TestVirtiofsQemuOpts(t *testing.T) {
-	opts := virtiofsQemuOpts("/run/vfs.sock", "workspace", 8192)
+	opts := virtiofsQemuOpts([]virtiofsMount{
+		{tag: "workspace", hostDir: "/vm/abc/work", sock: "/run/vfs.sock"},
+	}, 8192)
 	for _, want := range []string{
 		"-chardev socket,id=vfs-workspace,path=/run/vfs.sock",
 		"-device vhost-user-fs-pci,chardev=vfs-workspace,tag=workspace",
@@ -256,6 +258,30 @@ func TestVirtiofsQemuOpts(t *testing.T) {
 		if !strings.Contains(opts, want) {
 			t.Errorf("virtiofsQemuOpts missing %q in %q", want, opts)
 		}
+	}
+}
+
+// Multiple mounts each get their own chardev+device pair but share the ONE
+// memory-backend-memfd — qemu allows a single vhost-user shared-mem backend
+// for all vhost-user-fs devices (spec W2: workspace + jj store mounts).
+func TestVirtiofsQemuOptsMultipleMounts(t *testing.T) {
+	opts := virtiofsQemuOpts([]virtiofsMount{
+		{tag: "workspace", hostDir: "/vm/abc/work", sock: "/run/ws.sock"},
+		{tag: "jjstore", hostDir: "/repo/.jj/repo", sock: "/run/jj.sock"},
+	}, 4096)
+	for _, want := range []string{
+		"-chardev socket,id=vfs-workspace,path=/run/ws.sock",
+		"-device vhost-user-fs-pci,chardev=vfs-workspace,tag=workspace",
+		"-chardev socket,id=vfs-jjstore,path=/run/jj.sock",
+		"-device vhost-user-fs-pci,chardev=vfs-jjstore,tag=jjstore",
+		"-machine memory-backend=mem",
+	} {
+		if !strings.Contains(opts, want) {
+			t.Errorf("virtiofsQemuOpts missing %q in %q", want, opts)
+		}
+	}
+	if n := strings.Count(opts, "memory-backend-memfd"); n != 1 {
+		t.Errorf("want exactly one shared memory backend, got %d in %q", n, opts)
 	}
 }
 

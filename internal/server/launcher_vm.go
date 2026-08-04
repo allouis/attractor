@@ -238,6 +238,16 @@ func materializeWorkspace(repoDir, dest, name string) error {
 	return nil
 }
 
+// virtiofsMount is one host dir delivered into the guest over virtiofs: a
+// per-run virtiofsd serves hostDir on sock, exported to qemu under tag; the
+// guest mounts tag rw (nix/vm-runner.nix fileSystems). A run has one mount
+// per shared dir (workspace, jj store, …), each its own daemon + socket.
+type virtiofsMount struct {
+	tag     string // vhost-user-fs tag the guest mounts by
+	hostDir string // dir this mount's virtiofsd serves
+	sock    string // per-mount unix socket virtiofsd listens on
+}
+
 // virtiofsdArgs builds the per-run virtiofsd invocation: serve sharedDir
 // over a unix socket with cache=none — the strongest coherence + locking
 // mode, required for the SQLite store index and instant host visibility
@@ -251,18 +261,25 @@ func virtiofsdArgs(sock, sharedDir string) []string {
 }
 
 // virtiofsQemuOpts builds the QEMU_OPTS run-nixos-vm appends to boot with a
-// vhost-user-fs device backed by virtiofsd's socket, exported as tag. The
-// device requires a shared-memory backend, so we add memory-backend-memfd
-// (share=on) sized to the guest RAM and select it as the machine's memory.
-// The guest mounts tag rw (nix/vm-runner.nix). Spec W1.
-func virtiofsQemuOpts(sock, tag string, memMiB int) string {
-	id := "vfs-" + tag
-	return strings.Join([]string{
-		fmt.Sprintf("-chardev socket,id=%s,path=%s", id, sock),
-		fmt.Sprintf("-device vhost-user-fs-pci,chardev=%s,tag=%s", id, tag),
+// vhost-user-fs device per mount, each backed by its virtiofsd socket and
+// exported under its tag. vhost-user-fs requires a shared-memory backend, so
+// we add one memory-backend-memfd (share=on) sized to the guest RAM and
+// select it as the machine's memory — all devices share the single backend.
+// The guest mounts each tag rw (nix/vm-runner.nix). Spec W1/W2.
+func virtiofsQemuOpts(mounts []virtiofsMount, memMiB int) string {
+	opts := make([]string, 0, len(mounts)*2+2)
+	for _, m := range mounts {
+		id := "vfs-" + m.tag
+		opts = append(opts,
+			fmt.Sprintf("-chardev socket,id=%s,path=%s", id, m.sock),
+			fmt.Sprintf("-device vhost-user-fs-pci,chardev=%s,tag=%s", id, m.tag),
+		)
+	}
+	opts = append(opts,
 		fmt.Sprintf("-object memory-backend-memfd,id=mem,size=%dM,share=on", memMiB),
 		"-machine memory-backend=mem",
-	}, " ")
+	)
+	return strings.Join(opts, " ")
 }
 
 func (l vmLauncher) Launch(run *Run, reportURL string) error {
@@ -303,33 +320,41 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		return err
 	}
 
+	mounts := []virtiofsMount{
+		{tag: "workspace", hostDir: work, sock: filepath.Join(runDir, "vfs-workspace.sock")},
+	}
+
 	// A workspace (and soon a qcow2) now exists on disk. Every NON-success
 	// exit below — virtiofsd/console/boot failure, crash-before-terminal,
-	// cancel — must (a) not leak the virtiofsd daemon and (b) leave a
+	// cancel — must (a) not leak the virtiofsd daemons and (b) leave a
 	// vm.json so the reaper reclaims the work dir, qcow2, and jj workspace
 	// on retention; without the record the reaper skips the dir and it leaks
 	// forever (B2). Success flips `recorded` (writing live pids) and detaches
-	// vfsd (the daemon must stay up to serve the persisted VM's mount).
-	var vfsd *exec.Cmd
+	// the daemons (they must stay up to serve the persisted VM's mounts).
+	var vfsds []*exec.Cmd
 	recorded := false
 	defer func() {
-		if vfsd != nil && vfsd.Process != nil {
-			_ = vfsd.Process.Kill()
+		for _, d := range vfsds {
+			if d != nil && d.Process != nil {
+				_ = d.Process.Kill()
+			}
 		}
 		if !recorded {
 			l.recordVM(vmRecord{RunID: run.ID, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
 		}
 	}()
 
-	sock := filepath.Join(runDir, "vfs.sock")
-	vfsd, err = l.startVirtiofsd(sock, work, filepath.Join(runDir, "virtiofsd.log"))
-	if err != nil {
-		run.failCrashed("vm launcher: start virtiofsd: " + err.Error())
-		return err
+	for _, m := range mounts {
+		d, err := l.startVirtiofsd(m.sock, m.hostDir, filepath.Join(runDir, "virtiofsd-"+m.tag+".log"))
+		if err != nil {
+			run.failCrashed("vm launcher: start virtiofsd: " + err.Error())
+			return err
+		}
+		vfsds = append(vfsds, d)
 	}
 
 	cmd := exec.Command(runnerScript)
-	cmd.Env = l.vmEnv(runDir, jobDir, work, virtiofsQemuOpts(sock, "workspace", l.memMiB))
+	cmd.Env = l.vmEnv(runDir, jobDir, work, virtiofsQemuOpts(mounts, l.memMiB))
 	console, err := os.Create(filepath.Join(runDir, "vm-console.log"))
 	if err != nil {
 		run.failCrashed("vm launcher: console: " + err.Error())
@@ -351,11 +376,15 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	for {
 		if run.isTerminal() {
 			// The run finished (phoned home). Leave the VM — and its
-			// virtiofsd, which still serves the mount — running for
-			// inspection; record both pids for the reaper.
-			l.recordVM(vmRecord{RunID: run.ID, Pid: cmd.Process.Pid, VfsdPid: vfsd.Process.Pid, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
+			// virtiofsd daemons, which still serve the mounts — running for
+			// inspection; record every pid for the reaper.
+			pids := make([]int, len(vfsds))
+			for i, d := range vfsds {
+				pids[i] = d.Process.Pid
+			}
+			l.recordVM(vmRecord{RunID: run.ID, Pid: cmd.Process.Pid, VfsdPids: pids, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
 			recorded = true // suppress the defer's failure record
-			vfsd = nil      // hand the daemon off to the reaper (don't kill)
+			vfsds = nil     // hand the daemons off to the reaper (don't kill)
 			return nil
 		}
 		select {
@@ -426,14 +455,17 @@ func forgetWorkspace(repoDir, name string) error {
 	return nil
 }
 
-// vmRecord marks a persisted VM so the reaper can find and GC it. VfsdPid
-// is the per-run virtiofsd serving the workspace mount (killed alongside
-// the qemu process); RepoDir + Workspace let the reaper `jj workspace
-// forget` the per-run workspace before removing its dir (spec W1).
+// vmRecord marks a persisted VM so the reaper can find and GC it. VfsdPids
+// are the per-run virtiofsd daemons serving the mounts (workspace, jj store)
+// — all killed alongside the qemu process; RepoDir + Workspace let the
+// reaper `jj workspace forget` the per-run workspace before removing its dir
+// (spec W1). VfsdPid is the legacy single-daemon field, still read so
+// records written before the multi-mount change are reaped cleanly.
 type vmRecord struct {
 	RunID     string    `json:"run_id"`
 	Pid       int       `json:"pid"`
-	VfsdPid   int       `json:"vfsd_pid,omitempty"`
+	VfsdPids  []int     `json:"vfsd_pids,omitempty"`
+	VfsdPid   int       `json:"vfsd_pid,omitempty"` // legacy single-daemon record
 	Dir       string    `json:"dir"`
 	RepoDir   string    `json:"repo_dir,omitempty"`
 	Workspace string    `json:"workspace,omitempty"`
