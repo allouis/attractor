@@ -23,7 +23,13 @@ type vmLauncher struct {
 	vmDir        string            // root for per-run qcow2 + job dirs
 	guestHost    string            // host as seen from the guest (default 10.0.2.2)
 	pollInterval time.Duration     // how often to check run terminal/cancel
+	virtiofsdBin string            // virtiofsd executable (default "virtiofsd", found on PATH)
+	memMiB       int               // guest RAM; sizes the shared-memory backend (must match nix memorySize)
 }
+
+// defaultVMMemoryMiB mirrors nix/vm-runner.nix virtualisation.memorySize;
+// the vhost-user-fs shared-memory backend must be sized to the guest RAM.
+const defaultVMMemoryMiB = 8192
 
 // NewVMLauncher returns a Launcher that boots nix/vm-runner.nix VMs from a
 // single script, registered as the "default" image. runnerScript is the
@@ -44,6 +50,8 @@ func NewVMLauncherWithImages(images map[string]string, defaultImage, vmDir strin
 		vmDir:        vmDir,
 		guestHost:    "10.0.2.2",
 		pollInterval: 500 * time.Millisecond,
+		virtiofsdBin: "virtiofsd",
+		memMiB:       defaultVMMemoryMiB,
 	}
 }
 
@@ -181,16 +189,20 @@ func copyTree(src, dst string) error {
 	return nil
 }
 
-// vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk
-// and the share sources the generated boot script expands into its qemu
-// args (ATTRACTOR_JOB_DIR over 9p, ATTRACTOR_WORKSPACE — the mutable
-// working copy).
-func (l vmLauncher) vmEnv(runDir, jobDir, workspace string) []string {
-	return append(os.Environ(),
+// vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk,
+// the 9p job-share source (ATTRACTOR_JOB_DIR, ro), the mutable working copy
+// (ATTRACTOR_WORKSPACE — the per-run jj workspace, delivered over virtiofs),
+// and QEMU_OPTS carrying the vhost-user-fs device the boot script appends.
+func (l vmLauncher) vmEnv(runDir, jobDir, workspace, qemuOpts string) []string {
+	env := append(os.Environ(),
 		"NIX_DISK_IMAGE="+filepath.Join(runDir, "vm.qcow2"),
 		"ATTRACTOR_JOB_DIR="+jobDir,
 		"ATTRACTOR_WORKSPACE="+workspace,
 	)
+	if qemuOpts != "" {
+		env = append(env, "QEMU_OPTS="+qemuOpts)
+	}
+	return env
 }
 
 // materializeWorkspace adds an isolated jj workspace of repoDir at dest,
@@ -254,8 +266,34 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		return err
 	}
 
+	// Materialise an isolated per-run jj workspace of the target repo and
+	// deliver it over virtiofs (not a 9p rw share of the host checkout): a
+	// workspace holds only tracked files (no node_modules), lives on the
+	// host (visible in `jj log`), and virtiofs gives the SQLite/flock
+	// semantics the store index needs. Spec W1.
+	work := filepath.Join(runDir, "work")
+	if err := materializeWorkspace(run.cwd, work, "run-"+run.ID); err != nil {
+		run.failCrashed("vm launcher: materialize workspace: " + err.Error())
+		return err
+	}
+	sock := filepath.Join(runDir, "vfs.sock")
+	vfsd, err := l.startVirtiofsd(sock, work, filepath.Join(runDir, "virtiofsd.log"))
+	if err != nil {
+		run.failCrashed("vm launcher: start virtiofsd: " + err.Error())
+		return err
+	}
+	// If anything below fails before the run reaches terminal, don't leak the
+	// daemon. On success the VM is left running for inspection, so virtiofsd
+	// must stay up to serve the mount — cleared before the success return.
+	stopVFSD := func() {
+		if vfsd != nil && vfsd.Process != nil {
+			_ = vfsd.Process.Kill()
+		}
+	}
+	defer func() { stopVFSD() }()
+
 	cmd := exec.Command(runnerScript)
-	cmd.Env = l.vmEnv(runDir, jobDir, run.cwd)
+	cmd.Env = l.vmEnv(runDir, jobDir, work, virtiofsQemuOpts(sock, "workspace", l.memMiB))
 	console, err := os.Create(filepath.Join(runDir, "vm-console.log"))
 	if err != nil {
 		run.failCrashed("vm launcher: console: " + err.Error())
@@ -276,9 +314,12 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	defer ticker.Stop()
 	for {
 		if run.isTerminal() {
-			// The run finished (phoned home). Leave the VM running so it
-			// persists for inspection; record it for the reaper.
-			l.recordVM(run.ID, runDir, cmd.Process.Pid)
+			// The run finished (phoned home). Leave the VM — and its
+			// virtiofsd, which still serves the mount — running for
+			// inspection; record both pids for the reaper.
+			vfsdPid := vfsd.Process.Pid
+			stopVFSD = func() {} // hand the daemon off to the reaper
+			l.recordVM(run.ID, runDir, cmd.Process.Pid, vfsdPid)
 			return nil
 		}
 		select {
@@ -297,17 +338,46 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 }
 
-// vmRecord marks a persisted VM so the reaper can find and GC it.
+// startVirtiofsd launches a per-run virtiofsd serving sharedDir over sock
+// (cache=none) and waits for the socket to appear so qemu can connect on
+// boot. Its output goes to logPath. Returns the running process.
+func (l vmLauncher) startVirtiofsd(sock, sharedDir, logPath string) (*exec.Cmd, error) {
+	logf, err := os.Create(logPath)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(l.virtiofsdBin, virtiofsdArgs(sock, sharedDir)...)
+	cmd.Stdout = logf
+	cmd.Stderr = logf
+	if err := cmd.Start(); err != nil {
+		logf.Close()
+		return nil, err
+	}
+	logf.Close() // the child inherited the fd at exec
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(sock); err == nil {
+			return cmd, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	_ = cmd.Process.Kill()
+	return nil, fmt.Errorf("virtiofsd socket %s did not appear (see %s)", sock, logPath)
+}
+
+// vmRecord marks a persisted VM so the reaper can find and GC it. VfsdPid
+// is the per-run virtiofsd serving the workspace mount; the reaper kills it
+// alongside the qemu process (spec W1).
 type vmRecord struct {
 	RunID     string    `json:"run_id"`
 	Pid       int       `json:"pid"`
+	VfsdPid   int       `json:"vfsd_pid,omitempty"`
 	Dir       string    `json:"dir"`
 	StartedAt time.Time `json:"started_at"`
 }
 
 // recordVM writes the marker the reaper uses to GC persisted VMs.
-func (l vmLauncher) recordVM(runID, runDir string, pid int) {
-	rec := vmRecord{RunID: runID, Pid: pid, Dir: runDir, StartedAt: time.Now()}
+func (l vmLauncher) recordVM(runID, runDir string, pid, vfsdPid int) {
+	rec := vmRecord{RunID: runID, Pid: pid, VfsdPid: vfsdPid, Dir: runDir, StartedAt: time.Now()}
 	data, _ := json.MarshalIndent(rec, "", "  ")
 	_ = os.WriteFile(filepath.Join(runDir, "vm.json"), data, 0o644)
 }

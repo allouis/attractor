@@ -203,6 +203,32 @@ func TestMaterializeWorkspace(t *testing.T) {
 	}
 }
 
+// vmEnv points ATTRACTOR_WORKSPACE at the per-run jj workspace (NOT the
+// host checkout — that was the old 9p rw mount) and carries the virtiofs
+// QEMU_OPTS so run-nixos-vm boots the vhost-user-fs device. Guards against
+// reintroducing a 9p rw workspace mount (spec W1 constraint).
+func TestVMEnvUsesWorkspaceAndQemuOpts(t *testing.T) {
+	l := vmLauncher{}
+	env := l.vmEnv("/vm/abc", "/vm/abc/job", "/vm/abc/work", "-device vhost-user-fs-pci,tag=workspace")
+	find := func(key string) string {
+		for _, e := range env {
+			if strings.HasPrefix(e, key+"=") {
+				return strings.TrimPrefix(e, key+"=")
+			}
+		}
+		return ""
+	}
+	if got := find("ATTRACTOR_WORKSPACE"); got != "/vm/abc/work" {
+		t.Errorf("ATTRACTOR_WORKSPACE = %q, want the jj workspace path", got)
+	}
+	if got := find("QEMU_OPTS"); !strings.Contains(got, "vhost-user-fs-pci") {
+		t.Errorf("QEMU_OPTS = %q, want the virtiofs device opts", got)
+	}
+	if got := find("NIX_DISK_IMAGE"); got != "/vm/abc/vm.qcow2" {
+		t.Errorf("NIX_DISK_IMAGE = %q", got)
+	}
+}
+
 // virtiofsdArgs pins cache=none (strongest coherence + locking — needed
 // for the SQLite store and instant host visibility, spec virtiofsd cache
 // mode) and wires the per-run socket + shared dir.
