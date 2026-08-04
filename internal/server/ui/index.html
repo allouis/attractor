@@ -167,6 +167,11 @@
            text-decoration: none; margin-right: var(--space-1); }
   .badge.in-progress { color: var(--state-running); border-color: var(--state-running); }
   .layout { display: grid; grid-template-columns: 1fr 360px; gap: var(--space-4); align-items: start; }
+  /* Grid items default to min-width:auto, refusing to shrink below their
+     content's min-content width. Without this the collapsed single-column
+     layout (<720px) lets a wide graph SVG or a long inspector line push the
+     column past the viewport → horizontal page overflow. */
+  .layout > * { min-width: 0; }
   /* Shared graph-pane sizing: the run-detail graph and the static workflow
      graph both render server-side SVG and size identically. */
 .workflow-expand { display: inline-block; margin: 0 0 var(--space-3); color: var(--text-muted); font-size: .9em; cursor: pointer; }
