@@ -404,17 +404,13 @@ func forgetWorkspace(repoDir, name string) error {
 	return nil
 }
 
-// vmRecord marks a persisted VM so the reaper can find and GC it. VfsdPids
-// are the per-run virtiofsd daemons serving the mounts (workspace, jj store)
-// — all killed alongside the qemu process; RepoDir + Workspace let the
-// reaper `jj workspace forget` the per-run workspace before removing its dir
-// (spec W1). VfsdPid is the legacy single-daemon field, still read so
-// records written before the multi-mount change are reaped cleanly.
+// vmRecord marks a persisted VM so the reaper can find and GC it: Pid is the
+// qemu process it kills; RepoDir + Workspace let it `jj workspace forget` the
+// per-run workspace before removing its dir (spec W1). GS dropped virtiofs, so
+// there are no per-run daemons to record — delivery is plain 9p.
 type vmRecord struct {
 	RunID     string    `json:"run_id"`
 	Pid       int       `json:"pid"`
-	VfsdPids  []int     `json:"vfsd_pids,omitempty"`
-	VfsdPid   int       `json:"vfsd_pid,omitempty"` // legacy single-daemon record
 	Dir       string    `json:"dir"`
 	RepoDir   string    `json:"repo_dir,omitempty"`
 	Workspace string    `json:"workspace,omitempty"`

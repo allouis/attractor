@@ -92,17 +92,6 @@ func (r *vmReaper) sweep() []string {
 		if rec.Pid > 0 {
 			_ = r.kill(rec.Pid)
 		}
-		// Kill every per-run virtiofsd serving a mount (workspace, jj store),
-		// else a daemon leaks per reaped VM (spec W1/W2). VfsdPid is the
-		// legacy single-daemon field kept for records predating multi-mount.
-		for _, pid := range rec.VfsdPids {
-			if pid > 0 {
-				_ = r.kill(pid)
-			}
-		}
-		if rec.VfsdPid > 0 {
-			_ = r.kill(rec.VfsdPid)
-		}
 		// Forget the per-run jj workspace before removing its dir, else the
 		// host repo accumulates stale run-<id> workspaces pointing at
 		// deleted dirs (spec W1). Legacy records without repo/workspace are
