@@ -22,11 +22,10 @@ A VM run today 9p-mounts the real host checkout **read-write** at
    `[ERR_SQLITE_ERROR] disk I/O error` opening its store index
    (`index.db`). Ghost's own SQLite-backed tests would fail the same way.
 
-The `9p`-vs-`virtiofs` question is not the whole story: even a perfect
-share doesn't give isolation, and a *read-write* share of one directory to
-N VMs is unsafe regardless of protocol. So we need **a per-run copy**, on a
-filesystem with **real POSIX semantics**, that stays **visible on the
-host**.
+Even a perfect share doesn't give isolation, and a *read-write* share of
+one directory to N VMs is unsafe regardless of protocol. So we need **a
+per-run copy**, on a filesystem with **real POSIX semantics**, that stays
+**visible on the host**.
 
 ## Requirements
 
@@ -41,20 +40,26 @@ host**.
 5. **Speed** — no full dependency re-download per run; warm cache reuse.
 6. **Host visibility / result extraction** — the resulting code and commits
    are directly visible on the host, no manual export step.
-7. **Cleanup** — per-run workspaces and VMs are GC'd; the per-repo cache
-   persists; disk stays bounded.
+7. **Cleanup** — per-run workspaces and VMs are GC'd; the global cache
+   persists; disk stays bounded (see the store-GC decision below).
 
-## Decision record (locked)
+## Decision record (locked via grilling)
 
 | Topic | Decision |
 |---|---|
-| **Working copy** | A **per-run jj workspace on the host** (`jj workspace add`), materialising an isolated working copy that lives on the host and appears in `jj log`. jj workspaces are the host-side isolation primitive; the target repos are jj-colocated. |
-| **Delivery to guest** | **virtiofs**, not 9p. Mount the per-run host workspace read-write into the guest. virtiofs has the locking/mmap semantics SQLite and jj need; 9p does not. |
-| **Why not guest-local disk** | A guest-local clone also gives correct semantics, but the code would be trapped in the VM behind an export step. virtiofs keeps the mutable copy **on the host** → instantly visible (`jj log`, `cd` in) → requirement 6. (Guest-local clone is the **fallback** if virtiofs locking proves unreliable — see W2.) |
-| **In-guest VCS** | Pipelines run `jj` **inside the run** (23 call sites: `jj diff`, `jj show @-`, `jj status`, `jj squash`, `jj resolve --list`, review `jj diff --from base --to @`). virtiofs-mounting the host workspace gives the guest a working jj repo — its `jj` operations write to the host store through the mount. This is a hard requirement the design must satisfy, and a reason the mount must be virtiofs (jj's working-copy state + locking need real semantics). |
-| **Dependencies** | **Share the store, never `node_modules`.** `node_modules/` is gitignored → a fresh workspace has none → install per run (correct: no cross-branch staleness). Make install fast with a **warm per-repo pnpm store** (content-addressed, hash-keyed, safe to share) **virtiofs-mounted from the host**, shared read-write across concurrent runs; installs *link* from it (no re-download). |
-| **Store concurrency** | Rely on **pnpm's built-in store locking + virtiofs locking** for N concurrent installers into one per-repo store. Same locking guarantee the SQLite acceptance test already proves. Fallback: per-run store seeded copy-on-write from a read-only master, only if concurrency proves unsafe. |
-| **Keep 9p where it's fine** | Undemanding **read-only** shares stay 9p (module-blessed, daemon-free): the job dir (`job.json` + `source.dot`) and, optionally, the host `/nix/store` (the nixpkgs qemu-vm module supports a 9p RO nix-store mount). virtiofs is used **only** for the workspace + the pnpm store — the two that need locking. |
+| **Working copy** | A **per-run jj workspace on the host** (`jj workspace add`) — isolated working copy that lives on the host and appears in `jj log`. jj workspaces are the host-side isolation primitive; target repos are jj-colocated. |
+| **Delivery to guest** | **virtiofs**, not 9p — rw mount of the per-run host workspace. virtiofs has the locking/mmap semantics SQLite and jj need; 9p does not. |
+| **Why not guest-local disk** | A guest-local clone gives correct semantics too, but the code would be trapped behind an export step. virtiofs keeps the mutable copy **on the host** → instantly visible (`jj log`, `cd` in) → requirement 6. Guest-local clone is the **fallback** if virtiofs locking proves unreliable (W2). |
+| **In-guest VCS** | Pipelines run `jj` **inside the run** (23 call sites). The virtiofs-mounted host workspace gives the guest a working jj repo — its `jj` ops write to the host store through the mount. Hard requirement; another reason the mount must be virtiofs. |
+| **Deps — what's shared** | **Share the content-addressed store, never `node_modules`.** `node_modules/` is gitignored → a fresh workspace has none → install per run (correct: no cross-branch staleness). |
+| **Store scope** | **One global store per ecosystem** (pnpm's default model — content-addressed, hash-keyed, safe across all repos/branches), virtiofs-mounted into every run, shared read-write. `node_modules` stays per-workspace; only the *store* is shared. Best hit-rate, least disk. |
+| **Store concurrency** | Rely on **pnpm's store locking + virtiofs locking** for N concurrent installers into the one global store — the same guarantee W2 proves for SQLite. Fallback: per-run store seeded copy-on-write from a read-only master, only if concurrency proves unsafe. |
+| **Cache mechanism** | A **generic cache-mount seam** from day one: the launcher mounts a configured list of `{host dir → guest path → env var}` globally into every run. The pnpm store is the first entry; go (`GOMODCACHE`/`GOCACHE`), cargo (`CARGO_HOME`), pip (`PIP_CACHE_DIR`) are added later. Config-extensible; no pnpm special-casing. |
+| **9p kept** | Undemanding **read-only** shares stay 9p (module-blessed, daemon-free): the job dir (`job.json` + `source.dot`) and optionally the host `/nix/store`. virtiofs is used **only** for the workspace + the cache mounts. |
+| **Result surfacing** | The run **bookmarks its tip** (`run/<id>` or the item identifier). Since in-guest `jj` commits into R's shared store, the bookmarked commit shows in R's `jj log` and is checkout-able (`jj new run/<id>`) — the handle on the result. |
+| **Workspace lifecycle** | **Reclaim on success; keep failed runs until the retention window.** A crashed run's *uncommitted* working-copy state is evidence worth inspecting; success leaves nothing but the (bookmarked, committed) tip, which lives in R's store independent of the workspace. Cleanup is `jj workspace forget` + rm on the existing VM-reaper timer. |
+| **Store GC** | **Grow freely, prune manually.** No automatic eviction; document the native prune commands (`pnpm store prune`, etc.) and optionally surface store size for visibility. Pragmatic on a bare-metal box with real disk. |
+| **virtiofsd cache mode** | Default **`none`** (strongest coherence + locking — needed for SQLite and instant host visibility). W2 may relax to `auto` if it's slow and the lock test still passes. `always` is ruled out (stale cross-boundary reads). |
 
 ## How it works (the flow)
 
@@ -62,50 +67,56 @@ For a VM run against repo `R`:
 
 1. **Materialise (host):** `jj workspace add <runs>/<id>/work` — an isolated
    working copy of `R`, on the host, in `jj log`.
-2. **Deliver (virtiofs):** launcher starts a per-run `virtiofsd` for that
-   workspace dir and wires the VM with `-device vhost-user-fs` + a
-   shared-memory backend; the guest mounts it rw at `/mnt/workspace`.
-3. **Warm deps (virtiofs):** a per-repo store dir
-   (`<cache>/<repo>/pnpm-store`) is virtiofs-mounted rw into the guest;
-   pnpm's `store-dir` points at it, so `install` links from the warm store.
+2. **Deliver (virtiofs):** launcher starts a per-run `virtiofsd`
+   (`cache=none`) for that workspace and wires the VM with `-device
+   vhost-user-fs` + a shared-memory backend; the guest mounts it rw at
+   `/mnt/workspace`.
+3. **Warm caches (virtiofs):** the generic cache seam mounts each global
+   ecosystem cache (v1: the pnpm store) rw into the guest and sets its env
+   var (v1: pnpm `store-dir`), so `install` links from the warm store.
 4. **Light shares (9p):** the job dir (ro) and optional `/nix/store` (ro)
    stay 9p.
 5. **Run:** the guest installs deps (fresh `node_modules` in the workspace,
    linked from the warm store), builds/tests (SQLite works over virtiofs),
-   and runs `jj` (writes to the host store over virtiofs).
+   runs `jj` (writes to the host store over virtiofs), and **bookmarks its
+   tip** `run/<id>`.
 6. **Result:** the workspace and its commits are **already on the host** —
-   visible via `jj log`; no export. The reaper GCs the per-run workspace +
-   VM after retention; the per-repo store cache persists.
+   `jj log` shows the bookmarked tip; `jj new run/<id>` to work from it. On
+   **success** the reaper reclaims the workspace (`jj workspace forget` +
+   rm) promptly; on **failure** it's kept until retention for inspection.
+   The global caches persist.
 
 **Concurrency:** each run gets its own workspace dir + its own virtiofs
-mount → isolated. The shared per-repo store is safe via pnpm + virtiofs
-locking.
+mount → isolated. The shared global store is safe via pnpm + virtiofs
+locking. `jj workspace add`/`forget` mutate R's op log; jj is built for
+concurrent workspace ops (op-log merging) — a spot to watch under load
+(W4).
 
 ## Dependencies — the heart of it (answers the node_modules concern)
 
 - jj workspaces materialise **only tracked files**. `node_modules/` is
   gitignored → a fresh workspace has **none** → install per run. This is
-  the *correct* default: there is no shared mutable `node_modules`, so a
-  branch can never run against another branch's dependencies.
+  the *correct* default: no shared mutable `node_modules`, so a branch can
+  never run against another branch's dependencies.
 - **The stale-deps bug only appears if you copy or share `node_modules`.**
   Rule: **never** share or copy `node_modules` across workspaces.
-- Fast install comes from sharing the **content-addressed store** (`files/`,
-  `links/`, keyed by content hash — v1 and v2 of a dep are distinct
-  entries, never collide), not the linked tree. `pnpm install` against a
-  warm store just links.
-- The store's index is **SQLite** (`index.db`) — which is exactly why the
-  store share must be **virtiofs**, and why the whole approach hinges on
-  virtiofs locking being solid.
+- Fast install comes from sharing the **content-addressed store** (keyed by
+  content hash — v1 and v2 of a dep are distinct entries, never collide),
+  not the linked tree. One global store per ecosystem; `pnpm install`
+  against it just links.
+- The store's index is **SQLite** (`index.db`) — which is why the store
+  mount must be **virtiofs**, and why the whole approach hinges on virtiofs
+  locking (W2).
 
 ## Why virtiofs, not 9p (context)
 
-9p is the NixOS qemu-vm module's default because it is **older** (in QEMU
-since ~2010 vs virtiofs' 2019), **daemon-free** (lives inside QEMU; one
-flag), and **adequate for that module's job** (light-IO integration tests,
-read-only nix store). It was the low-friction MVP choice here too (decision
-D6: `virtualisation.sharedDirectories` is the blessed, tested path and is
+9p is the NixOS qemu-vm module's default because it is **older** (QEMU
+~2010 vs virtiofs 2019), **daemon-free** (inside QEMU; one flag), and
+**adequate for that module's job** (light-IO integration tests, ro nix
+store). It was the low-friction MVP choice here too (decision D6:
+`virtualisation.sharedDirectories` is the blessed, tested path and is
 **9p-only** in our nixpkgs). Its ceiling — no SQLite/locking — only bites a
-real dev repo, which is where we now are.
+real dev repo.
 
 virtiofs is a semantic superset (flock, byte-range locks, mmap, coherent
 metadata) and faster, at the cost of a per-share **`virtiofsd`** daemon + a
@@ -116,8 +127,8 @@ visibility.
 **KVM note:** the production target is bare-metal **KVM**. KVM is only the
 CPU accelerator — you still run **QEMU** (`-machine accel=kvm`), and KVM
 does **not** simplify virtiofs setup (same `virtiofsd` + vhost-user +
-shared-mem). What KVM changes: it removes the TCG speed penalty, so both
-this design and any fallback run at near-native speed on the real box.
+shared-mem). It removes the TCG speed penalty, so this design (and any
+fallback) run near-native on the real box.
 
 ## Alternatives considered (rejected / fallback)
 
@@ -126,36 +137,34 @@ this design and any fallback run at near-native speed on the real box.
 | Mount real checkout rw over 9p (today) | ✗ breaks SQLite; no isolation |
 | Guest-local clone + bundle export | fallback if virtiofs locking fails; costs an export step (code not host-visible) |
 | Copy checkout incl `node_modules` | ✗ 1.7 GB/run + stale-deps risk |
-| reflink/CoW host copy + virtiofs | possible optimisation of the workspace copy; not needed for v1 |
+| Per-repo (not global) store | ✗ duplicates shared deps, no benefit (content-addressed) |
+| Automatic store eviction / TTL GC | ✗ over-engineered; manual prune chosen |
+| virtiofsd `cache=always` | ✗ stale cross-boundary reads, weak locking |
 | Bake deps into image | ✗ stale-prone, repo-specific |
-
-## Open decisions (still to resolve during build)
-
-1. **virtiofsd cache mode** (`none`/`auto`/`always`, DAX) for host↔guest
-   coherence + locking — a tuning detail the W2 test pins down.
-2. **Non-node deps** — generalise "installer + warm cache share" to `go`
-   module cache, pip wheel cache, cargo registry (W6).
-3. **Cache GC + disk cap** — per-repo store growth bound and eviction (W5).
-4. **jj workspace lifecycle** — `jj workspace forget`/cleanup after a run,
-   and behaviour of concurrent workspace ops against `R`'s store.
 
 ## Milestones
 
 | # | Deliverable | Status |
 |---|---|---|
-| W1 | **virtiofs plumbing:** per-run `virtiofsd` + qemu `vhost-user-fs` + shared-memory; mount a per-run **host jj workspace** rw at `/mnt/workspace`, replacing the 9p rw mount. Job dir + nix store stay 9p (ro). | todo |
-| W2 | **Pivotal acceptance test:** `pnpm install` (SQLite store) **succeeds** in the virtiofs-mounted workspace, and in-guest `jj` (`diff`/`status`/`commit`) works against the host store. Decides virtiofs viability; if it fails, switch to the guest-local-clone fallback. | todo |
-| W3 | **Warm per-repo pnpm store** virtiofs-mounted (shared rw); installs link (no re-download); **dependency-correctness test** — two branches/lockfiles pinning different versions → each `node_modules` matches its own. | todo |
-| W4 | **Concurrency:** N VMs of the same repo at once — own workspace + own mount each; shared store uncorrupted; isolation + correctness tests. | todo |
-| W5 | **Lifecycle:** reaper GCs per-run workspace + VM; per-repo store persists with a **disk cap**; result visible on host (`jj log`) with no export step. | todo |
-| W6 | Generalise the deps pattern beyond pnpm (go/pip/cargo cache shares). | todo |
+| W1 | **virtiofs plumbing:** per-run `virtiofsd` (`cache=none`) + qemu `vhost-user-fs` + shared-memory; mount a per-run **host jj workspace** rw at `/mnt/workspace`, replacing the 9p rw mount. Job dir + nix store stay 9p (ro). | todo |
+| W2 | **Pivotal acceptance test:** `pnpm install` (SQLite store) **succeeds** in the virtiofs-mounted workspace, and in-guest `jj` (`diff`/`status`/`commit`) works against the host store. Pins the cache mode (start `none`). If it fails, switch to the guest-local-clone fallback. | todo |
+| W3 | **Generic cache-mount seam** with the pnpm entry: one **global** store, virtiofs-mounted, shared rw, env-wired; installs link (no re-download); **dependency-correctness test** — two branches/lockfiles pinning different versions → each `node_modules` matches its own. | todo |
+| W4 | **Concurrency:** N VMs of the same repo at once — own workspace + own mount each; shared global store uncorrupted; op-log concurrency holds; isolation + correctness tests. | todo |
+| W5 | **Lifecycle & surfacing:** bookmark the tip (`run/<id>`); reaper reclaims **successful** workspaces, keeps **failed** ones until retention; result visible on host (`jj log`) with no export; document manual store prune. | todo |
+| W6 | Add go/cargo/pip entries to the cache seam (`GOMODCACHE`/`GOCACHE`, `CARGO_HOME`, `PIP_CACHE_DIR`). | todo |
+
+## Open (empirical, resolved during build)
+
+- Exact virtiofsd tuning (`none`→`auto` relaxation, DAX) — W2.
+- jj op-log behaviour under heavy concurrent workspace add/forget — W4.
 
 ## Non-goals (v1)
 
-- KVM enablement / perf tuning (correctness is testable under TCG; the real
+- KVM enablement / perf tuning (correctness testable under TCG; the real
   box has KVM).
 - Editing the runtime image from the UI.
 - Cross-host / distributed VM placement.
+- Automatic cache eviction (manual prune by decision).
 
 The acceptance-driven implementation prompt (executable "definition of
 done") is `docs/vm-workspace-prompt.md`.

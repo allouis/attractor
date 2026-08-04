@@ -62,16 +62,23 @@ Correctness (each is an automated test that must exist and pass):
    produce a `node_modules` matching **their own** lockfile. Test asserts
    the resolved version in each run's tree; a stale/cross-branch version is
    a failure.
-4. **Warm-cache speed (no re-download):** the second run of a repo installs
-   dependencies **without network fetches** (links from the reused
-   content-addressed cache volume). Test/observe: cold vs warm install;
-   warm run performs no registry downloads.
-5. **Result extraction:** a commit/diff produced inside the VM is
-   retrievable on the host (lands in the shared jj store or is returned as
-   a diff/artifact). Test round-trips a change out of the guest.
-6. **Cleanup / bounded disk:** after N runs, per-run workspaces and VM
-   disks are GC'd and total disk usage is bounded (cache volume persists,
-   scratch does not). Test asserts scratch is reclaimed.
+4. **Warm-cache speed (no re-download):** the second run installs
+   dependencies **without network fetches**, linking from the **one global
+   content-addressed store** (virtiofs-mounted, shared across all repos).
+   Test/observe: cold vs warm install; warm run performs no registry
+   downloads. The store is wired via the **generic cache-mount seam**
+   (`{host dir → guest path → env}`), with pnpm as the first entry.
+5. **Result surfacing:** the run **bookmarks its tip** (`run/<id>` or the
+   item id); because in-guest `jj` commits into R's shared store, the
+   bookmarked commit appears in the host's `jj log` and is checkout-able
+   (`jj new run/<id>`) with **no export step**. Test asserts the bookmark +
+   commit are visible on the host.
+6. **Lifecycle / bounded scratch:** on **success** the reaper reclaims the
+   per-run workspace (`jj workspace forget` + rm) and VM; on **failure** it
+   keeps the workspace until the retention window (uncommitted state is
+   inspectable). The global store persists and is **not** auto-evicted
+   (manual `pnpm store prune` — document it). Test asserts success-scratch
+   is reclaimed and a failed run's workspace survives.
 
 Engineering gate (must hold at the tip):
 
@@ -86,10 +93,12 @@ Engineering gate (must hold at the tip):
   materializes it — never inherit a copied/shared tree.
 - **Lockfile change between runs:** a run on an updated lockfile installs
   the new deps (cache still helps, tree is correct).
-- **Concurrent installers into one cache volume:** N VMs installing at once
-  must not corrupt the shared content-addressed store (rely on pnpm's store
-  concurrency, or isolate per-run and seed from a RO master — pick one and
-  test it under concurrency).
+- **Concurrent installers into the one global store:** N VMs (even across
+  *different* repos) installing at once must not corrupt the shared
+  content-addressed store — rely on pnpm's store locking + virtiofs locking;
+  fallback is a per-run CoW store from a RO master. Test under concurrency.
+- **virtiofsd cache mode:** default `cache=none` (coherence + locking);
+  only relax to `auto` if W2 stays green. Never `always`.
 - **Run crashes mid-install:** the cache volume and the next run are not
   left corrupt; a partially-written workspace is discarded.
 - **Host disk pressure:** creating a workspace/volume when disk is low
