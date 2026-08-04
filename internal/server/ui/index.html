@@ -1112,6 +1112,31 @@ function renderFleet() {
   $('run-list').innerHTML = runsTableHtml(runs);
 }
 
+// --- shared responsive data-table shell (ui-tailwind-spec T2/T3) ------------
+// The Runs list and the Config repos/providers tables share one shape: a real
+// table at ≥sm, collapsed to stacked cards below (header hidden; each row a
+// bordered card carrying its own field labels). These helpers hold that shape
+// in one place so the three lists stay in lockstep.
+
+// CARD_ROW_CLASS is the <tr> class: a bordered card <sm, a plain row ≥sm.
+const CARD_ROW_CLASS = 'block rounded border border-line bg-surface-1 p-3 mb-3 sm:table-row sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:mb-0';
+
+// cardCell wraps one field as a <td>: label/value stacked <sm (label hidden at
+// ≥sm, where the table header carries it), a real cell ≥sm. `muted` tints the
+// value like the secondary columns. border-0 drops the inherited per-cell
+// separator inside the card, restored as a row border at sm.
+const cardCell = (label, inner, muted) =>
+  `<td class="${muted ? 'muted ' : ''}block border-0 sm:table-cell sm:border-b"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
+
+// dataTable renders the shared shell: headInner is the header <tr>; bodyId is
+// the optional save-collector hook the config panels scrape.
+function dataTable(headInner, rowsHtml, bodyId) {
+  const id = bodyId ? ` id="${bodyId}"` : '';
+  return `<table class="block sm:table w-full">
+    <thead class="hidden sm:table-header-group">${headInner}</thead>
+    <tbody${id} class="block sm:table-row-group">${rowsHtml}</tbody></table>`;
+}
+
 // runsTableHtml renders the fleet as a table of runRowHtml rows. Mobile-first
 // responsive (ui-tailwind-spec T3): the wide table clips the `by` column on a
 // phone, so at <640px it collapses to stacked cards (block table sub-elements,
@@ -1119,9 +1144,8 @@ function renderFleet() {
 // table at sm.
 function runsTableHtml(runs) {
   const rows = runs.map(runRowHtml).join('');
-  return `<table class="block sm:table w-full">
-    <thead class="hidden sm:table-header-group"><tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr></thead>
-    <tbody class="block sm:table-row-group">${rows}</tbody></table>`;
+  const head = '<tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr>';
+  return dataTable(head, rows);
 }
 
 // runsFilter reads the toolbar into the shape runMatchesFilter expects.
@@ -1268,22 +1292,16 @@ function fmtDuration(startIso, endIso) {
 function runRowHtml(p) {
   const chip = runNeedsHuman(p) ? '<span class="chip needs-human">needs human</span>' : '';
   const id = p.id || '';
-  // cell wraps one field so the mobile card reads label/value per line (label
-  // shown only <sm; the table header carries it at ≥sm). border-0 drops the
-  // inherited per-cell separator inside the card, restored as a row border at sm
-  // (ui-tailwind-spec T3, same treatment as repoRowHtml).
-  const cell = (label, inner, muted) =>
-    `<td class="block border-0 sm:table-cell sm:border-b${muted ? ' muted' : ''}"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
   return `
-    <tr class="block rounded border border-line bg-surface-1 p-3 mb-3 sm:table-row sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:mb-0">
-      ${cell('run', `<a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a>`)}
-      ${cell('workflow', runWorkflowCell(p), true)}
-      ${cell('item', runItemCell(p), true)}
-      ${cell('repo', runRepoCell(p), true)}
-      ${cell('by', runOriginCell(p), true)}
-      ${cell('status', `${stateBadge(p.status)}${chip}`)}
-      ${cell('started', fmtDate(p.started_at), true)}
-      ${cell('', runCancelButton(p))}
+    <tr class="${CARD_ROW_CLASS}">
+      ${cardCell('run', `<a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a>`)}
+      ${cardCell('workflow', runWorkflowCell(p), true)}
+      ${cardCell('item', runItemCell(p), true)}
+      ${cardCell('repo', runRepoCell(p), true)}
+      ${cardCell('by', runOriginCell(p), true)}
+      ${cardCell('status', `${stateBadge(p.status)}${chip}`)}
+      ${cardCell('started', fmtDate(p.started_at), true)}
+      ${cardCell('', runCancelButton(p))}
     </tr>`;
 }
 
@@ -1984,14 +2002,12 @@ function reposPanelHtml(repos, warnings, vmImages) {
   // phone, so at <640px it collapses to stacked cards (block table sub-elements,
   // header hidden — each row carries its own field labels) and restores to a
   // real table at sm.
+  const head = `<tr><th>owner/name</th><th>path</th><th>runner</th><th>image</th>${
+    STANDARD_CHECKS.map(c => `<th>${escapeHtml(c)}</th>`).join('')}<th></th></tr>`;
   return `<section class="config-panel card" id="config-repos">
     <h3>Repos</h3>
     <p class="muted">Registered repos and their check commands — the run-form dropdown and the check backbone read these.</p>
-    <table class="block sm:table w-full">
-      <thead class="hidden sm:table-header-group"><tr><th>owner/name</th><th>path</th><th>runner</th><th>image</th>${
-        STANDARD_CHECKS.map(c => `<th>${escapeHtml(c)}</th>`).join('')}<th></th></tr></thead>
-      <tbody id="config-repos-rows" class="block sm:table-row-group">${rows}</tbody>
-    </table>
+    ${dataTable(head, rows, 'config-repos-rows')}
     <p><button type="button" data-repo-add>add repo</button></p>
   </section>`;
 }
@@ -2003,23 +2019,18 @@ function reposPanelHtml(repos, warnings, vmImages) {
 // the top banner (config-screen-spec C5).
 function repoRowHtml(name, rc, warning, vmImages) {
   const checks = rc.checks || {};
-  // cell wraps one field so the mobile card reads label/value per line (label
-  // shown only <sm; the table header carries it at ≥sm). border-0 drops the
-  // inherited per-cell separator inside the card, restored as a row border at sm.
-  const cell = (label, inner) =>
-    `<td class="block border-0 sm:table-cell sm:border-b"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
   const checkCells = STANDARD_CHECKS.map(c =>
-    cell(escapeHtml(c), `<input class="w-full sm:w-auto" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`)).join('');
+    cardCell(escapeHtml(c), `<input class="w-full sm:w-auto" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`)).join('');
   const warn = warning
     ? `<div class="config-note" data-repo-warning>⚠ ${escapeHtml(warning)}</div>` : '';
   const runner = rc.runner || '';
-  return `<tr data-repo-row class="block rounded border border-line bg-surface-1 p-3 mb-3 sm:table-row sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:mb-0">
-    ${cell('owner/name', `<input class="w-full sm:w-auto" data-repo-name value="${escapeHtml(name)}" placeholder="owner/name">`)}
-    ${cell('path', `<input class="w-full sm:w-auto" data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}`)}
-    ${cell('runner', runnerSelectHtml(runner))}
-    ${cell('image', imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages))}
+  return `<tr data-repo-row class="${CARD_ROW_CLASS}">
+    ${cardCell('owner/name', `<input class="w-full sm:w-auto" data-repo-name value="${escapeHtml(name)}" placeholder="owner/name">`)}
+    ${cardCell('path', `<input class="w-full sm:w-auto" data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}`)}
+    ${cardCell('runner', runnerSelectHtml(runner))}
+    ${cardCell('image', imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages))}
     ${checkCells}
-    ${cell('', '<button type="button" data-repo-remove title="remove repo">&times;</button>')}
+    ${cardCell('', '<button type="button" data-repo-remove title="remove repo">&times;</button>')}
   </tr>`;
 }
 
@@ -2112,25 +2123,19 @@ function providersPanelHtml(doc) {
     <label>default provider
       <select id="config-default-provider"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>
     </label>
-    <table class="block sm:table w-full">
-      <thead class="hidden sm:table-header-group"><tr><th>provider</th><th>backend</th><th>command</th><th>model_env</th><th></th></tr></thead>
-      <tbody id="config-providers-rows" class="block sm:table-row-group">${rows}</tbody>
-    </table>
+    ${dataTable('<tr><th>provider</th><th>backend</th><th>command</th><th>model_env</th><th></th></tr>', rows, 'config-providers-rows')}
     <p><button type="button" data-provider-add>add provider</button></p>
   </section>`;
 }
 
 // providerRowHtml renders one provider row; a blank name is the add case.
 function providerRowHtml(name, p) {
-  // Same stacked-card-at-<640px treatment as repoRowHtml (ui-tailwind-spec T2).
-  const cell = (label, inner) =>
-    `<td class="block border-0 sm:table-cell sm:border-b"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
-  return `<tr data-provider-row class="block rounded border border-line bg-surface-1 p-3 mb-3 sm:table-row sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:mb-0">
-    ${cell('provider', `<input class="w-full sm:w-auto" data-provider-name value="${escapeHtml(name)}" placeholder="name">`)}
-    ${cell('backend', `<input class="w-full sm:w-auto" data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation">`)}
-    ${cell('command', `<input class="w-full sm:w-auto" data-provider-command value="${escapeHtml(p.command || '')}">`)}
-    ${cell('model_env', `<input class="w-full sm:w-auto" data-provider-model-env value="${escapeHtml(p.model_env || '')}">`)}
-    ${cell('', '<button type="button" data-provider-remove title="remove provider">&times;</button>')}
+  return `<tr data-provider-row class="${CARD_ROW_CLASS}">
+    ${cardCell('provider', `<input class="w-full sm:w-auto" data-provider-name value="${escapeHtml(name)}" placeholder="name">`)}
+    ${cardCell('backend', `<input class="w-full sm:w-auto" data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation">`)}
+    ${cardCell('command', `<input class="w-full sm:w-auto" data-provider-command value="${escapeHtml(p.command || '')}">`)}
+    ${cardCell('model_env', `<input class="w-full sm:w-auto" data-provider-model-env value="${escapeHtml(p.model_env || '')}">`)}
+    ${cardCell('', '<button type="button" data-provider-remove title="remove provider">&times;</button>')}
   </tr>`;
 }
 

@@ -27,27 +27,35 @@ func TestServer_UI_RunsCards(t *testing.T) {
 	resp.Body.Close()
 	page := string(body)
 
-	// The table swaps from a stacked block on mobile to a real table at sm, and
-	// hides the header row on mobile (each card carries its own field labels).
-	table := sliceFunc(t, page, "runsTableHtml")
+	// The block→table swap lives in the shared dataTable shell: a stacked block
+	// on mobile, a real table at sm, header row hidden on mobile (each card
+	// carries its own field labels).
+	table := sliceFunc(t, page, "dataTable")
 	for _, cls := range []string{"block", "sm:table", "hidden", "sm:table-header-group", "w-full"} {
 		if !strings.Contains(table, cls) {
-			t.Errorf("runsTableHtml missing responsive class %q (block→table swap):\n%s", cls, table)
+			t.Errorf("dataTable missing responsive class %q (block→table swap):\n%s", cls, table)
 		}
 	}
 
-	// Each run is a card on mobile (token-mapped surface + border, restored to a
-	// table row at sm) with mobile-only field labels — including the `by` field
-	// the desktop table clips.
+	// runRowHtml builds each run as a shared card row (CARD_ROW_CLASS) of card
+	// cells (cardCell), keeping the `by` field the desktop table clips.
 	row := sliceFunc(t, page, "runRowHtml")
-	for _, cls := range []string{"sm:table-row", "bg-surface-1", "border-line", "sm:hidden"} {
-		if !strings.Contains(row, cls) {
-			t.Errorf("runRowHtml missing card class %q (stacked card at ≤640px):\n%s", cls, row)
+	for _, ref := range []string{"CARD_ROW_CLASS", "cardCell("} {
+		if !strings.Contains(row, ref) {
+			t.Errorf("runRowHtml no longer builds a stacked card via %q:\n%s", ref, row)
 		}
 	}
 	// The previously-clipped `by` field must survive as a labelled card cell.
 	if !strings.Contains(row, "'by'") && !strings.Contains(row, ">by<") {
 		t.Errorf("runRowHtml drops the `by` field label on mobile (still clipped):\n%s", row)
+	}
+
+	// The shared card primitives carry the token-mapped card classes, shipped in
+	// the served bundle (restored to a table row at sm).
+	for _, cls := range []string{"sm:table-row", "bg-surface-1", "border-line", "sm:hidden"} {
+		if !strings.Contains(page, cls) {
+			t.Errorf("served page missing card class %q (stacked card at ≤640px)", cls)
+		}
 	}
 
 	// The injected stylesheet must define the utilities the markup relies on:

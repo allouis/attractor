@@ -27,26 +27,32 @@ func TestServer_UI_ConfigCards(t *testing.T) {
 	resp.Body.Close()
 	page := string(body)
 
-	// Both panel builders switch the table from a stacked block on mobile to a
-	// real table at the sm breakpoint, and hide the header row on mobile (each
-	// card carries its own field labels instead).
-	for _, fn := range []string{"reposPanelHtml", "providersPanelHtml"} {
+	// Both panels render through the shared dataTable shell, which switches the
+	// table from a stacked block on mobile to a real table at the sm breakpoint
+	// and hides the header row on mobile (each card carries its own field labels).
+	table := sliceFunc(t, page, "dataTable")
+	for _, cls := range []string{"block", "sm:table", "hidden", "sm:table-header-group"} {
+		if !strings.Contains(table, cls) {
+			t.Errorf("dataTable missing responsive class %q (block→table swap):\n%s", cls, table)
+		}
+	}
+
+	// Each row builder renders a shared card row (CARD_ROW_CLASS) of card cells
+	// (cardCell) with full-width mobile inputs, restored to a table row at sm.
+	for _, fn := range []string{"repoRowHtml", "providerRowHtml"} {
 		body := sliceFunc(t, page, fn)
-		for _, cls := range []string{"block", "sm:table", "hidden", "sm:table-header-group"} {
-			if !strings.Contains(body, cls) {
-				t.Errorf("%s missing responsive class %q (block→table swap):\n%s", fn, cls, body)
+		for _, ref := range []string{"CARD_ROW_CLASS", "cardCell(", "w-full"} {
+			if !strings.Contains(body, ref) {
+				t.Errorf("%s no longer builds a stacked card via %q:\n%s", fn, ref, body)
 			}
 		}
 	}
 
-	// Each row is a card on mobile (token-mapped surface + border, restored to a
-	// table row at sm) with mobile-only field labels and full-width inputs.
-	for _, fn := range []string{"repoRowHtml", "providerRowHtml"} {
-		body := sliceFunc(t, page, fn)
-		for _, cls := range []string{"sm:table-row", "bg-surface-1", "border-line", "sm:hidden", "w-full"} {
-			if !strings.Contains(body, cls) {
-				t.Errorf("%s missing card class %q (stacked card at ≤640px):\n%s", fn, cls, body)
-			}
+	// The shared card primitives carry the token-mapped card classes, shipped in
+	// the served bundle.
+	for _, cls := range []string{"sm:table-row", "bg-surface-1", "border-line", "sm:hidden"} {
+		if !strings.Contains(page, cls) {
+			t.Errorf("served page missing card class %q (stacked card at ≤640px)", cls)
 		}
 	}
 
