@@ -168,7 +168,7 @@ fallback) run near-native on the real box.
 | # | Deliverable | Status |
 |---|---|---|
 | W1 | **virtiofs plumbing:** per-run `virtiofsd` (`cache=none`) + qemu `vhost-user-fs` + shared-memory; mount a per-run **host jj workspace** rw at `/mnt/workspace`, replacing the 9p rw mount. Job dir + nix store stay 9p (ro). | done |
-| W2 | **Pivotal acceptance test:** `pnpm install` (SQLite store) **succeeds** in the virtiofs-mounted workspace, and in-guest `jj` (`diff`/`status`/`commit`) works against the host store. Pins the cache mode (start `none`). If it fails, switch to the guest-local-clone fallback. | todo |
+| W2 | **Pivotal acceptance test:** `pnpm install` (SQLite store) **succeeds** in the virtiofs-mounted workspace, and in-guest `jj` (`diff`/`status`/`commit`) works against the host store. Pins the cache mode (start `none`). If it fails, switch to the guest-local-clone fallback. | done |
 | W3 | **Generic cache-mount seam** with the pnpm entry: one **global** store, virtiofs-mounted, shared rw, env-wired; installs link (no re-download); **dependency-correctness test** — two branches/lockfiles pinning different versions → each `node_modules` matches its own. | todo |
 | W4 | **Concurrency:** N VMs of the same repo at once — own workspace + own mount each; shared global store uncorrupted; op-log concurrency holds; isolation + correctness tests. | todo |
 | W5 | **Lifecycle & surfacing:** bookmark the tip (`run/<id>`); reaper reclaims **successful** workspaces, keeps **failed** ones until retention; result visible on host (`jj log`) with no export; document manual store prune. | todo |
