@@ -17,7 +17,7 @@ monitoring probe, a human with curl) read the running revision directly.
 
 | # | Deliverable | Status |
 |---|---|---|
-| V1 | `GET /version` returns `{"version": "<ver>", "revision": "<rev>"}` sourced from `internal/version`. Unauthenticated like `/healthz` (bypasses the bearer gate). Add httptest coverage asserting the JSON shape and that the revision field is populated. | todo |
+| V1 | `GET /version` returns `{"version": "<ver>", "revision": "<rev>"}` sourced from `internal/version`. Unauthenticated like `/healthz` (bypasses the bearer gate). Add httptest coverage asserting the JSON shape and that the revision field is populated. | done |
 
 ## Notes
 
