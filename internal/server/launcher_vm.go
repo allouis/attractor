@@ -223,6 +223,11 @@ func ensureJJRepo(dir string) error {
 // checkout. The workspace lives on the host and shows in `jj log`, the
 // property virtiofs delivery preserves.
 func materializeWorkspace(repoDir, dest, name string) error {
+	// Idempotent: a leftover workspace of this name — a prior run whose
+	// cleanup didn't complete (daemon crash) — would make `add` fail with
+	// "already exists", permanently blocking a retry of the same run id
+	// (B3). Forget any stale one first (ignoring "no such workspace").
+	_ = forgetWorkspace(repoDir, name)
 	// --revision @ bases the workspace on the host repo's current working
 	// state (default would base on @-, dropping uncommitted work).
 	cmd := exec.Command("jj", "-R", repoDir, "workspace", "add", "--name", name, "--revision", "@", dest)
@@ -292,25 +297,36 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	// host (visible in `jj log`), and virtiofs gives the SQLite/flock
 	// semantics the store index needs. Spec W1.
 	work := filepath.Join(runDir, "work")
-	if err := materializeWorkspace(run.cwd, work, "run-"+run.ID); err != nil {
+	wsName := "run-" + run.ID
+	if err := materializeWorkspace(run.cwd, work, wsName); err != nil {
 		run.failCrashed("vm launcher: materialize workspace: " + err.Error())
 		return err
 	}
+
+	// A workspace (and soon a qcow2) now exists on disk. Every NON-success
+	// exit below — virtiofsd/console/boot failure, crash-before-terminal,
+	// cancel — must (a) not leak the virtiofsd daemon and (b) leave a
+	// vm.json so the reaper reclaims the work dir, qcow2, and jj workspace
+	// on retention; without the record the reaper skips the dir and it leaks
+	// forever (B2). Success flips `recorded` (writing live pids) and detaches
+	// vfsd (the daemon must stay up to serve the persisted VM's mount).
+	var vfsd *exec.Cmd
+	recorded := false
+	defer func() {
+		if vfsd != nil && vfsd.Process != nil {
+			_ = vfsd.Process.Kill()
+		}
+		if !recorded {
+			l.recordVM(vmRecord{RunID: run.ID, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
+		}
+	}()
+
 	sock := filepath.Join(runDir, "vfs.sock")
-	vfsd, err := l.startVirtiofsd(sock, work, filepath.Join(runDir, "virtiofsd.log"))
+	vfsd, err = l.startVirtiofsd(sock, work, filepath.Join(runDir, "virtiofsd.log"))
 	if err != nil {
 		run.failCrashed("vm launcher: start virtiofsd: " + err.Error())
 		return err
 	}
-	// If anything below fails before the run reaches terminal, don't leak the
-	// daemon. On success the VM is left running for inspection, so virtiofsd
-	// must stay up to serve the mount — cleared before the success return.
-	stopVFSD := func() {
-		if vfsd != nil && vfsd.Process != nil {
-			_ = vfsd.Process.Kill()
-		}
-	}
-	defer func() { stopVFSD() }()
 
 	cmd := exec.Command(runnerScript)
 	cmd.Env = l.vmEnv(runDir, jobDir, work, virtiofsQemuOpts(sock, "workspace", l.memMiB))
@@ -337,9 +353,9 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 			// The run finished (phoned home). Leave the VM — and its
 			// virtiofsd, which still serves the mount — running for
 			// inspection; record both pids for the reaper.
-			vfsdPid := vfsd.Process.Pid
-			stopVFSD = func() {} // hand the daemon off to the reaper
-			l.recordVM(vmRecord{RunID: run.ID, Pid: cmd.Process.Pid, VfsdPid: vfsdPid, Dir: runDir, RepoDir: run.cwd, Workspace: "run-" + run.ID})
+			l.recordVM(vmRecord{RunID: run.ID, Pid: cmd.Process.Pid, VfsdPid: vfsd.Process.Pid, Dir: runDir, RepoDir: run.cwd, Workspace: wsName})
+			recorded = true // suppress the defer's failure record
+			vfsd = nil      // hand the daemon off to the reaper (don't kill)
 			return nil
 		}
 		select {
@@ -374,14 +390,27 @@ func (l vmLauncher) startVirtiofsd(sock, sharedDir, logPath string) (*exec.Cmd, 
 		return nil, err
 	}
 	logf.Close() // the child inherited the fd at exec
-	for i := 0; i < 100; i++ {
+	// Wait for the listening socket before booting qemu — but bail
+	// immediately if virtiofsd exits first (bad binary/args), rather than
+	// blocking the whole timeout on a process that will never serve.
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(5 * time.Second)
+	for {
 		if _, err := os.Stat(sock); err == nil {
 			return cmd, nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-exited:
+			return nil, fmt.Errorf("virtiofsd exited before creating socket %s (see %s)", sock, logPath)
+		case <-timeout:
+			_ = cmd.Process.Kill()
+			return nil, fmt.Errorf("virtiofsd socket %s did not appear (see %s)", sock, logPath)
+		case <-ticker.C:
+		}
 	}
-	_ = cmd.Process.Kill()
-	return nil, fmt.Errorf("virtiofsd socket %s did not appear (see %s)", sock, logPath)
 }
 
 // forgetWorkspace deregisters a per-run jj workspace from repoDir's op-log

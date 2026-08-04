@@ -259,6 +259,76 @@ func TestVirtiofsQemuOpts(t *testing.T) {
 	}
 }
 
+// jjInitRepo makes a colocated jj repo with one committed tracked file.
+func jjInitRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	if out, err := exec.Command("jj", "git", "init", repo).CombinedOutput(); err != nil {
+		t.Fatalf("jj git init: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "foo.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("jj", "-R", repo, "describe", "-m", "init").CombinedOutput(); err != nil {
+		t.Fatalf("jj describe: %v\n%s", err, out)
+	}
+	return repo
+}
+
+// A relaunch of the same run id must not be blocked by a leftover workspace
+// of that name (e.g. the daemon crashed before cleanup ran): materialize
+// forgets any stale run-<id> first, so `add` never dies with "already
+// exists" (B3).
+func TestMaterializeWorkspaceIdempotent(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	if err := materializeWorkspace(repo, filepath.Join(t.TempDir(), "w1"), "run-x"); err != nil {
+		t.Fatalf("first materialize: %v", err)
+	}
+	if err := materializeWorkspace(repo, filepath.Join(t.TempDir(), "w2"), "run-x"); err != nil {
+		t.Fatalf("relaunch same id must succeed (forget-before-add): %v", err)
+	}
+}
+
+// A run that fails AFTER materializing (here: virtiofsd never serves) must
+// still leave a vm.json so the reaper reclaims the work dir, qcow2, and jj
+// workspace on retention — otherwise the reaper skips the dir and it leaks
+// forever (B2).
+func TestLaunchFailureRecordsForReaper(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	vmDir := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir()})
+	run := srv.registry.NewRun("digraph{}", nil, nil, repo, nil, "", "", "", nil)
+	run.cwd = repo
+	l := vmLauncher{
+		images: map[string]string{"default": "/nonexistent-runner"}, defaultImage: "default",
+		vmDir: vmDir, guestHost: "10.0.2.2", pollInterval: time.Millisecond,
+		virtiofsdBin: "false", memMiB: 4096, // `false` starts then exits → never serves the socket
+	}
+	if err := l.Launch(run, "http://127.0.0.1:0"); err == nil {
+		t.Fatal("expected failure (virtiofsd never serves)")
+	}
+	if run.Status() != RunFailed {
+		t.Fatalf("status = %v, want failed", run.Status())
+	}
+	data, err := os.ReadFile(filepath.Join(vmDir, run.ID, "vm.json"))
+	if err != nil {
+		t.Fatalf("failed run left no vm.json → reaper skips it → leak: %v", err)
+	}
+	var rec vmRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.RepoDir != repo || rec.Workspace != "run-"+run.ID {
+		t.Fatalf("record missing repo/workspace for forget: %+v", rec)
+	}
+}
+
 // The vm launcher's per-run workspace needs a jj-colocated repo. A run
 // whose cwd is a plain (non-jj) directory fails fast with a diagnosable
 // error naming jj, rather than a cryptic `jj workspace add` stderr dump or
