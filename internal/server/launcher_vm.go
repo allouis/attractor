@@ -205,6 +205,17 @@ func (l vmLauncher) vmEnv(runDir, jobDir, workspace, qemuOpts string) []string {
 	return env
 }
 
+// ensureJJRepo verifies dir is a jj repo (colocated checkout), the
+// precondition for materializing a per-run jj workspace. Returns a
+// diagnosable error naming jj when it is not.
+func ensureJJRepo(dir string) error {
+	cmd := exec.Command("jj", "-R", dir, "root")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("vm launcher: %s is not a jj-colocated repo (the vm runner needs jj; see docs/vm-workspace-spec.md): %s", dir, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // materializeWorkspace adds an isolated jj workspace of repoDir at dest,
 // named name (spec W1). jj workspaces materialise only TRACKED files, so a
 // gitignored node_modules never appears — the run installs its own,
@@ -256,6 +267,15 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	}
 	runnerScript, err := l.script(run.image)
 	if err != nil {
+		run.failCrashed(err.Error())
+		return err
+	}
+	// The per-run workspace is a jj workspace, so the checkout must be
+	// jj-colocated (spec W1). Precheck before creating any run/job dir so a
+	// plain directory fails fast with a diagnosable error, not a cryptic
+	// `jj workspace add` stderr dump halfway through setup. We do NOT fall
+	// back to a 9p rw mount — the spec forbids reintroducing it.
+	if err := ensureJJRepo(run.cwd); err != nil {
 		run.failCrashed(err.Error())
 		return err
 	}

@@ -259,6 +259,36 @@ func TestVirtiofsQemuOpts(t *testing.T) {
 	}
 }
 
+// The vm launcher's per-run workspace needs a jj-colocated repo. A run
+// whose cwd is a plain (non-jj) directory fails fast with a diagnosable
+// error naming jj, rather than a cryptic `jj workspace add` stderr dump or
+// a silently broken VM (spec W1: target repos are jj-colocated).
+func TestVMLauncherRequiresJJRepo(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	plain := t.TempDir() // no `jj git init` — not a jj repo
+	vmDir := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir()})
+	run := srv.registry.NewRun("digraph{}", nil, nil, plain, nil, "", "", "", nil)
+	run.cwd = plain
+	l := vmLauncher{images: map[string]string{"default": "/nonexistent"}, defaultImage: "default", vmDir: vmDir, guestHost: "10.0.2.2", pollInterval: time.Millisecond}
+	err := l.Launch(run, "http://127.0.0.1:0")
+	if err == nil {
+		t.Fatal("expected error for non-jj cwd")
+	}
+	if !strings.Contains(err.Error(), "jj") {
+		t.Fatalf("error %q should name jj", err)
+	}
+	if run.Status() != RunFailed {
+		t.Fatalf("status = %v, want failed", run.Status())
+	}
+	// Fail fast: the precheck fires before any run dir / job dir is created.
+	if entries, _ := os.ReadDir(vmDir); len(entries) != 0 {
+		t.Fatalf("precheck left side effects in vmDir: %v", entries)
+	}
+}
+
 // A vm run with no working tree can't share a workspace; it fails fast
 // rather than booting a useless VM.
 func TestVMLauncherRequiresCwd(t *testing.T) {
