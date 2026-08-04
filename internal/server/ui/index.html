@@ -1123,18 +1123,30 @@ const CARD_ROW_CLASS = 'block rounded border border-line bg-surface-1 p-3 mb-3 s
 
 // cardCell wraps one field as a <td>: label/value stacked <sm (label hidden at
 // ≥sm, where the table header carries it), a real cell ≥sm. `muted` tints the
-// value like the secondary columns. border-0 drops the inherited per-cell
-// separator inside the card, restored as a row border at sm.
+// value like the secondary columns. border-0 drops the per-cell separator at
+// every width — the row rule at ≥sm now comes from the tbody's divide-y, the
+// Tailwind Plus way (ui-tailwind-spec T6b), not a per-cell border.
 const cardCell = (label, inner, muted) =>
-  `<td class="${muted ? 'muted ' : ''}block border-0 sm:table-cell sm:border-b"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
+  `<td class="${muted ? 'muted ' : ''}block border-0 sm:table-cell"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
 
-// dataTable renders the shared shell: headInner is the header <tr>; bodyId is
-// the optional save-collector hook the config panels scrape.
+// TH_CLASS is the Tailwind Plus header cell, token-remapped: a strong,
+// theme-aware ink label (border-0 leaves the header/body rule to the table's
+// divide-y so it is not doubled with the hand-CSS th border).
+const TH_CLASS = 'border-0 text-left font-semibold text-ink';
+
+// dataTable renders the shared shell. Adopts the Tailwind Plus table
+// (docs/tailwind-components/table.html), token-remapped: an overflow-safe
+// wrapper, a min-width table and divide-rule rows — all sm-scoped so the
+// <sm stacked-card collapse (T2/T3) is untouched. headInner is the header
+// <tr>; bodyId is the optional save-collector hook the config panels scrape.
 function dataTable(headInner, rowsHtml, bodyId) {
   const id = bodyId ? ` id="${bodyId}"` : '';
-  return `<table class="block sm:table w-full">
-    <thead class="hidden sm:table-header-group">${headInner}</thead>
-    <tbody${id} class="block sm:table-row-group">${rowsHtml}</tbody></table>`;
+  return `<div class="sm:overflow-x-auto">
+    <table class="block w-full sm:table sm:min-w-full sm:divide-y sm:divide-line">
+      <thead class="hidden sm:table-header-group">${headInner}</thead>
+      <tbody${id} class="block sm:table-row-group sm:divide-y sm:divide-line">${rowsHtml}</tbody>
+    </table>
+  </div>`;
 }
 
 // runsTableHtml renders the fleet as a table of runRowHtml rows. Mobile-first
@@ -1144,8 +1156,8 @@ function dataTable(headInner, rowsHtml, bodyId) {
 // table at sm.
 function runsTableHtml(runs) {
   const rows = runs.map(runRowHtml).join('');
-  const head = '<tr><th>run</th><th>workflow</th><th>item</th><th>repo</th><th>by</th><th>status</th><th>started</th><th></th></tr>';
-  return dataTable(head, rows);
+  const th = ['run', 'workflow', 'item', 'repo', 'by', 'status', 'started'].map(h => `<th class="${TH_CLASS}">${h}</th>`).join('');
+  return dataTable(`<tr>${th}<th></th></tr>`, rows);
 }
 
 // runsFilter reads the toolbar into the shape runMatchesFilter expects.
@@ -2002,8 +2014,9 @@ function reposPanelHtml(repos, warnings, vmImages) {
   // phone, so at <640px it collapses to stacked cards (block table sub-elements,
   // header hidden — each row carries its own field labels) and restores to a
   // real table at sm.
-  const head = `<tr><th>owner/name</th><th>path</th><th>runner</th><th>image</th>${
-    STANDARD_CHECKS.map(c => `<th>${escapeHtml(c)}</th>`).join('')}<th></th></tr>`;
+  const fixed = ['owner/name', 'path', 'runner', 'image'].map(h => `<th class="${TH_CLASS}">${h}</th>`).join('');
+  const head = `<tr>${fixed}${
+    STANDARD_CHECKS.map(c => `<th class="${TH_CLASS}">${escapeHtml(c)}</th>`).join('')}<th></th></tr>`;
   return `<section class="config-panel card" id="config-repos">
     <h3>Repos</h3>
     <p class="muted">Registered repos and their check commands — the run-form dropdown and the check backbone read these.</p>
@@ -2123,7 +2136,7 @@ function providersPanelHtml(doc) {
     <label>default provider
       <select id="config-default-provider"><option value=""${def ? '' : ' selected'}>(none — simulate bare runs)</option>${options}</select>
     </label>
-    ${dataTable('<tr><th>provider</th><th>backend</th><th>command</th><th>model_env</th><th></th></tr>', rows, 'config-providers-rows')}
+    ${dataTable(`<tr>${['provider', 'backend', 'command', 'model_env'].map(h => `<th class="${TH_CLASS}">${h}</th>`).join('')}<th></th></tr>`, rows, 'config-providers-rows')}
     <p><button type="button" data-provider-add>add provider</button></p>
   </section>`;
 }
