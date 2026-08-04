@@ -452,6 +452,63 @@ func TestGuestJJStoreMechanism(t *testing.T) {
 	}
 }
 
+// G1: the guest copies the ro-delivered workspace onto its own ext4 (/work)
+// and runs all tools there, because SQLite (pnpm store index, Nx task DB)
+// can't live on the virtiofs mount (spec §Empirical pivot). This proves the
+// COPY does not break in-guest jj: a workspace copied to a new path, with its
+// `.jj/repo` pointed at the store mount, still commits into the shared HOST
+// store. Reproduces the guest step (`cp -a /mnt/workspace/. /work/`) WITHOUT a
+// VM, so the normal `go test` gate covers it (the SQLite-on-ext4 half needs a
+// real VM — TestVMWorkspaceAcceptance, gated). Mirrors
+// TestGuestJJStoreMechanism with the copy inserted.
+func TestGuestLocalWorkspaceCopyJJ(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	work := filepath.Join(t.TempDir(), "work")
+	if err := materializeWorkspace(repo, work, "run-copy"); err != nil {
+		t.Fatalf("materializeWorkspace: %v", err)
+	}
+	// The guest's copy onto ext4: `cp -a /mnt/workspace/. /work/`. A distinct
+	// path from `work` — the whole point is that jj still works after the move.
+	local := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(local, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cp", "-a", work+"/.", local).CombinedOutput(); err != nil {
+		t.Fatalf("cp -a workspace: %v\n%s", err, out)
+	}
+	// Stand in for the guest's two subtree mounts: .jj + .git as siblings under
+	// a mount root, exactly as /mnt/repo/.jj + /mnt/repo/.git.
+	mnt := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(mnt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(repo, ".jj"), filepath.Join(mnt, ".jj")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(repo, ".git"), filepath.Join(mnt, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pointJJStore(local, filepath.Join(mnt, ".jj", "repo")); err != nil {
+		t.Fatalf("pointJJStore: %v", err)
+	}
+
+	// A jj commit through the copied workspace, as the guest makes it in /work.
+	if out, err := exec.Command("jj", "-R", local, "describe", "-m", "copied-workspace ran").CombinedOutput(); err != nil {
+		t.Fatalf("jj describe in the copied workspace failed — copy broke jj (stale workspace? unresolved store?): %v\n%s", err, out)
+	}
+	// It must have landed in the HOST repo store.
+	out, err := exec.Command("jj", "-R", repo, "log", "--no-graph", "--ignore-working-copy", "-r", "all()", "-T", `description ++ "\n"`).CombinedOutput()
+	if err != nil {
+		t.Fatalf("host jj log: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "copied-workspace ran") {
+		t.Fatalf("commit from the copied workspace did not land in the host store:\n%s", out)
+	}
+}
+
 // A virtiofsd that dies AFTER boot leaves the guest mount hung: qemu keeps
 // running, the run never phones home, and without a watch the launcher blocks
 // forever. Launch must notice the daemon death, kill the VM, and fail the run.
