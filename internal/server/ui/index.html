@@ -1197,7 +1197,11 @@ const cardCell = (label, inner, muted, extra) =>
 // so the row reads at a glance without expanding. Mobile-only (sm:hidden) — the
 // desktop table shows every column instead. `expanded` seeds aria-expanded; the
 // row's is-collapsed class + the mobile CSS drive which detail cells show.
-// title/chip are pre-escaped by the caller.
+// title/chip are pre-escaped by the caller. The remove control deliberately
+// stays an accordion-detail cell (not surfaced on the summary): un-hiding it
+// would leave a stray full-width × band under every collapsed card, and a
+// delete button on a compact summary invites accidental taps — you expand a
+// row to edit or remove it. Add still works one-tap (new rows open expanded).
 function accordionSummaryCell(title, chip, expanded) {
   return `<td class="block sm:hidden border-0"><button type="button" data-accordion-toggle aria-expanded="${expanded ? 'true' : 'false'}" class="flex w-full items-center justify-between gap-2 min-h-10 text-left text-ink">` +
     `<span data-accordion-title class="truncate">${title}</span>` +
