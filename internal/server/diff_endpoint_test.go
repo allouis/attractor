@@ -1,0 +1,97 @@
+package server
+
+import (
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestRunDiffFromJJRange drives GET /pipelines/{id}/diff (ui-tailwind-spec
+// T9c): a run carrying a jj change-id range serves `jj diff --from base --to
+// tip` of its cwd, so the Diff panel shows the run's real produced change
+// without an uploaded *.diff artifact.
+func TestRunDiffFromJJRange(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t) // foo.txt="x", @ described "init"
+	base, err := jjChangeID(repo)
+	if err != nil {
+		t.Fatalf("base change id: %v", err)
+	}
+	// Finalize @ so it becomes an ancestor, then edit the working copy: the new
+	// @ is the tip and its snapshot carries the produced change.
+	if out, err := exec.Command("jj", "-R", repo, "commit", "-m", "base").CombinedOutput(); err != nil {
+		t.Fatalf("jj commit: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "foo.txt"), []byte("line-added\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tip, err := jjChangeID(repo)
+	if err != nil {
+		t.Fatalf("tip change id: %v", err)
+	}
+
+	srv, tmp := newStageTestServer(t)
+	addRun(srv, "r1", filepath.Join(tmp, "r1"))
+	srv.registry.mu.Lock()
+	run := srv.registry.runs["r1"]
+	run.cwd = repo
+	run.revBase = base
+	run.revTip = tip
+	srv.registry.mu.Unlock()
+
+	resp, err := http.Get(srv.URL() + "/pipelines/r1/diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	for _, want := range []string{"foo.txt", "line-added", "+line-added"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("diff missing %q:\n%s", want, body)
+		}
+	}
+}
+
+// TestRunDiffEmptyWithoutRange: a run with no recorded jj range (VM / non-jj)
+// serves an empty 200 body — the frontend then falls back to a *.diff artifact.
+func TestRunDiffEmptyWithoutRange(t *testing.T) {
+	srv, tmp := newStageTestServer(t)
+	addRun(srv, "r1", filepath.Join(tmp, "r1"))
+
+	resp, err := http.Get(srv.URL() + "/pipelines/r1/diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if strings.TrimSpace(string(body)) != "" {
+		t.Errorf("no-range run should serve empty diff, got:\n%s", body)
+	}
+}
+
+// TestRunDiffUnknownRun: an unknown run id is a 404, matching the other
+// per-run endpoints.
+func TestRunDiffUnknownRun(t *testing.T) {
+	srv, _ := newStageTestServer(t)
+	resp, err := http.Get(srv.URL() + "/pipelines/nope/diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404", resp.StatusCode)
+	}
+}
