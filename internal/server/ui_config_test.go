@@ -441,3 +441,74 @@ func TestConfigReposPanelEscapes(t *testing.T) {
 		t.Errorf("repo path rendered as live markup:\n%s", html)
 	}
 }
+
+// TestConfigRepoRowCollapsible: on a phone the stacked card shows every field
+// per repo, so it gets long. T7b makes each repo an accordion — collapsed by
+// default with a compact summary (owner/name + a runner chip) that expands to
+// the editable fields on tap. The summary is a real toggle button (ARIA), the
+// editable cells are the collapsible detail, and both are mobile-only (the
+// desktop table at >=sm is untouched).
+func TestConfigRepoRowCollapsible(t *testing.T) {
+	html := evalUI(t, `repoRowHtml("a/b",{path:"/p",runner:"vm"},"",{})`)
+
+	// Collapsed by default: the row carries the collapse state and the toggle
+	// button announces it closed.
+	if !strings.Contains(html, "is-collapsed") {
+		t.Errorf("repo row not collapsed by default (want is-collapsed):\n%s", html)
+	}
+	if !strings.Contains(html, `data-accordion-toggle`) || !strings.Contains(html, `aria-expanded="false"`) {
+		t.Errorf("repo row missing collapsed accordion toggle:\n%s", html)
+	}
+	// The editable fields are the collapsible detail.
+	if !strings.Contains(html, "accordion-detail") {
+		t.Errorf("repo row editable cells not marked accordion-detail:\n%s", html)
+	}
+	// The summary carries a compact chip (mobile-only), so a runner shows
+	// without expanding.
+	if !strings.Contains(html, `data-accordion-chip`) {
+		t.Errorf("repo row summary missing runner chip:\n%s", html)
+	}
+	// The summary is mobile-only — desktop keeps the full table row.
+	if !strings.Contains(html, "sm:hidden") {
+		t.Errorf("repo summary should be mobile-only (sm:hidden):\n%s", html)
+	}
+}
+
+// TestConfigProviderRowCollapsible: providers get the same accordion — a
+// compact summary (name + a backend chip) that expands to the editable fields.
+func TestConfigProviderRowCollapsible(t *testing.T) {
+	html := evalUI(t, `providerRowHtml("acp",{backend:"claudecode"})`)
+
+	if !strings.Contains(html, "is-collapsed") {
+		t.Errorf("provider row not collapsed by default (want is-collapsed):\n%s", html)
+	}
+	if !strings.Contains(html, `data-accordion-toggle`) || !strings.Contains(html, `aria-expanded="false"`) {
+		t.Errorf("provider row missing collapsed accordion toggle:\n%s", html)
+	}
+	if !strings.Contains(html, "accordion-detail") {
+		t.Errorf("provider row editable cells not marked accordion-detail:\n%s", html)
+	}
+	if !strings.Contains(html, `data-accordion-chip`) {
+		t.Errorf("provider row summary missing backend chip:\n%s", html)
+	}
+}
+
+// TestConfigRowAddExpanded: a freshly added repo/provider row (blank name) is
+// rendered expanded, not collapsed, so the user can type into the fields
+// immediately instead of tapping open an empty card first.
+func TestConfigRowAddExpanded(t *testing.T) {
+	repo := evalUI(t, `repoRowHtml("",{},"",{},true)`)
+	if strings.Contains(repo, "is-collapsed") {
+		t.Errorf("added repo row should be expanded (no is-collapsed):\n%s", repo)
+	}
+	if !strings.Contains(repo, `aria-expanded="true"`) {
+		t.Errorf("added repo row toggle should announce expanded:\n%s", repo)
+	}
+	prov := evalUI(t, `providerRowHtml("",{},true)`)
+	if strings.Contains(prov, "is-collapsed") {
+		t.Errorf("added provider row should be expanded (no is-collapsed):\n%s", prov)
+	}
+	if !strings.Contains(prov, `aria-expanded="true"`) {
+		t.Errorf("added provider row toggle should announce expanded:\n%s", prov)
+	}
+}
