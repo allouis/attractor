@@ -1087,10 +1087,10 @@ async function showWorkflows() {
   }
   if (!wfs.length) { listEl.innerHTML = emptyState('no workflows'); return; }
   listEl.innerHTML = `<table>
-    <thead><tr><th>workflow</th><th></th></tr></thead>
+    <thead><tr><th>workflow</th><th class="w-px"></th></tr></thead>
     <tbody>${wfs.map(w =>
       `<tr><td><a href="#workflow/${encodeURIComponent(w.name)}">${escapeHtml(w.name)}</a></td>` +
-      `<td>${workflowRunButton(w.name)}</td></tr>`
+      `<td class="text-right">${workflowRunButton(w.name)}</td></tr>`
     ).join('')}</tbody></table>`;
 }
 
