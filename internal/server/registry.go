@@ -453,7 +453,15 @@ func (r *Run) IsCancelled() bool {
 	return r.cancelled
 }
 
-// RevBase / RevTip return the host jj change-ids stamped at run start / end
+// Cwd returns the run's working directory (the target repo), read under the
+// lock so concurrent HTTP handlers race-cleanly.
+func (r *Run) Cwd() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.cwd
+}
+
+// RevBase / RevTip return the host jj commit_ids stamped at run start / end
 // (T9c). Empty when no host range was recorded (VM/non-jj run).
 func (r *Run) RevBase() string {
 	r.mu.RLock()

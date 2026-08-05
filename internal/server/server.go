@@ -586,10 +586,13 @@ func (s *Server) getRunDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	base, tip := run.RevBase(), run.RevTip()
-	if base == "" || tip == "" || run.cwd == "" {
-		return // no range: empty body, frontend falls back to the artifact
+	if base == "" || tip == "" {
+		// No range recorded (VM / non-jj cwd — the stamp requires a jj cwd, so a
+		// recorded range implies one): empty body, frontend falls back to the
+		// artifact.
+		return
 	}
-	out, err := jjDiff(run.cwd, base, tip)
+	out, err := jjDiff(run.Cwd(), base, tip)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
