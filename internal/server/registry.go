@@ -956,7 +956,9 @@ func (r *Run) resolveInterrupted(history []engine.Event) []engine.Event {
 		}
 		switch ev.Kind {
 		case engine.EventPipelineCompleted, engine.EventPipelineFailed:
-			return history // log already terminal; nothing to repair
+			if !isChildEvent(ev) {
+				return history // run's own terminal on the log; nothing to repair
+			}
 		case engine.EventStageStarted, engine.EventStageRetrying:
 			if !running[ev.NodeID] {
 				order = append(order, ev.NodeID)

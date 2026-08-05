@@ -91,6 +91,39 @@ func TestReloadReplaysCompletedRun(t *testing.T) {
 	}
 }
 
+// TestReloadResolvesInterruptedLoopedRun covers an interrupted run whose log
+// ends after a nested child pipeline terminal (detail.source=child) with the
+// outer looped node still started. A forwarded child terminal is NOT the run's
+// own terminal, so reconstruction must look past it and still synthesize
+// terminals for the still-running node — otherwise it mistakes the child's
+// pipeline_failed for "log already terminal" and leaves the node stuck (T9a).
+func TestReloadResolvesInterruptedLoopedRun(t *testing.T) {
+	base := t.TempDir()
+	writeRunDir(t, base, "run-loop-cut", RunRunning, []engine.Event{
+		{Kind: engine.EventPipelineStarted, Seq: 1},
+		{Kind: engine.EventStageStarted, NodeID: "loop", Seq: 2},
+		{Kind: engine.EventPipelineStarted, NodeID: "", Seq: 3, Detail: map[string]string{"source": "child"}},
+		{Kind: engine.EventPipelineFailed, NodeID: "", Seq: 4, Detail: map[string]string{"source": "child"}},
+		// daemon died here: "loop" never got a terminal, no parent terminal.
+	})
+
+	run, ok := newRunRegistry(base).Get("run-loop-cut")
+	if !ok {
+		t.Fatal("run not reloaded after restart")
+	}
+
+	var got []engine.Event
+	for ev := range run.Subscribe(0) {
+		got = append(got, ev)
+	}
+	if last := got[len(got)-1]; last.Kind != engine.EventPipelineFailed || isChildEvent(last) {
+		t.Fatalf("no synthetic parent terminal; last = %q child=%v", last.Kind, isChildEvent(last))
+	}
+	if st := nodeStatesFromReplay(run)["loop"]; st == "running" {
+		t.Errorf("looped node stuck executing after restart")
+	}
+}
+
 // TestReloadResolvesInterruptedRun covers a run that was running when the
 // daemon died: reload marks it cancelled, but its events.jsonl ends mid-flight
 // at stage_started with no terminal event, so a naive replay leaves the node
