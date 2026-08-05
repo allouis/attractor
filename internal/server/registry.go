@@ -733,7 +733,13 @@ func (r *Run) Ingest(ev engine.Event) {
 	case engine.EventInterviewAnswered, engine.EventInterviewTimeout:
 		r.clearQuestion(ev.QuestionID)
 	case engine.EventPipelineCompleted, engine.EventPipelineFailed:
-		r.finishFromEvent(ev)
+		// Only the parent run's own terminal finishes the run. A forwarded
+		// child terminal (source=child) is a nested run's verdict; finishing on
+		// it would flip the run failed and lock out the real parent terminal
+		// (finishFromEvent is idempotent) — T9a on the phone-home path.
+		if isOwnTerminal(ev) {
+			r.finishFromEvent(ev)
+		}
 	}
 }
 
@@ -920,6 +926,21 @@ func (r *Run) writeSource() {
 // Go mirror of index.html's isChildEvent).
 func isChildEvent(ev engine.Event) bool {
 	return ev.Detail["source"] == "child"
+}
+
+// isOwnTerminal reports whether ev is THIS run's own terminal — a pipeline
+// terminal that isn't a forwarded child's. Only an own-terminal ends the run:
+// it flips status (finishFromEvent), closes the SSE stream (streamEvents) and
+// stops reconstruction repair (resolveInterrupted). A forwarded child terminal
+// is just a nested run's verdict and must pass through all three (T9a). The one
+// predicate keeps the "does this end the run?" decision from drifting per site.
+func isOwnTerminal(ev engine.Event) bool {
+	switch ev.Kind {
+	case engine.EventPipelineCompleted, engine.EventPipelineFailed:
+		return !isChildEvent(ev)
+	default:
+		return false
+	}
 }
 
 // reconstructHistory returns the event history a finished-run replay should

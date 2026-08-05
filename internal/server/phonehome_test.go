@@ -43,6 +43,32 @@ func TestIngestEventAppendsHistoryAndPersists(t *testing.T) {
 	}
 }
 
+// A phone-home child forwards its nested pipeline's OWN terminal event to the
+// daemon tagged source=child (report.Forward posts every event). That child
+// terminal must NOT finish the parent run — only the parent's own terminal
+// does. Otherwise the first forwarded child pipeline_failed flips the run
+// RunFailed, closes every SSE subscriber and persists manifest=failed, and the
+// real parent terminal can no longer correct it (finishFromEvent is idempotent)
+// — the T9a bug on the ingest path (BLOCKING-1).
+func TestIngestChildTerminalDoesNotFinishRun(t *testing.T) {
+	tmp := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
+
+	run.Ingest(engine.Event{Seq: 1, Kind: engine.EventPipelineStarted})
+	if run.Status() != RunRunning {
+		t.Fatalf("after pipeline_started status = %q, want running", run.Status())
+	}
+	run.Ingest(engine.Event{Seq: 2, Kind: engine.EventPipelineFailed, Message: "review found issues", Detail: map[string]string{"source": "child"}})
+	if st := run.Status(); st != RunRunning {
+		t.Fatalf("forwarded child terminal finished the run: status = %q, want running", st)
+	}
+	run.Ingest(engine.Event{Seq: 3, Kind: engine.EventPipelineCompleted, Status: "success"})
+	if st := run.Status(); st != RunCompleted {
+		t.Fatalf("parent terminal ignored after a child terminal: status = %q, want completed", st)
+	}
+}
+
 // The child polls GET /control to learn whether it should abort. After
 // Cancel, the poll reports cancel=true so the child can stop its engine.
 func TestControlReportsCancel(t *testing.T) {
