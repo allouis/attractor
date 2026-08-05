@@ -1737,9 +1737,16 @@ function attachStream(id) {
     stage_failed:    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); },
     stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
     stage_progress:  ev => appendProgress(ev),
-    // On success the fix loop resolved any child findings, so mark the review
-    // notes resolved (collapsed, not error-red) rather than leaving them loud.
-    pipeline_completed: () => { $('run-review').innerHTML = reviewNotesHtml(reviewNotes, true); done(); loadArtifacts(); },
+    // Only the PARENT run's completion is terminal. A forwarded child
+    // pipeline_completed (a child review that passed) must not end the stream —
+    // doing so froze the view at "resolved" and masked a later real parent
+    // failure (T8b). The parent's completion is always StatusSuccess
+    // (engine/run.go), so the fix loop resolved any findings → mark them
+    // resolved (collapsed, not error-red).
+    pipeline_completed: ev => {
+      if (isChildEvent(ev)) return;
+      $('run-review').innerHTML = reviewNotesHtml(reviewNotes, true); done(); loadArtifacts();
+    },
     // A forwarded child pipeline_failed is a review verdict, not the run's
     // failure (T8b): route it to the collapsible Review notes and do NOT end
     // the stream — the parent run continues. Only the run's own failure is the
@@ -1877,16 +1884,24 @@ function failureBannerHtml(reason) {
   return `<p class="banner error run-failure">${escapeHtml(reason)}</p>`;
 }
 
+// isChildEvent reports whether a pipeline event was forwarded from a nested
+// child run. A manager_loop re-emits every child engine event onto the parent
+// stream tagged detail.source="child" (handler/manager_loop.go
+// consumeChildEvents) — including the child's own terminal pipeline_completed /
+// pipeline_failed. Those are NOT the parent run's terminal events: gating on
+// this keeps a forwarded child terminal from closing the parent's stream or
+// painting the parent's banners (ui-tailwind-spec T8b).
+function isChildEvent(ev) {
+  return !!(ev.detail && ev.detail.source === 'child');
+}
+
 // classifyPipelineFailed routes a pipeline_failed event to the right section
-// (ui-tailwind-spec T8b). A manager_loop re-emits its child's pipeline_failed
-// onto the parent stream tagged detail.source="child" (handler/manager_loop.go
-// consumeChildEvents); that message is a review verdict / findings, not the
-// run's failure — the fix loop may resolve it and the parent still succeed. So
-// a child-sourced failure is review notes; the run's own failure stays the loud
-// red banner. Only the parent failure is terminal for the stream.
+// (ui-tailwind-spec T8b). A child-sourced failure is a review verdict /
+// findings, not the run's failure — the fix loop may resolve it and the parent
+// still succeed — so it becomes review notes; the run's own failure stays the
+// loud red banner. Only the parent failure is terminal for the stream.
 function classifyPipelineFailed(ev) {
-  const child = !!(ev.detail && ev.detail.source === 'child');
-  return { section: child ? 'review' : 'failure' };
+  return { section: isChildEvent(ev) ? 'review' : 'failure' };
 }
 
 // reviewNotesHtml renders accumulated child review findings as a labelled,
