@@ -52,6 +52,10 @@ const fetch = (url) => {
   if (url === '/pipelines/run1/artifacts')
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(
       { entries: [{ path: 'huge.diff', size: 99999999, is_dir: false }] }) });
+  // No jj-derived diff (T9c): empty /diff → fall back to the *.diff artifact,
+  // which this test drives past the size cap.
+  if (url === '/pipelines/run1/diff')
+    return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('') });
   return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('@@\n+x\n') });
 };
 const sandbox = { window: { addEventListener() {} }, document, location: {}, console, fetch,
