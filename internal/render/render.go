@@ -86,6 +86,17 @@ func runDot(dotSrc []byte, engine string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// writeGraphHeader opens the digraph and writes the graph/node/edge default
+// attributes shared by every rendered pipeline. compound enables cluster-aware
+// edge clipping (ltail/lhead), needed only when sub-workflows are expanded.
+func writeGraphHeader(b *strings.Builder, compound bool) {
+	b.WriteString("digraph pipeline {\n")
+	if compound {
+		b.WriteString("  compound=true;\n")
+	}
+	b.WriteString("  rankdir=TB;\n")
+}
+
 // graphvizSafe re-emits an Attractor pipeline as minimal graphviz DOT that
 // the graphviz parser accepts: each node as its shape + name label, each
 // edge with its label or condition. Attractor-specific attributes (dotted
@@ -102,7 +113,7 @@ func graphvizSafe(src []byte) []byte {
 		return src
 	}
 	var b strings.Builder
-	b.WriteString("digraph pipeline {\n  rankdir=TB;\n")
+	writeGraphHeader(&b, false)
 	for _, id := range g.NodeOrder {
 		n := g.Nodes[id]
 		fmt.Fprintf(&b, "  %q [shape=%q, label=%q];\n", id, displayShape(n), id)
@@ -133,7 +144,7 @@ func graphvizExpanded(src []byte, baseDir string) []byte {
 		return src
 	}
 	var b strings.Builder
-	b.WriteString("digraph pipeline {\n  compound=true;\n  rankdir=TB;\n")
+	writeGraphHeader(&b, true)
 	emitLevel(&b, g, "", baseDir, 0, map[string]bool{})
 	b.WriteString("}\n")
 	return []byte(b.String())
