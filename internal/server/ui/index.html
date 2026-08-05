@@ -160,12 +160,6 @@
      it fills (amber) rather than tints (web-ui-v2-spec U5). */
   .banner.blocked { background: var(--state-needs-human); color: var(--attention-ink);
                     border-color: var(--state-needs-human); font-weight: 600; }
-  /* Review notes: child findings surfaced by the fix loop. Muted, not error-red
-     (web-ui T8b) — on a succeeded run the findings were resolved. */
-  .banner.review { color: var(--text-muted); }
-  .banner.review summary { cursor: pointer; font-weight: 600; color: var(--text); }
-  .review-tag { font-size: var(--font-sm); font-weight: 600; color: var(--state-success); }
-  .review-list { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
   /* Item badges: a linked-run pill (status-tinted, links to #run/<id>) and
      the deliberately loud in-progress chip. */
   .badge { display: inline-block; font-size: var(--font-sm); font-weight: 600;
@@ -192,6 +186,12 @@
   #node-log { white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
               margin-top: var(--space-2); max-height: 320px; overflow: auto; }
   #node-pane h4 { margin: var(--space-3) 0 var(--space-1); font-size: var(--font-sm); }
+  /* Node findings: a node's forwarded child-pipeline verdict (T9b). Muted, not
+     error-red — on a completed node the fix loop resolved them. */
+  .node-findings { color: var(--text-muted); margin: var(--space-2) 0; }
+  .node-findings summary { cursor: pointer; font-weight: 600; color: var(--text); }
+  .node-findings-tag { font-size: var(--font-sm); font-weight: 600; color: var(--state-success); }
+  .node-findings-list { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
   .stage-meta { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
   .stage-text { margin: 0; padding: var(--space-2); background: var(--surface-2); border-radius: 6px;
                 white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
@@ -391,7 +391,6 @@
     <div id="run-actions" class="run-actions"></div>
     <div id="run-blocked"></div>
     <div id="run-failure"></div>
-    <div id="run-review"></div>
     <div class="layout">
       <div>
         <label class="flex items-center gap-2 mb-2 text-muted text-sm">
@@ -452,7 +451,8 @@ let selectedNode = null;       // node id in the pane
 const nodeLog = {};            // node id -> accumulated log html chunks
 const nodeState = {};          // node id -> status class
 const nodeTiming = {};         // node id -> {start, end} ISO ts from the stream
-const reviewNotes = [];        // child findings (forwarded pipeline_failed) for the current run (T8b)
+const nodeFindings = {};       // node id -> child-pipeline findings that node produced (T9b)
+let activeParentNode = null;   // last non-child stage_started: owns forwarded child findings (T9b)
 let dockTimer = null;
 let runsTimer = null;          // fleet-list poll while the Runs view is open
 let configLoaded = null;       // last GET /config doc (redacted) the view rendered
@@ -1611,13 +1611,13 @@ async function openRun(id) {
   for (const k in nodeLog) delete nodeLog[k];
   for (const k in nodeState) delete nodeState[k];
   for (const k in nodeTiming) delete nodeTiming[k];
+  for (const k in nodeFindings) delete nodeFindings[k];
+  activeParentNode = null;
   timeline.length = 0;
   highlightNav('runs');
   showView('run-view');
   $('run-title').textContent = id;
   $('run-failure').innerHTML = '';
-  reviewNotes.length = 0;
-  $('run-review').innerHTML = '';
   $('run-blocked').innerHTML = '';
   if ($('tl-text')) $('tl-text').value = '';
   if ($('tl-kind')) $('tl-kind').value = '';
@@ -1732,7 +1732,13 @@ function attachStream(id) {
   // of them keeps the applied/pos replay cursor authoritative for the whole
   // stream — the U3 timeline recorder hangs off this same dispatch.
   const HANDLERS = {
-    stage_started:   ev => { timing(ev.node_id).start = ev.ts; paintNode(ev.node_id, 'running'); },
+    stage_started:   ev => {
+      // Track the active parent node so a forwarded child terminal (which
+      // carries no node_id) can be attributed to the node running the child
+      // pipeline (T9b). Child stage_starts belong to the nested run, not here.
+      if (!isChildEvent(ev)) activeParentNode = ev.node_id;
+      timing(ev.node_id).start = ev.ts; paintNode(ev.node_id, 'running');
+    },
     stage_completed: ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'completed'); },
     stage_failed:    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); },
     stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
@@ -1740,23 +1746,18 @@ function attachStream(id) {
     // Only the PARENT run's completion is terminal. A forwarded child
     // pipeline_completed (a child review that passed) must not end the stream —
     // doing so froze the view at "resolved" and masked a later real parent
-    // failure (T8b). The parent's completion is always StatusSuccess
-    // (engine/run.go), so the fix loop resolved any findings → mark them
-    // resolved (collapsed, not error-red).
+    // failure (T8b). The parent's own completion closes the run.
     pipeline_completed: ev => {
       if (isChildEvent(ev)) return;
-      $('run-review').innerHTML = reviewNotesHtml(reviewNotes, true); done(); loadArtifacts();
+      done(); loadArtifacts();
     },
-    // A forwarded child pipeline_failed is a review verdict, not the run's
-    // failure (T8b): route it to the collapsible Review notes and do NOT end
-    // the stream — the parent run continues. Only the run's own failure is the
-    // red banner and terminal.
+    // A forwarded child pipeline_failed is a nested run's verdict/findings, not
+    // the run's failure (T9b): attribute it to the node that ran the child
+    // pipeline (the active parent node) — surfaced in that node's inspector —
+    // and do NOT end the stream. Only the run's own failure is the red banner
+    // and terminal.
     pipeline_failed:    ev => {
-      if (classifyPipelineFailed(ev).section === 'review') {
-        reviewNotes.push(ev.message);
-        $('run-review').innerHTML = reviewNotesHtml(reviewNotes, false);
-        return;
-      }
+      if (isChildEvent(ev)) { recordNodeFinding(activeParentNode, ev.message); return; }
       $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); loadArtifacts();
     },
     // Gate events drive the dock live (U5): a run blocks (interview_started) or
@@ -1895,28 +1896,34 @@ function isChildEvent(ev) {
   return !!(ev.detail && ev.detail.source === 'child');
 }
 
-// classifyPipelineFailed routes a pipeline_failed event to the right section
-// (ui-tailwind-spec T8b). A child-sourced failure is a review verdict /
-// findings, not the run's failure — the fix loop may resolve it and the parent
-// still succeed — so it becomes review notes; the run's own failure stays the
-// loud red banner. Only the parent failure is terminal for the stream.
-function classifyPipelineFailed(ev) {
-  return { section: isChildEvent(ev) ? 'review' : 'failure' };
+// recordNodeFinding attributes a forwarded child-pipeline finding to the node
+// that ran the child (T9b): the child terminal carries no node_id, so it belongs
+// to the active parent node (the last non-child stage_started). If that node's
+// inspector is open, refresh its findings block live — resolved once the node
+// itself reaches completed (the fix loop cleared the findings).
+function recordNodeFinding(node, message) {
+  if (!node) return;
+  (nodeFindings[node] = nodeFindings[node] || []).push(message);
+  if (selectedNode === node) {
+    const box = $('node-findings');
+    if (box) box.innerHTML = nodeFindingsHtml(nodeFindings[node], nodeState[node] === 'completed');
+  }
 }
 
-// reviewNotesHtml renders accumulated child review findings as a labelled,
-// collapsible section (ui-tailwind-spec T8b) — deliberately NOT error-red: on a
-// succeeded run the findings were resolved by the fix loop, so a red banner is
-// confusing. `resolved` marks a finished-success run (collapsed + a resolved
-// tag); while running it stays open. Empty → nothing. Findings text is the
-// child's failure_reason (attacker-controlled) and is escaped.
-function reviewNotesHtml(notes, resolved) {
-  if (!notes || !notes.length) return '';
-  const items = notes.map(n => `<li>${escapeHtml(n)}</li>`).join('');
-  const tag = resolved ? ' <span class="review-tag">resolved</span>' : '';
-  return `<details class="banner review run-review"${resolved ? '' : ' open'}>` +
-    `<summary>Review notes${tag}</summary>` +
-    `<ul class="review-list">${items}</ul></details>`;
+// nodeFindingsHtml renders a node's child-pipeline findings as a labelled,
+// collapsible block in the node inspector (ui-tailwind-spec T9b) — deliberately
+// NOT error-red: a manager_loop node's child verdict may be resolved by the fix
+// loop and the node still completes. `resolved` (node reached completed) marks
+// them fixed (collapsed + a resolved tag); otherwise it stays open. Empty →
+// nothing (no leftover section). Findings text is the child's failure_reason
+// (attacker-controlled) and is escaped.
+function nodeFindingsHtml(findings, resolved) {
+  if (!findings || !findings.length) return '';
+  const items = findings.map(n => `<li>${escapeHtml(n)}</li>`).join('');
+  const tag = resolved ? ' <span class="node-findings-tag">resolved</span>' : '';
+  return `<details class="node-findings"${resolved ? '' : ' open'}>` +
+    `<summary>Findings${tag}</summary>` +
+    `<ul class="node-findings-list">${items}</ul></details>`;
 }
 
 // blockedBannerHtml renders the loud run-header banner for a run waiting on a
@@ -2006,7 +2013,7 @@ function diffHtml(text) {
 // the live-tail #node-log container seeded with any chunks already streamed.
 // Every stage field is attacker-controlled and escaped. An empty status.json
 // (stage still running) reads as "running", not blank.
-function stageDetailHtml(id, detail, timing, logHtml) {
+function stageDetailHtml(id, detail, timing, logHtml, findings, resolved) {
   const status = detail.status || 'running';
   const calls = (detail.tool_calls || []).map(toolCallHtml).join('');
   const section = (title, body) => body
@@ -2017,6 +2024,7 @@ function stageDetailHtml(id, detail, timing, logHtml) {
       ${stateBadge(status)}
       <span class="muted">${fmtDuration(timing.start, timing.end)}</span>
     </div>
+    <div id="node-findings">${nodeFindingsHtml(findings, resolved)}</div>
     ${section('Prompt', detail.prompt)}
     ${section('Response', detail.response)}
     ${calls ? `<h4>Tool calls</h4>${calls}` : ''}
@@ -2043,7 +2051,8 @@ async function selectNode(id) {
     return;
   }
   if (selectedNode !== id) return;          // a later click won the race
-  if (pane) pane.innerHTML = stageDetailHtml(id, detail, nodeTiming[id] || {}, (nodeLog[id] || []).join(''));
+  if (pane) pane.innerHTML = stageDetailHtml(id, detail, nodeTiming[id] || {},
+    (nodeLog[id] || []).join(''), nodeFindings[id] || [], nodeState[id] === 'completed');
   const log = $('node-log'); if (log) log.scrollTop = log.scrollHeight;
 }
 
