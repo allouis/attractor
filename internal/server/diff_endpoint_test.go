@@ -59,6 +59,61 @@ func TestRunDiffFromJJRange(t *testing.T) {
 	}
 }
 
+// TestRunDiffDoesNotSnapshot proves GET /diff is a pure read (T9c B2): serving
+// the diff must not snapshot the caller's working copy into `@`, which would be
+// a write side-effect on a read that races in-progress runs and the user's own
+// jj. A fresh un-snapshotted file on disk must not produce a new jj operation.
+func TestRunDiffDoesNotSnapshot(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	base, err := jjHeadCommit(repo)
+	if err != nil {
+		t.Fatalf("base commit: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "foo.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tip, err := jjHeadCommit(repo)
+	if err != nil {
+		t.Fatalf("tip commit: %v", err)
+	}
+	// A dirty, un-snapshotted file: a snapshotting diff would fold it into `@`
+	// and record a new operation.
+	if err := os.WriteFile(filepath.Join(repo, "dirty.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opHead := func() string {
+		out, err := exec.Command("jj", "-R", repo, "op", "log", "--no-graph", "--ignore-working-copy", "-T", "id.short()", "--limit", "1").Output()
+		if err != nil {
+			t.Fatalf("jj op log: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	before := opHead()
+
+	srv, tmp := newStageTestServer(t)
+	addRun(srv, "r1", filepath.Join(tmp, "r1"))
+	srv.registry.mu.Lock()
+	run := srv.registry.runs["r1"]
+	run.cwd = repo
+	run.revBase = base
+	run.revTip = tip
+	srv.registry.mu.Unlock()
+
+	resp, err := http.Get(srv.URL() + "/pipelines/r1/diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if after := opHead(); after != before {
+		t.Errorf("GET /diff snapshotted the working copy: op head %s -> %s", before, after)
+	}
+}
+
 // TestRunDiffEmptyWithoutRange: a run with no recorded jj range (VM / non-jj)
 // serves an empty 200 body — the frontend then falls back to a *.diff artifact.
 func TestRunDiffEmptyWithoutRange(t *testing.T) {
