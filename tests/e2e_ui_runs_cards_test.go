@@ -11,13 +11,14 @@ import (
 )
 
 // TestServer_UI_RunsCards guards the responsive Runs table (ui-tailwind-spec
-// T3): the fleet table clips the `by` column on a phone, so at ≤640px each run
-// renders as a stacked card (run id, workflow, item, repo, by, status, started)
-// with no clipped columns while the desktop table survives at ≥640px. Like the
-// T2 config guard, the panel is a client-side JS template literal in the served
-// page, so its utility classes appear in the /ui source; the 390px no-overflow
-// is verified by hand (agent-browser) and here we guard the markup + that the
-// injected stylesheet defines the block↔table utilities the cards rely on.
+// T3, tightened by T8a): at ≤640px each run collapses to a tight, glanceable
+// summary — a mobile-only tappable link (short id, workflow, status badge,
+// relative time) instead of a per-field label stack — while the full desktop
+// table survives at ≥640px. Like the T2 config guard, the panel is a
+// client-side JS template literal in the served page, so its utility classes
+// appear in the /ui source; the 390px no-overflow is verified by hand
+// (agent-browser) and here we guard the markup + that the injected stylesheet
+// defines the block↔table utilities the cards rely on.
 func TestServer_UI_RunsCards(t *testing.T) {
 	srv := newTestServer(t, server.DefaultHandlers(handler.Codergen{}))
 
@@ -37,17 +38,26 @@ func TestServer_UI_RunsCards(t *testing.T) {
 		}
 	}
 
-	// runRowHtml builds each run as a shared card row (CARD_ROW_CLASS) of card
-	// cells (cardCell), keeping the `by` field the desktop table clips.
+	// runRowHtml builds each run as a shared card row (CARD_ROW_CLASS) with a
+	// compact mobile summary (runSummaryCell) plus desktop-only per-field cells
+	// (runDetailCell) — the per-field label stack is dropped on mobile (T8a).
 	row := sliceFunc(t, page, "runRowHtml")
-	for _, ref := range []string{"CARD_ROW_CLASS", "cardCell("} {
+	for _, ref := range []string{"CARD_ROW_CLASS", "runSummaryCell(", "runDetailCell("} {
 		if !strings.Contains(row, ref) {
-			t.Errorf("runRowHtml no longer builds a stacked card via %q:\n%s", ref, row)
+			t.Errorf("runRowHtml no longer builds the compact T8a row via %q:\n%s", ref, row)
 		}
 	}
-	// The previously-clipped `by` field must survive as a labelled card cell.
-	if !strings.Contains(row, "'by'") && !strings.Contains(row, ">by<") {
-		t.Errorf("runRowHtml drops the `by` field label on mobile (still clipped):\n%s", row)
+	// The `by` field (origin) the desktop table clips survives as a desktop-only
+	// cell, restored at ≥sm rather than shown as a mobile label.
+	if !strings.Contains(row, "runOriginCell") {
+		t.Errorf("runRowHtml drops the `by` (origin) field:\n%s", row)
+	}
+	// The whole mobile summary is one tap-target link to the run detail.
+	summary := sliceFunc(t, page, "runSummaryCell")
+	for _, ref := range []string{"block sm:hidden", "#run/"} {
+		if !strings.Contains(summary, ref) {
+			t.Errorf("runSummaryCell is not a mobile-only link to the run detail (missing %q):\n%s", ref, summary)
+		}
 	}
 
 	// The shared card primitives carry the token-mapped card classes, shipped in

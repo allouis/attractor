@@ -1393,15 +1393,44 @@ function runRowHtml(p) {
   const id = p.id || '';
   return `
     <tr class="${CARD_ROW_CLASS}">
-      ${cardCell('run', `<a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a>`)}
-      ${cardCell('workflow', runWorkflowCell(p), true)}
-      ${cardCell('item', runItemCell(p), true)}
-      ${cardCell('repo', runRepoCell(p), true)}
-      ${cardCell('by', runOriginCell(p), true)}
-      ${cardCell('status', `${stateBadge(p.status)}${chip}`)}
-      ${cardCell('started', fmtDate(p.started_at), true)}
-      ${cardCell('', runCancelButton(p))}
+      ${runSummaryCell(p)}
+      ${runDetailCell(`<a href="#run/${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(id.slice(0, 8) || id)}</a>`)}
+      ${runDetailCell(runWorkflowCell(p), true)}
+      ${runDetailCell(runItemCell(p), true)}
+      ${runDetailCell(runRepoCell(p), true)}
+      ${runDetailCell(runOriginCell(p), true)}
+      ${runDetailCell(`${stateBadge(p.status)}${chip}`)}
+      ${runDetailCell(fmtDate(p.started_at), true)}
+      ${runDetailCell(runCancelButton(p))}
     </tr>`;
+}
+
+// runDetailCell is a run's field as a desktop table cell that is hidden on
+// mobile (ui-tailwind-spec T8a): the compact runSummaryCell carries the
+// glanceable fields <sm, so the per-field label stack (cardCell) is dropped
+// there. Restored as a real cell ≥sm for the full column table; border-0
+// leaves the row rule to the tbody divide-y, matching the config tables.
+const runDetailCell = (inner, muted) =>
+  `<td class="${muted ? 'muted ' : ''}hidden border-0 sm:table-cell">${inner}</td>`;
+
+// runSummaryCell is the tight, glanceable mobile summary for one run
+// (ui-tailwind-spec T8a): a mobile-only cell (block sm:hidden — the desktop
+// columns take over ≥sm) whose whole body is one tap-target link to the run
+// detail. Two lines: the short id + workflow label (truncating) with the loud
+// needs-human chip, then the status badge + relative time. The workflow is a
+// plain label here (not runWorkflowCell's link) — no nested anchor inside the
+// row link. fmtDate already renders relative time with the full stamp on hover.
+function runSummaryCell(p) {
+  const id = p.id || '';
+  const chip = runNeedsHuman(p) ? '<span class="chip needs-human">needs human</span>' : '';
+  const workflow = escapeHtml(p.workflow_name || p.graph_name || '');
+  return `<td class="block sm:hidden border-0"><a href="#run/${escapeHtml(id)}" class="flex flex-col gap-1 min-h-10 justify-center">` +
+    `<span class="flex min-w-0 items-baseline gap-2">` +
+      `<span class="shrink-0 font-medium text-ink">${escapeHtml(id.slice(0, 8) || id)}</span>` +
+      `<span class="truncate text-muted text-sm">${workflow}</span>` +
+    `</span>` +
+    `<span class="flex items-center gap-2 text-xs text-muted">${stateBadge(p.status)}${chip}<span>${fmtDate(p.started_at)}</span></span>` +
+    `</a></td>`;
 }
 
 // runWorkflowCell links a run back to its workflow definition. workflow_name

@@ -54,19 +54,3 @@ func TestTablesKeepStackedCards(t *testing.T) {
 		}
 	}
 }
-
-// TestTerminalRunCardHidesEmptyCancelCell: a terminal run offers no cancel
-// button, so its trailing (unlabelled, empty) cell must collapse on the ≤640px
-// stacked card — otherwise every completed run leaves a blank bordered band at
-// the foot of its card. The cell stays a real cell ≥sm for column alignment.
-func TestTerminalRunCardHidesEmptyCancelCell(t *testing.T) {
-	html := evalUI(t, `runsTableHtml([{id:"deadbeefcafe",status:"completed",started_at:"2026-07-25"}])`)
-	if !strings.Contains(html, `class="hidden border-0 sm:table-cell"`) {
-		t.Errorf("terminal run card did not collapse its empty cancel cell (want hidden border-0 sm:table-cell):\n%s", html)
-	}
-	// A cancellable run keeps the button, so its cell must NOT be hidden.
-	live := evalUI(t, `runsTableHtml([{id:"deadbeefcafe",status:"running",started_at:"2026-07-25"}])`)
-	if strings.Contains(live, `class="hidden border-0 sm:table-cell"`) {
-		t.Errorf("running run card wrongly collapsed a cell carrying the cancel button:\n%s", live)
-	}
-}
