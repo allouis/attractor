@@ -2100,8 +2100,21 @@ async function loadArtifacts() {
       if (row) viewArtifact(row.getAttribute('data-path'));
     };
   }
-  const diff = entries.find(e => !e.is_dir && isDiffPath(e.path));
   if (!diffEl) return;
+  // Prefer the run's jj-derived diff (T9c): the daemon serves the real produced
+  // change (jj diff over the run's rev range) at /diff. A non-empty body wins;
+  // an empty body — a VM/non-jj run with no recorded range — falls through to
+  // the first *.diff artifact below.
+  try {
+    const r = await fetch(`/pipelines/${run}/diff`);
+    if (r.ok) {
+      const text = await r.text();
+      if (stale()) return;
+      if (text.trim()) { diffEl.innerHTML = diffHtml(text); return; }
+    }
+  } catch (e) { /* fall back to a *.diff artifact */ }
+  if (stale()) return;
+  const diff = entries.find(e => !e.is_dir && isDiffPath(e.path));
   if (!diff) { diffEl.innerHTML = emptyState('This run produced no diff.'); return; }
   if (diff.size > ARTIFACT_RENDER_CAP) {
     diffEl.innerHTML = emptyState(`Diff too large to render inline (${fmtBytes(diff.size)}). ` +
