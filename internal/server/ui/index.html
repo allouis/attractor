@@ -191,7 +191,14 @@
                 white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
                 max-height: 320px; overflow: auto; }
   .tool { color: var(--text-muted); }
-  .tool-call summary { cursor: pointer; color: var(--text-muted); }
+  .tool-call summary { cursor: pointer; color: var(--text-muted); display: flex;
+                       gap: var(--space-2); align-items: baseline; list-style: none; }
+  .tool-call summary::-webkit-details-marker { display: none; }
+  .tool-call summary::before { content: "\25B8"; color: var(--text-muted); flex: none; }
+  .tool-call[open] summary::before { content: "\25BE"; }
+  .tool-call-name { color: var(--text); font-weight: 500; flex: none; }
+  .tool-call-title { color: var(--text-muted); min-width: 0; overflow: hidden;
+                     text-overflow: ellipsis; white-space: nowrap; }
   .tool-call pre { margin: var(--space-1) 0 0; padding: var(--space-2);
                    background: var(--surface-2); border-radius: 6px;
                    font: var(--font-sm)/1.45 ui-monospace, monospace;
@@ -1781,12 +1788,19 @@ function renderTimeline() {
 
 // toolCallHtml renders one persisted tool_calls/*.json payload (web-ui-v2-spec
 // U2): the tool name as a collapsible summary over the pretty-printed payload.
-// Every field is attacker-controlled, so both label and body are escaped.
+// ACP tool_call updates carry the tool under `_meta.claudeCode.toolName` and an
+// optional human-readable `title` (e.g. the actual shell command); without
+// these every row collapsed to a useless "tool". Every field is
+// attacker-controlled, so both label and body are escaped.
 function toolCallHtml(raw) {
-  const name = raw.tool_name || raw.tool || raw.hook_name || 'tool';
+  const cc = (raw && raw._meta && raw._meta.claudeCode) || {};
+  const name = raw.tool_name || raw.tool || cc.toolName || raw.hook_name || 'tool';
+  const title = typeof raw.title === 'string' && raw.title.trim() && raw.title.trim() !== name
+    ? raw.title.trim() : '';
   let body;
   try { body = JSON.stringify(raw, null, 2); } catch (e) { body = String(raw); }
-  return `<details class="tool-call"><summary>${escapeHtml(name)}</summary>` +
+  const titleSpan = title ? ` <span class="tool-call-title">${escapeHtml(title)}</span>` : '';
+  return `<details class="tool-call"><summary><span class="tool-call-name">${escapeHtml(name)}</span>${titleSpan}</summary>` +
          `<pre class="overflow-x-auto">${escapeHtml(body)}</pre></details>`;
 }
 
