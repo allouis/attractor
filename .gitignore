@@ -9,3 +9,6 @@ attractor-ui
 result
 ui-runs-dark.png
 *.png
+
+# scratch review-summary written by dogfood record/review nodes; not source
+response.md
