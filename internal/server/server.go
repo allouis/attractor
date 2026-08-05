@@ -16,7 +16,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -596,18 +595,6 @@ func (s *Server) getRunDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Write(out)
-}
-
-// jjDiff renders `jj diff --from base --to tip` of dir as a git-format unified
-// diff (the format the UI's diffHtml parses). base/tip are daemon-recorded
-// change-ids, not user input, and are passed as argv (no shell).
-func jjDiff(dir, base, tip string) ([]byte, error) {
-	cmd := exec.Command("jj", "-R", dir, "diff", "--git", "--from", base, "--to", tip)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("jj diff %s..%s in %q: %w", base, tip, dir, err)
-	}
-	return out, nil
 }
 
 // graphEngine screens an untrusted `?engine=` against the render allowlist,
