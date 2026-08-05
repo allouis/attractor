@@ -2,9 +2,17 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
+
+// maxDiffRenderBytes bounds how much of a run's diff the daemon buffers and the
+// UI renders inline (T9c B3). It mirrors the UI's ARTIFACT_RENDER_CAP: a diff
+// past this is served truncated (cap+1 bytes, enough for the frontend to detect
+// the overflow and show a "too large" note) so a giant/binary diff can neither
+// blow daemon memory nor freeze the browser.
+const maxDiffRenderBytes = 512 * 1024
 
 // jjHeadCommit snapshots dir's working copy and returns the immutable commit_id
 // of `@`. Snapshotting is deliberate (T9c): the run's produced change lives in
@@ -32,9 +40,31 @@ func jjHeadCommit(dir string) (string, error) {
 // snapshots were already taken when the run was stamped.
 func jjDiff(dir, from, to string) ([]byte, error) {
 	cmd := exec.Command("jj", "-R", dir, "diff", "--git", "--ignore-working-copy", "--from", from, "--to", to)
-	out, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("jj diff %s..%s in %q: %w", from, to, dir, err)
+		return nil, err
 	}
-	return out, nil
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	// Read at most cap+1 bytes so a huge/binary diff can't blow daemon memory
+	// (B3); the extra byte lets the frontend detect the overflow. Once capped,
+	// kill jj rather than draining the rest.
+	data, readErr := io.ReadAll(io.LimitReader(stdout, maxDiffRenderBytes+1))
+	capped := len(data) > maxDiffRenderBytes
+	if capped {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if readErr != nil {
+		return nil, fmt.Errorf("read jj diff %s..%s in %q: %w", from, to, dir, readErr)
+	}
+	// A deliberate kill makes Wait report an error; only surface a real failure
+	// (jj erroring before we hit the cap).
+	if waitErr != nil && !capped {
+		return nil, fmt.Errorf("jj diff %s..%s in %q: %w: %s", from, to, dir, waitErr, stderr.String())
+	}
+	return data, nil
 }

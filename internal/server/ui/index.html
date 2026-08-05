@@ -2110,6 +2110,14 @@ async function loadArtifacts() {
     if (r.ok) {
       const text = await r.text();
       if (stale()) return;
+      // Cap the jj-diff render like the artifact path (T9c B3): a body past the
+      // cap (the daemon serves cap+1 bytes for exactly this signal) would freeze
+      // the tab, so show a note instead of rendering.
+      if (text.length > ARTIFACT_RENDER_CAP) {
+        diffEl.innerHTML = emptyState(`Diff too large to render inline (${fmtBytes(text.length)}). ` +
+          `Open it from Artifacts below.`);
+        return;
+      }
       if (text.trim()) { diffEl.innerHTML = diffHtml(text); return; }
     }
   } catch (e) { /* fall back to a *.diff artifact */ }
