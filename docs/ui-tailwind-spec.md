@@ -60,3 +60,14 @@ the operator's license). The vendored interactivity lib is at
 | T6b | **Adopt the Tailwind Plus table** (`table.html`) for the Runs + Config lists — token-remapped, preserving the ≤640px stacked-card behaviour from T2/T3. | done |
 | T6c | **Adopt the form layout** (`form-layout.html`) for the Config panels + the run-form modal — token-remapped, full-width tappable inputs on mobile. | done |
 | T6d | **App-shell / nav swap** (`app-shell-stacked.html`) — replace the header/nav with the stacked shell + a real mobile menu via `el-disclosure`. Most invasive: keep hash routing + the theme toggle wired. Do last. | done |
+
+## T7 — polish pass (graph aesthetics + compact Config lists)
+
+Same rules as T6 (token colours only, no overflow at 390px, gate green). These
+are quality passes — the `ui_review` node must **look at the result and iterate**,
+not just check overflow.
+
+| # | Deliverable | Status |
+|---|---|---|
+| T7a | **Prettier run graph.** The graph is themed but still looks utilitarian/ugly. Make it genuinely nice and on-brand: rounded node corners with soft token-based fills + good light **and** dark contrast; cleaner edges (smoother splines + right-sized arrowheads, no heavy black); the UI font at a comfortable size; tidy node/rank spacing. Tune BOTH the DOT attributes in `internal/render/render.go` (node `style`/`shape`/`fontname`/`fontsize`, edge `splines`/`arrowsize`, graph `nodesep`/`ranksep`) AND the SVG CSS in `ui/input.css`. Keep the status colours meaningful but harmonious. Default engine stays `dot`. `ui_review` MUST open a run detail, view the graph in light + dark, and iterate until it looks polished. | todo |
+| T7b | **Compact Config repos/providers.** The mobile stacked-card layout shows every field per repo, so it gets very long with many repos. Make each repo (and each provider) a **collapsible** item: a compact summary row (owner/name + a small runner/backend chip) that expands to the editable fields on tap (accordion — vanilla-JS toggle like the nav menu, no new dep; ARIA-expanded). Collapsed by default. Keep the desktop table unchanged. No overflow at 390px; add/remove repo + save still work. | todo |
