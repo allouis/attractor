@@ -19,21 +19,18 @@ func TestRunDiffFromJJRange(t *testing.T) {
 		t.Skip("jj not on PATH")
 	}
 	repo := jjInitRepo(t) // foo.txt="x", @ described "init"
-	base, err := jjChangeID(repo)
+	base, err := jjHeadCommit(repo)
 	if err != nil {
-		t.Fatalf("base change id: %v", err)
+		t.Fatalf("base commit: %v", err)
 	}
-	// Finalize @ so it becomes an ancestor, then edit the working copy: the new
-	// @ is the tip and its snapshot carries the produced change.
-	if out, err := exec.Command("jj", "-R", repo, "commit", "-m", "base").CombinedOutput(); err != nil {
-		t.Fatalf("jj commit: %v\n%s", err, out)
-	}
+	// The run edits `@` in place (the default flow, no commit); the tip snapshot
+	// carries the produced change. commit_id — not change_id — distinguishes it.
 	if err := os.WriteFile(filepath.Join(repo, "foo.txt"), []byte("line-added\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tip, err := jjChangeID(repo)
+	tip, err := jjHeadCommit(repo)
 	if err != nil {
-		t.Fatalf("tip change id: %v", err)
+		t.Fatalf("tip commit: %v", err)
 	}
 
 	srv, tmp := newStageTestServer(t)
