@@ -149,7 +149,14 @@ func New(cfg Config) *Server {
 	if s.defaultRunner == "" {
 		s.defaultRunner = "direct"
 	}
-	s.dispatcher.launch = func(r *Run) { _ = s.launcherFor(r.placement).Launch(r, s.reportURL()) }
+	// Stamp the run's host jj change-id range around launch (T9c): the base at
+	// start and the tip once the run's commits have landed, so GET /diff can
+	// serve `jj diff --from base --to tip`. Both probes skip VM/non-jj runs.
+	s.dispatcher.launch = func(r *Run) {
+		r.recordRevBase()
+		_ = s.launcherFor(r.placement).Launch(r, s.reportURL())
+		r.recordRevTip()
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pipelines", s.submitPipeline)
 	mux.HandleFunc("GET /pipelines", s.listPipelines)

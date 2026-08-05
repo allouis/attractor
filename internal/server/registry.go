@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -45,6 +46,11 @@ type Manifest struct {
 	Tokens        *engine.Usage `json:"tokens,omitempty"`
 	ItemRef       string        `json:"item_ref,omitempty"`
 	Repo          string        `json:"repo,omitempty"`
+	// RevBase/RevTip are the host jj change-ids of the run's cwd at start and
+	// end (T9c): the range `jj diff --from RevBase --to RevTip` renders as the
+	// run's produced change. Empty for VM/non-jj runs.
+	RevBase string `json:"rev_base,omitempty"`
+	RevTip  string `json:"rev_tip,omitempty"`
 }
 
 // runRegistry holds active and completed runs by ID.
@@ -108,6 +114,8 @@ func (r *runRegistry) reload() {
 			cwd:          m.Cwd,
 			itemRef:      m.ItemRef,
 			repo:         m.Repo,
+			revBase:      m.RevBase,
+			revTip:       m.RevTip,
 			subscribers:  map[chan engine.Event]struct{}{},
 			questions:    map[string]*pendingQuestion{},
 			persisted:    true,
@@ -238,6 +246,11 @@ type Run struct {
 	image string
 	// revWarned guards the one-shot build-skew warning per run.
 	revWarned bool
+	// revBase/revTip are the host jj change-ids of cwd at run start and end
+	// (T9c); the daemon serves `jj diff --from revBase --to revTip` as the
+	// run's produced change. Empty for VM/non-jj runs. Guarded by mu.
+	revBase string
+	revTip  string
 	// initialContext seeds the run's context at start (Item vars + item.*
 	// metadata); nil for runs with no seed (router-spec deviation B).
 	initialContext map[string]string
@@ -439,6 +452,68 @@ func (r *Run) IsCancelled() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.cancelled
+}
+
+// RevBase / RevTip return the host jj change-ids stamped at run start / end
+// (T9c). Empty when no host range was recorded (VM/non-jj run).
+func (r *Run) RevBase() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.revBase
+}
+
+func (r *Run) RevTip() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.revTip
+}
+
+// recordRevBase stamps the run's cwd `@` change-id as the diff base, called
+// just before launch. recordRevTip stamps the post-run `@` as the tip. Both
+// are best-effort and skip VM runs (the range is a guest concern) and non-jj
+// cwds — a probe failure just leaves the range empty, so the Diff panel falls
+// back to a `*.diff` artifact (T9c).
+func (r *Run) recordRevBase() {
+	if id, ok := r.probeRev(); ok {
+		r.mu.Lock()
+		r.revBase = id
+		r.mu.Unlock()
+		r.writeManifest()
+	}
+}
+
+func (r *Run) recordRevTip() {
+	if id, ok := r.probeRev(); ok {
+		r.mu.Lock()
+		r.revTip = id
+		r.mu.Unlock()
+		r.writeManifest()
+	}
+}
+
+// probeRev reads the current `@` change-id from the run's cwd, skipping VM
+// runs and empty/non-jj cwds (any error → no range).
+func (r *Run) probeRev() (string, bool) {
+	if r.placement == "vm" || r.cwd == "" {
+		return "", false
+	}
+	id, err := jjChangeID(r.cwd)
+	if err != nil {
+		return "", false
+	}
+	return id, true
+}
+
+// jjChangeID returns the change-id of the working-copy commit (`@`) in dir.
+// It errors when dir is not a jj repo (or jj is unavailable), letting callers
+// treat that as "no range".
+func jjChangeID(dir string) (string, error) {
+	cmd := exec.Command("jj", "-R", dir, "log", "--no-graph", "--ignore-working-copy", "-r", "@", "-T", "change_id")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("jj change_id in %q: %w", dir, err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Summary returns a JSON-friendly snapshot.
@@ -890,6 +965,8 @@ func (r *Run) writeManifest() {
 	m.Cwd = r.cwd
 	m.ItemRef = r.itemRef
 	m.Repo = r.repo
+	m.RevBase = r.revBase
+	m.RevTip = r.revTip
 	if r.graph != nil {
 		m.GraphGoal = r.graph.Goal()
 	}
