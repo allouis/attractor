@@ -97,8 +97,12 @@
  * rows are collapsible — a collapsed row hides its editable detail cells behind
  * the compact summary header, so the panels stay short with many entries.
  * Mobile-only: at >=640px (sm) the summary is hidden and the full table shows
- * every column, so the desktop layout is untouched. */
-@media (max-width: 639px) {
+ * every column, so the desktop layout is untouched. The breakpoint is rem
+ * (39.9375rem = one px below Tailwind's rem `sm:` at a 16px root) so it stays
+ * the exact complement of the rem-based sm: utilities under text-zoom — a px
+ * query would drift and show summary + detail together across the 640–799px
+ * band. */
+@media (max-width: 39.9375rem) {
   tr.is-collapsed .accordion-detail {
     display: none;
   }

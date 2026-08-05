@@ -36,4 +36,14 @@ func TestServer_UI_ConfigAccordion(t *testing.T) {
 	if !strings.Contains(page, ".is-collapsed") {
 		t.Errorf("injected stylesheet missing the is-collapsed selector (stale tailwind.css?)")
 	}
+	// The collapse breakpoint must be rem-based to match Tailwind's rem `sm:`
+	// utilities (min-width:40rem) that drive the summary/detail visibility;
+	// a px query (639px) only aligns at a 16px root, so under text-zoom the
+	// 640–799px band would show summary + every detail cell at once.
+	if strings.Contains(page, "max-width:639px") {
+		t.Errorf("accordion breakpoint is px (639px) — must be rem to match Tailwind sm")
+	}
+	if !strings.Contains(page, "39.9375rem") {
+		t.Errorf("accordion breakpoint missing rem-based max-width (39.9375rem)")
+	}
 }
