@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -168,6 +169,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/control", s.control)
 	mux.HandleFunc("POST /pipelines/{id}/artifacts/{path...}", s.putArtifact)
 	mux.HandleFunc("GET /pipelines/{id}/graph", s.getGraph)
+	mux.HandleFunc("GET /pipelines/{id}/diff", s.getRunDiff)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts", s.listArtifacts)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", s.getArtifact)
 	mux.HandleFunc("GET /pipelines/{id}/stages/{node}", s.getStage)
@@ -571,6 +573,41 @@ func (s *Server) getGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Write(svg)
+}
+
+// getRunDiff serves GET /pipelines/{id}/diff: the run's produced change as a
+// unified diff, derived from the jj change-id range stamped around launch
+// (ui-tailwind-spec T9c). A run with no recorded range (VM / non-jj cwd)
+// serves an empty 200 body so the frontend falls back to a *.diff artifact.
+func (s *Server) getRunDiff(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.registry.Get(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	base, tip := run.RevBase(), run.RevTip()
+	if base == "" || tip == "" || run.cwd == "" {
+		return // no range: empty body, frontend falls back to the artifact
+	}
+	out, err := jjDiff(run.cwd, base, tip)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(out)
+}
+
+// jjDiff renders `jj diff --from base --to tip` of dir as a git-format unified
+// diff (the format the UI's diffHtml parses). base/tip are daemon-recorded
+// change-ids, not user input, and are passed as argv (no shell).
+func jjDiff(dir, base, tip string) ([]byte, error) {
+	cmd := exec.Command("jj", "-R", dir, "diff", "--git", "--from", base, "--to", tip)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("jj diff %s..%s in %q: %w", base, tip, dir, err)
+	}
+	return out, nil
 }
 
 // graphEngine screens an untrusted `?engine=` against the render allowlist,
