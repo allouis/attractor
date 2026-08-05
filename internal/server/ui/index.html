@@ -160,6 +160,12 @@
      it fills (amber) rather than tints (web-ui-v2-spec U5). */
   .banner.blocked { background: var(--state-needs-human); color: var(--attention-ink);
                     border-color: var(--state-needs-human); font-weight: 600; }
+  /* Review notes: child findings surfaced by the fix loop. Muted, not error-red
+     (web-ui T8b) — on a succeeded run the findings were resolved. */
+  .banner.review { color: var(--text-muted); }
+  .banner.review summary { cursor: pointer; font-weight: 600; color: var(--text); }
+  .review-tag { font-size: var(--font-sm); font-weight: 600; color: var(--state-success); }
+  .review-list { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
   /* Item badges: a linked-run pill (status-tinted, links to #run/<id>) and
      the deliberately loud in-progress chip. */
   .badge { display: inline-block; font-size: var(--font-sm); font-weight: 600;
@@ -385,6 +391,7 @@
     <div id="run-actions" class="run-actions"></div>
     <div id="run-blocked"></div>
     <div id="run-failure"></div>
+    <div id="run-review"></div>
     <div class="layout">
       <div>
         <label class="flex items-center gap-2 mb-2 text-muted text-sm">
@@ -445,6 +452,7 @@ let selectedNode = null;       // node id in the pane
 const nodeLog = {};            // node id -> accumulated log html chunks
 const nodeState = {};          // node id -> status class
 const nodeTiming = {};         // node id -> {start, end} ISO ts from the stream
+const reviewNotes = [];        // child findings (forwarded pipeline_failed) for the current run (T8b)
 let dockTimer = null;
 let runsTimer = null;          // fleet-list poll while the Runs view is open
 let configLoaded = null;       // last GET /config doc (redacted) the view rendered
@@ -1608,6 +1616,8 @@ async function openRun(id) {
   showView('run-view');
   $('run-title').textContent = id;
   $('run-failure').innerHTML = '';
+  reviewNotes.length = 0;
+  $('run-review').innerHTML = '';
   $('run-blocked').innerHTML = '';
   if ($('tl-text')) $('tl-text').value = '';
   if ($('tl-kind')) $('tl-kind').value = '';
@@ -1727,8 +1737,21 @@ function attachStream(id) {
     stage_failed:    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); },
     stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
     stage_progress:  ev => appendProgress(ev),
-    pipeline_completed: () => { done(); loadArtifacts(); },
-    pipeline_failed:    ev => { $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); loadArtifacts(); },
+    // On success the fix loop resolved any child findings, so mark the review
+    // notes resolved (collapsed, not error-red) rather than leaving them loud.
+    pipeline_completed: () => { $('run-review').innerHTML = reviewNotesHtml(reviewNotes, true); done(); loadArtifacts(); },
+    // A forwarded child pipeline_failed is a review verdict, not the run's
+    // failure (T8b): route it to the collapsible Review notes and do NOT end
+    // the stream — the parent run continues. Only the run's own failure is the
+    // red banner and terminal.
+    pipeline_failed:    ev => {
+      if (classifyPipelineFailed(ev).section === 'review') {
+        reviewNotes.push(ev.message);
+        $('run-review').innerHTML = reviewNotesHtml(reviewNotes, false);
+        return;
+      }
+      $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); loadArtifacts();
+    },
     // Gate events drive the dock live (U5): a run blocks (interview_started) or
     // resumes (answered/timeout) between polls, so refresh the dock + banner
     // the moment the stream says so rather than waiting for the poll fallback.
@@ -1852,6 +1875,33 @@ function eventMatchesFilter(kind, ev, filter) {
 function failureBannerHtml(reason) {
   if (!reason) return '';
   return `<p class="banner error run-failure">${escapeHtml(reason)}</p>`;
+}
+
+// classifyPipelineFailed routes a pipeline_failed event to the right section
+// (ui-tailwind-spec T8b). A manager_loop re-emits its child's pipeline_failed
+// onto the parent stream tagged detail.source="child" (handler/manager_loop.go
+// consumeChildEvents); that message is a review verdict / findings, not the
+// run's failure — the fix loop may resolve it and the parent still succeed. So
+// a child-sourced failure is review notes; the run's own failure stays the loud
+// red banner. Only the parent failure is terminal for the stream.
+function classifyPipelineFailed(ev) {
+  const child = !!(ev.detail && ev.detail.source === 'child');
+  return { section: child ? 'review' : 'failure' };
+}
+
+// reviewNotesHtml renders accumulated child review findings as a labelled,
+// collapsible section (ui-tailwind-spec T8b) — deliberately NOT error-red: on a
+// succeeded run the findings were resolved by the fix loop, so a red banner is
+// confusing. `resolved` marks a finished-success run (collapsed + a resolved
+// tag); while running it stays open. Empty → nothing. Findings text is the
+// child's failure_reason (attacker-controlled) and is escaped.
+function reviewNotesHtml(notes, resolved) {
+  if (!notes || !notes.length) return '';
+  const items = notes.map(n => `<li>${escapeHtml(n)}</li>`).join('');
+  const tag = resolved ? ' <span class="review-tag">resolved</span>' : '';
+  return `<details class="banner review run-review"${resolved ? '' : ' open'}>` +
+    `<summary>Review notes${tag}</summary>` +
+    `<ul class="review-list">${items}</ul></details>`;
 }
 
 // blockedBannerHtml renders the loud run-header banner for a run waiting on a
