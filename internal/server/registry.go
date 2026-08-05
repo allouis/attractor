@@ -324,10 +324,7 @@ func (r *Run) Subscribe(since int64) chan engine.Event {
 		// needs to stop reconnecting.
 		history := append([]engine.Event(nil), r.history...)
 		r.mu.Unlock()
-		if len(history) == 0 {
-			// Resumed run: history lives only on disk.
-			history = r.replayEvents()
-		}
+		history = r.reconstructHistory(history)
 		ch := make(chan engine.Event, len(history)+1)
 		for _, ev := range history {
 			if since > 0 && ev.Seq <= since {
@@ -912,6 +909,17 @@ func (r *Run) writeSource() {
 	}
 	_ = os.MkdirAll(r.logsRoot, 0o755)
 	_ = os.WriteFile(filepath.Join(r.logsRoot, "source.dot"), []byte(r.source), 0o644)
+}
+
+// reconstructHistory returns the event history a finished-run replay should
+// deliver. It prefers the in-memory buffer; when that is empty — a run
+// reloaded from disk after a daemon restart, whose in-memory history is gone —
+// it replays events.jsonl instead so the graph/timeline still repaint.
+func (r *Run) reconstructHistory(inMemory []engine.Event) []engine.Event {
+	if len(inMemory) > 0 {
+		return inMemory
+	}
+	return r.replayEvents()
 }
 
 // replayEvents reads and parses the persisted events.jsonl. Used by SSE
