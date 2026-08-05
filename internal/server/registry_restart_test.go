@@ -124,6 +124,69 @@ func TestReloadResolvesInterruptedLoopedRun(t *testing.T) {
 	}
 }
 
+// TestReconstructIgnoresChildStageEvents: a daemon that dies while a nested
+// child stage is running leaves the child's forwarded stage_started (tagged
+// source=child) on the log with no terminal. Reconstruction must not track that
+// child node into the PARENT graph — synthesizing a stage_failed for the child
+// node id, emitted untagged, would paint a phantom node (or false-fail a
+// same-named parent node) the frontend can't filter (BLOCKING-2). Only the
+// parent's own still-running node gets resolved.
+func TestReconstructIgnoresChildStageEvents(t *testing.T) {
+	base := t.TempDir()
+	writeRunDir(t, base, "run-child-stage", RunRunning, []engine.Event{
+		{Kind: engine.EventPipelineStarted, Seq: 1},
+		{Kind: engine.EventStageStarted, NodeID: "loop", Seq: 2},
+		{Kind: engine.EventPipelineStarted, Seq: 3, Detail: map[string]string{"source": "child"}},
+		{Kind: engine.EventStageStarted, NodeID: "childnode", Seq: 4, Detail: map[string]string{"source": "child"}},
+		// daemon died mid child-stage; no terminals.
+	})
+	run, ok := newRunRegistry(base).Get("run-child-stage")
+	if !ok {
+		t.Fatal("run not reloaded after restart")
+	}
+	var got []engine.Event
+	for ev := range run.Subscribe(0) {
+		got = append(got, ev)
+	}
+	for _, ev := range got {
+		if ev.Kind == engine.EventStageFailed && ev.NodeID == "childnode" && !isChildEvent(ev) {
+			t.Fatalf("synthesized a phantom parent-graph stage_failed for child node %q", ev.NodeID)
+		}
+	}
+	if st := nodeStatesFromReplay(run)["loop"]; st == "running" {
+		t.Errorf("parent looped node stuck running after restart")
+	}
+}
+
+// TestReconstructInterruptedLoopSynthesizesOnce: a node visited twice and still
+// running when the daemon dies must get exactly ONE synthetic stage_failed, not
+// one per visit. Re-entry appends the node to the resolve order each time, so
+// synthesis must mark it resolved after emitting or it double-fires — inflating
+// seqs and making replay non-idempotent (MED).
+func TestReconstructInterruptedLoopSynthesizesOnce(t *testing.T) {
+	base := t.TempDir()
+	writeRunDir(t, base, "run-loop-twice", RunRunning, []engine.Event{
+		{Kind: engine.EventPipelineStarted, Seq: 1},
+		{Kind: engine.EventStageStarted, NodeID: "loop", Seq: 2},
+		{Kind: engine.EventStageFailed, NodeID: "loop", Seq: 3},
+		{Kind: engine.EventStageStarted, NodeID: "loop", Seq: 4},
+		// daemon died on the second visit; no terminal.
+	})
+	run, ok := newRunRegistry(base).Get("run-loop-twice")
+	if !ok {
+		t.Fatal("run not reloaded after restart")
+	}
+	synth := 0
+	for ev := range run.Subscribe(0) {
+		if ev.Kind == engine.EventStageFailed && ev.NodeID == "loop" && ev.Message == "interrupted (daemon restart)" {
+			synth++
+		}
+	}
+	if synth != 1 {
+		t.Fatalf("synthesized %d stage_failed for the looped node, want exactly 1", synth)
+	}
+}
+
 // TestReloadResolvesInterruptedRun covers a run that was running when the
 // daemon died: reload marks it cancelled, but its events.jsonl ends mid-flight
 // at stage_started with no terminal event, so a naive replay leaves the node

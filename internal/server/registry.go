@@ -975,11 +975,16 @@ func (r *Run) resolveInterrupted(history []engine.Event) []engine.Event {
 		if ev.Seq > maxSeq {
 			maxSeq = ev.Seq
 		}
+		// Forwarded child events belong to a nested run, not this graph. Skip
+		// them for node-state tracking so a child stage never gets a synthetic
+		// terminal injected untagged into the parent stream (BLOCKING-2). maxSeq
+		// still counts them above so synthetic seqs stay past the whole log.
+		if isChildEvent(ev) {
+			continue
+		}
 		switch ev.Kind {
 		case engine.EventPipelineCompleted, engine.EventPipelineFailed:
-			if !isChildEvent(ev) {
-				return history // run's own terminal on the log; nothing to repair
-			}
+			return history // the run's own terminal is on the log; nothing to repair
 		case engine.EventStageStarted, engine.EventStageRetrying:
 			if !running[ev.NodeID] {
 				order = append(order, ev.NodeID)
@@ -992,8 +997,9 @@ func (r *Run) resolveInterrupted(history []engine.Event) []engine.Event {
 	const reason = "interrupted (daemon restart)"
 	for _, node := range order {
 		if !running[node] {
-			continue
+			continue // already resolved, or a re-entered node emitted once already
 		}
+		running[node] = false // mark resolved so a twice-entered node fires once
 		maxSeq++
 		history = append(history, engine.Event{
 			Kind:    engine.EventStageFailed,
