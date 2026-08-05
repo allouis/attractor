@@ -2107,6 +2107,11 @@ function reposPanelHtml(repos, warnings, vmImages) {
 // so the reject-vs-warn distinction lands on the offending row, not only in
 // the top banner (config-screen-spec C5).
 function repoRowHtml(name, rc, warning, vmImages, expanded) {
+  // A row with a soft save-warning auto-expands so the inline ⚠ (which sits in
+  // the collapsible path cell) is visible on a phone — a collapsed warned row
+  // would look valid, defeating the C5 validation surface (ui-tailwind-spec
+  // T7b). An explicit `expanded` (the add-repo case) still wins.
+  if (expanded === undefined) expanded = !!warning;
   const checks = rc.checks || {};
   const checkCells = STANDARD_CHECKS.map(c =>
     cardCell(escapeHtml(c), `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`, false, 'accordion-detail')).join('');

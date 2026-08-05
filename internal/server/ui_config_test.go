@@ -493,6 +493,24 @@ func TestConfigProviderRowCollapsible(t *testing.T) {
 	}
 }
 
+// TestConfigRepoRowWarningExpands: a repo carrying a soft save-warning renders
+// expanded, not collapsed — otherwise the accordion would hide the inline ⚠
+// (which lives in the collapsible path cell), so an invalid config would look
+// valid on a phone and defeat the C5 validation surface T7b is meant to keep
+// (ui-tailwind-spec T7b / config-screen-spec C5).
+func TestConfigRepoRowWarningExpands(t *testing.T) {
+	html := evalUI(t, `repoRowHtml("a/b",{path:"/p"},"path does not resolve",{})`)
+	if strings.Contains(html, "is-collapsed") {
+		t.Errorf("warned repo row should auto-expand (no is-collapsed):\n%s", html)
+	}
+	if !strings.Contains(html, `aria-expanded="true"`) {
+		t.Errorf("warned repo row toggle should announce expanded:\n%s", html)
+	}
+	if !strings.Contains(html, "path does not resolve") {
+		t.Errorf("warned repo row should still carry the inline warning:\n%s", html)
+	}
+}
+
 // TestConfigRowAddExpanded: a freshly added repo/provider row (blank name) is
 // rendered expanded, not collapsed, so the user can type into the fields
 // immediately instead of tapping open an empty card first.
