@@ -1188,8 +1188,22 @@ const CARD_ROW_CLASS = 'block rounded border border-line bg-surface-1 p-3 mb-3 s
 // An unlabelled empty cell (e.g. the cancel-button column on a terminal run)
 // carries no field, so it collapses on the stacked card (hidden <sm) rather
 // than leaving a blank bordered band — it stays a real cell ≥sm for alignment.
-const cardCell = (label, inner, muted) =>
-  `<td class="${muted ? 'muted ' : ''}${!label && !inner ? 'hidden' : 'block'} border-0 sm:table-cell"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
+const cardCell = (label, inner, muted, extra) =>
+  `<td class="${extra ? extra + ' ' : ''}${muted ? 'muted ' : ''}${!label && !inner ? 'hidden' : 'block'} border-0 sm:table-cell"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
+
+// accordionSummaryCell is the compact mobile header for a collapsible Config
+// row (ui-tailwind-spec T7b): a tap-target toggle button showing the row's
+// title (owner/name or provider name) and a small token chip (runner/backend)
+// so the row reads at a glance without expanding. Mobile-only (sm:hidden) — the
+// desktop table shows every column instead. `expanded` seeds aria-expanded; the
+// row's is-collapsed class + the mobile CSS drive which detail cells show.
+// title/chip are pre-escaped by the caller.
+function accordionSummaryCell(title, chip, expanded) {
+  return `<td class="block sm:hidden border-0"><button type="button" data-accordion-toggle aria-expanded="${expanded ? 'true' : 'false'}" class="flex w-full items-center justify-between gap-2 min-h-10 text-left text-ink">` +
+    `<span data-accordion-title class="truncate">${title}</span>` +
+    `<span data-accordion-chip class="shrink-0 rounded border border-line px-1.5 py-0.5 text-xs text-muted">${chip}</span>` +
+    `</button></td>`;
+}
 
 // TH_CLASS is the Tailwind Plus header cell, token-remapped: a strong,
 // theme-aware ink label (border-0 leaves the header/body rule to the table's
@@ -2092,20 +2106,22 @@ function reposPanelHtml(repos, warnings, vmImages) {
 // this repo, e.g. an unresolved path) surfaces inline under the path input
 // so the reject-vs-warn distinction lands on the offending row, not only in
 // the top banner (config-screen-spec C5).
-function repoRowHtml(name, rc, warning, vmImages) {
+function repoRowHtml(name, rc, warning, vmImages, expanded) {
   const checks = rc.checks || {};
   const checkCells = STANDARD_CHECKS.map(c =>
-    cardCell(escapeHtml(c), `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`)).join('');
+    cardCell(escapeHtml(c), `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-check="${escapeHtml(c)}" value="${escapeHtml(checks[c] || '')}">`, false, 'accordion-detail')).join('');
   const warn = warning
     ? `<div class="config-note" data-repo-warning>⚠ ${escapeHtml(warning)}</div>` : '';
   const runner = rc.runner || '';
-  return `<tr data-repo-row class="${CARD_ROW_CLASS}">
-    ${cardCell('owner/name', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-name value="${escapeHtml(name)}" placeholder="owner/name">`)}
-    ${cardCell('path', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}`)}
-    ${cardCell('runner', runnerSelectHtml(runner))}
-    ${cardCell('image', imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages))}
+  const summary = accordionSummaryCell(escapeHtml(name) || 'new repo', escapeHtml(runner || '(default)'), expanded);
+  return `<tr data-repo-row class="${CARD_ROW_CLASS}${expanded ? '' : ' is-collapsed'}">
+    ${summary}
+    ${cardCell('owner/name', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-name value="${escapeHtml(name)}" placeholder="owner/name">`, false, 'accordion-detail')}
+    ${cardCell('path', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-repo-path value="${escapeHtml(rc.path || '')}" placeholder="/path/to/checkout">${warn}`, false, 'accordion-detail')}
+    ${cardCell('runner', runnerSelectHtml(runner), false, 'accordion-detail')}
+    ${cardCell('image', imageSelectHtml((rc.vm && rc.vm.image) || '', runner, vmImages), false, 'accordion-detail')}
     ${checkCells}
-    ${cardCell('', '<button type="button" data-repo-remove title="remove repo">&times;</button>')}
+    ${cardCell('', '<button type="button" data-repo-remove title="remove repo">&times;</button>', false, 'accordion-detail')}
   </tr>`;
 }
 
@@ -2202,13 +2218,15 @@ function providersPanelHtml(doc) {
 }
 
 // providerRowHtml renders one provider row; a blank name is the add case.
-function providerRowHtml(name, p) {
-  return `<tr data-provider-row class="${CARD_ROW_CLASS}">
-    ${cardCell('provider', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-name value="${escapeHtml(name)}" placeholder="name">`)}
-    ${cardCell('backend', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation">`)}
-    ${cardCell('command', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-command value="${escapeHtml(p.command || '')}">`)}
-    ${cardCell('model_env', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-model-env value="${escapeHtml(p.model_env || '')}">`)}
-    ${cardCell('', '<button type="button" data-provider-remove title="remove provider">&times;</button>')}
+function providerRowHtml(name, p, expanded) {
+  const summary = accordionSummaryCell(escapeHtml(name) || 'new provider', escapeHtml(p.backend || '(none)'), expanded);
+  return `<tr data-provider-row class="${CARD_ROW_CLASS}${expanded ? '' : ' is-collapsed'}">
+    ${summary}
+    ${cardCell('provider', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-name value="${escapeHtml(name)}" placeholder="name">`, false, 'accordion-detail')}
+    ${cardCell('backend', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-backend value="${escapeHtml(p.backend || '')}" placeholder="acp|claudecode|simulation">`, false, 'accordion-detail')}
+    ${cardCell('command', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-command value="${escapeHtml(p.command || '')}">`, false, 'accordion-detail')}
+    ${cardCell('model_env', `<input class="w-full sm:w-auto ${FIELD_CONTROL_CLASS}" data-provider-model-env value="${escapeHtml(p.model_env || '')}">`, false, 'accordion-detail')}
+    ${cardCell('', '<button type="button" data-provider-remove title="remove provider">&times;</button>', false, 'accordion-detail')}
   </tr>`;
 }
 
@@ -2216,11 +2234,23 @@ function providerRowHtml(name, p) {
 // panels are innerHTML so a single listener on the view drives each row's
 // control (matching the items/run-list convention).
 function onConfigClick(e) {
+  // A mobile accordion header toggles its row's collapse (T7b): flip the row
+  // class the CSS keys off and keep aria-expanded in sync (vanilla-JS toggle,
+  // like the nav menu — no dep). Handled first so it never falls through to a
+  // repo/provider control.
+  const acc = e.target.closest('button[data-accordion-toggle]');
+  if (acc) {
+    const row = acc.closest('tr');
+    const collapsed = row.classList.toggle('is-collapsed');
+    acc.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    return;
+  }
   if (e.target.closest('button[data-repo-add]')) {
     const rows = $('config-repos-rows');
     if (rows) {
       rows.querySelectorAll('tr[data-empty-hint]').forEach(r => r.remove());
-      rows.insertAdjacentHTML('beforeend', repoRowHtml('', {}, '', (configLoaded && configLoaded.vm_images) || {}));
+      // Expanded so the fresh row's fields are ready to type into.
+      rows.insertAdjacentHTML('beforeend', repoRowHtml('', {}, '', (configLoaded && configLoaded.vm_images) || {}, true));
     }
     return;
   }
@@ -2230,7 +2260,7 @@ function onConfigClick(e) {
     const rows = $('config-providers-rows');
     if (rows) {
       rows.querySelectorAll('tr[data-empty-hint]').forEach(r => r.remove());
-      rows.insertAdjacentHTML('beforeend', providerRowHtml('', {}));
+      rows.insertAdjacentHTML('beforeend', providerRowHtml('', {}, true));
     }
     return;
   }
