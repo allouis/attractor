@@ -147,3 +147,38 @@ func TestRunDiffUnknownRun(t *testing.T) {
 		t.Fatalf("status=%d, want 404", resp.StatusCode)
 	}
 }
+
+// TestJJDiffCapsOutput proves the daemon never buffers an unbounded diff (T9c
+// B3): a huge produced change is read only up to the render cap (plus one byte,
+// so the frontend can detect truncation) instead of blowing daemon memory.
+func TestJJDiffCapsOutput(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	base, err := jjHeadCommit(repo)
+	if err != nil {
+		t.Fatalf("base commit: %v", err)
+	}
+	// A file well past the cap but under jj's 1 MiB snapshot limit, so its diff
+	// (~900 KiB) overruns the 512 KiB cap.
+	big := strings.Repeat("some added content line\n", 40000)
+	if err := os.WriteFile(filepath.Join(repo, "big.txt"), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tip, err := jjHeadCommit(repo)
+	if err != nil {
+		t.Fatalf("tip commit: %v", err)
+	}
+
+	out, err := jjDiff(repo, base, tip)
+	if err != nil {
+		t.Fatalf("jjDiff: %v", err)
+	}
+	if len(out) > maxDiffRenderBytes+1 {
+		t.Fatalf("jjDiff output not capped: %d bytes (cap %d)", len(out), maxDiffRenderBytes)
+	}
+	if len(out) <= maxDiffRenderBytes {
+		t.Fatalf("expected the huge diff to hit the cap, got only %d bytes", len(out))
+	}
+}

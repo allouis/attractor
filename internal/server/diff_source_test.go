@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,12 @@ func runLoadArtifacts(t *testing.T, diffBody string) (diffHTML string, fetched [
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := json.Marshal(diffBody)
+	// Pass the diff body via a temp file, not argv: an oversized body (the B3
+	// cap test) would blow the exec arg-length limit if inlined into the script.
+	bodyFile := filepath.Join(t.TempDir(), "diff-body")
+	if err := os.WriteFile(bodyFile, []byte(diffBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	harness := `
 const fs = require('fs');
@@ -41,7 +47,7 @@ const list = { entries: [
   { path: 'artifacts/changes.diff', size: 40, is_dir: false },
   { path: 'events.jsonl', size: 12, is_dir: false },
 ] };
-const jjDiff = ` + string(body) + `;
+const jjDiff = fs.readFileSync(process.argv[2], 'utf8');
 const fetched = [];
 const fetch = (url) => {
   fetched.push(url);
@@ -67,7 +73,7 @@ sandbox.loadArtifacts().then(() => {
   }));
 }).catch(e => { console.error(e); process.exit(3); });
 `
-	out, err := exec.Command("node", "-e", harness, uiPath).CombinedOutput()
+	out, err := exec.Command("node", "-e", harness, uiPath, bodyFile).CombinedOutput()
 	if err != nil {
 		t.Fatalf("node harness failed: %v\n%s", err, out)
 	}
@@ -109,5 +115,21 @@ func TestLoadArtifactsFallsBackToArtifact(t *testing.T) {
 
 	if !strings.Contains(diffHTML, "artifact-fallback") {
 		t.Errorf("empty jj diff should fall back to the artifact:\n%s", diffHTML)
+	}
+}
+
+// TestLoadArtifactsCapsJJDiff proves the jj-diff path is size-capped like the
+// artifact path (T9c B3): a body past the render cap shows a "too large" note
+// instead of rendering, so a giant/binary diff can't freeze the tab. Mirrors
+// TestLoadArtifactsSkipsHugeDiff for the /diff source.
+func TestLoadArtifactsCapsJJDiff(t *testing.T) {
+	huge := "+" + strings.Repeat("x", 600*1024) + "\n"
+	diffHTML, _ := runLoadArtifacts(t, huge)
+
+	if !strings.Contains(diffHTML, "too large") {
+		t.Errorf("oversized jj diff should show a too-large note:\n%.200s", diffHTML)
+	}
+	if strings.Contains(diffHTML, "diff-add") {
+		t.Errorf("oversized jj diff body should not be rendered")
 	}
 }
