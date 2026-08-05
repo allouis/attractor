@@ -530,8 +530,14 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "event: %s\n", ev.Kind)
 			fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
+			// Only the PARENT run's terminal ends the stream. A forwarded child
+			// pipeline terminal (a nested review loop's own completion/failure)
+			// is not the run's — closing here would cut the stream mid-run and
+			// leave a looped node stuck "running" (T9a). Mirrors the frontend.
 			if ev.Kind == engine.EventPipelineCompleted || ev.Kind == engine.EventPipelineFailed {
-				return
+				if !isChildEvent(ev) {
+					return
+				}
 			}
 		}
 	}

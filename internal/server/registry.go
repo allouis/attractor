@@ -911,6 +911,17 @@ func (r *Run) writeSource() {
 	_ = os.WriteFile(filepath.Join(r.logsRoot, "source.dot"), []byte(r.source), 0o644)
 }
 
+// isChildEvent reports whether a pipeline event was forwarded from a nested
+// child run. A manager_loop re-emits every child engine event onto the parent
+// stream tagged detail.source="child" (handler/manager_loop.go
+// consumeChildEvents) — including the child's own terminal pipeline_completed /
+// pipeline_failed. Only the PARENT run's terminal ends the run, so the SSE and
+// reconstruction paths must not mistake a forwarded child terminal for it (the
+// Go mirror of index.html's isChildEvent).
+func isChildEvent(ev engine.Event) bool {
+	return ev.Detail["source"] == "child"
+}
+
 // reconstructHistory returns the event history a finished-run replay should
 // deliver. It prefers the in-memory buffer; when that is empty — a run
 // reloaded from disk after a daemon restart, whose in-memory history is gone —
