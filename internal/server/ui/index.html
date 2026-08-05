@@ -1185,8 +1185,11 @@ const CARD_ROW_CLASS = 'block rounded border border-line bg-surface-1 p-3 mb-3 s
 // value like the secondary columns. border-0 drops the per-cell separator at
 // every width — the row rule at ≥sm now comes from the tbody's divide-y, the
 // Tailwind Plus way (ui-tailwind-spec T6b), not a per-cell border.
+// An unlabelled empty cell (e.g. the cancel-button column on a terminal run)
+// carries no field, so it collapses on the stacked card (hidden <sm) rather
+// than leaving a blank bordered band — it stays a real cell ≥sm for alignment.
 const cardCell = (label, inner, muted) =>
-  `<td class="${muted ? 'muted ' : ''}block border-0 sm:table-cell"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
+  `<td class="${muted ? 'muted ' : ''}${!label && !inner ? 'hidden' : 'block'} border-0 sm:table-cell"><span class="block text-muted text-sm sm:hidden">${label}</span>${inner}</td>`;
 
 // TH_CLASS is the Tailwind Plus header cell, token-remapped: a strong,
 // theme-aware ink label (border-0 leaves the header/body rule to the table's
