@@ -919,7 +919,62 @@ func (r *Run) reconstructHistory(inMemory []engine.Event) []engine.Event {
 	if len(inMemory) > 0 {
 		return inMemory
 	}
-	return r.replayEvents()
+	return r.resolveInterrupted(r.replayEvents())
+}
+
+// resolveInterrupted repairs a disk-replayed history that a daemon restart cut
+// off. A run killed mid-flight leaves events.jsonl ending at a stage_started
+// with no terminal event, so a naive replay paints that node "executing"
+// forever. When the reloaded run is terminal but its log carries no terminal
+// pipeline event, synthesize one stage_failed per still-running node (in start
+// order, so replay stays deterministic) and a closing pipeline_failed, so the
+// graph resolves every node and the stream signals done. A log that already
+// ends terminal — a cleanly-finished run — is returned untouched.
+func (r *Run) resolveInterrupted(history []engine.Event) []engine.Event {
+	if len(history) == 0 || !r.isTerminal() {
+		return history
+	}
+	var (
+		maxSeq  int64
+		order   []string
+		running = map[string]bool{}
+	)
+	for _, ev := range history {
+		if ev.Seq > maxSeq {
+			maxSeq = ev.Seq
+		}
+		switch ev.Kind {
+		case engine.EventPipelineCompleted, engine.EventPipelineFailed:
+			return history // log already terminal; nothing to repair
+		case engine.EventStageStarted, engine.EventStageRetrying:
+			if !running[ev.NodeID] {
+				order = append(order, ev.NodeID)
+			}
+			running[ev.NodeID] = true
+		case engine.EventStageCompleted, engine.EventStageFailed:
+			running[ev.NodeID] = false
+		}
+	}
+	const reason = "interrupted (daemon restart)"
+	for _, node := range order {
+		if !running[node] {
+			continue
+		}
+		maxSeq++
+		history = append(history, engine.Event{
+			Kind:    engine.EventStageFailed,
+			NodeID:  node,
+			Message: reason,
+			Seq:     maxSeq,
+		})
+	}
+	maxSeq++
+	history = append(history, engine.Event{
+		Kind:    engine.EventPipelineFailed,
+		Message: reason,
+		Seq:     maxSeq,
+	})
+	return history
 }
 
 // replayEvents reads and parses the persisted events.jsonl. Used by SSE
