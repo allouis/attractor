@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -468,52 +467,28 @@ func (r *Run) RevTip() string {
 	return r.revTip
 }
 
-// recordRevBase stamps the run's cwd `@` change-id as the diff base, called
-// just before launch. recordRevTip stamps the post-run `@` as the tip. Both
-// are best-effort and skip VM runs (the range is a guest concern) and non-jj
-// cwds — a probe failure just leaves the range empty, so the Diff panel falls
-// back to a `*.diff` artifact (T9c).
-func (r *Run) recordRevBase() {
-	if id, ok := r.probeRev(); ok {
-		r.mu.Lock()
-		r.revBase = id
-		r.mu.Unlock()
-		r.writeManifest()
-	}
-}
+// recordRevBase stamps the run's cwd `@` commit as the diff base, called just
+// before launch; recordRevTip stamps the post-run `@` as the tip. Both snapshot
+// the working copy so an in-place edit is captured (T9c). Best-effort: they
+// skip VM runs (the range is a guest concern) and non-jj cwds — a probe failure
+// leaves the range empty, so the Diff panel falls back to a `*.diff` artifact.
+func (r *Run) recordRevBase() { r.stampRev(func(id string) { r.revBase = id }) }
+func (r *Run) recordRevTip()  { r.stampRev(func(id string) { r.revTip = id }) }
 
-func (r *Run) recordRevTip() {
-	if id, ok := r.probeRev(); ok {
-		r.mu.Lock()
-		r.revTip = id
-		r.mu.Unlock()
-		r.writeManifest()
-	}
-}
-
-// probeRev reads the current `@` change-id from the run's cwd, skipping VM
-// runs and empty/non-jj cwds (any error → no range).
-func (r *Run) probeRev() (string, bool) {
+// stampRev probes the current `@` commit and hands it to set under the lock,
+// then persists. It is the shared body of recordRevBase/recordRevTip.
+func (r *Run) stampRev(set func(id string)) {
 	if r.placement == "vm" || r.cwd == "" {
-		return "", false
+		return
 	}
-	id, err := jjChangeID(r.cwd)
+	id, err := jjHeadCommit(r.cwd)
 	if err != nil {
-		return "", false
+		return
 	}
-	return id, true
-}
-
-// jjChangeID returns the change-id of the working-copy commit (`@`) in dir.
-// It errors when dir is not a jj repo (or jj is unavailable), letting callers
-// treat that as "no range".
-func jjChangeID(dir string) (string, error) {
-	cmd := exec.Command("jj", "-R", dir, "log", "--no-graph", "--ignore-working-copy", "-r", "@", "-T", "change_id")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("jj change_id in %q: %w", dir, err)
-	}
-	return strings.TrimSpace(string(out)), nil
+	r.mu.Lock()
+	set(id)
+	r.mu.Unlock()
+	r.writeManifest()
 }
 
 // Summary returns a JSON-friendly snapshot.
