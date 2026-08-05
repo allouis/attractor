@@ -89,12 +89,24 @@ func runDot(dotSrc []byte, engine string) ([]byte, error) {
 // writeGraphHeader opens the digraph and writes the graph/node/edge default
 // attributes shared by every rendered pipeline. compound enables cluster-aware
 // edge clipping (ltail/lhead), needed only when sub-workflows are expanded.
+//
+// The node/edge/graph defaults shape the rendered SVG's aesthetics
+// (ui-tailwind-spec T7a): rounded boxes at the UI font on smooth splines, with
+// right-sized arrowheads and tidy rank/node spacing. Colours are neutral
+// fallbacks for a raw (CLI-rendered) SVG; in the web UI the .graph-pane
+// stylesheet repaints fill/stroke/text from the theme tokens, and paintNode
+// overrides node stroke by run status — so keep them muted, not black.
 func writeGraphHeader(b *strings.Builder, compound bool) {
 	b.WriteString("digraph pipeline {\n")
 	if compound {
 		b.WriteString("  compound=true;\n")
 	}
 	b.WriteString("  rankdir=TB;\n")
+	b.WriteString("  bgcolor=\"transparent\";\n")
+	b.WriteString("  nodesep=0.35;\n  ranksep=0.55;\n  splines=spline;\n")
+	b.WriteString("  node [shape=box, style=\"rounded,filled\", fillcolor=\"#f6f8fa\", " +
+		"color=\"#c9ced6\", penwidth=1, fontname=\"Helvetica\", fontsize=11, margin=\"0.18,0.09\"];\n")
+	b.WriteString("  edge [color=\"#8a8f98\", penwidth=1.2, arrowsize=0.7, fontname=\"Helvetica\", fontsize=10];\n")
 }
 
 // graphvizSafe re-emits an Attractor pipeline as minimal graphviz DOT that
