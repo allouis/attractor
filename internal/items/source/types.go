@@ -22,9 +22,13 @@ type Item struct {
 	Vars  map[string]string `json:"vars,omitempty"`
 }
 
-// Filter narrows a List. MVP supports the single "assigned to me" facet
-// (items-spec §11); richer filters come later.
+// Filter narrows a List. MVP supports the single "mine" facet
+// (items-spec §11): items authored by OR assigned to me. richer filters
+// come later.
 type Filter struct {
+	// Assigned selects the user's own work — authored by OR assigned to
+	// me (not merely assigned). The field name is retained; its meaning
+	// broadened when GitHub items grew to PRs + issues.
 	Assigned bool
 }
 

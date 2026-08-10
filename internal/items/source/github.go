@@ -11,9 +11,10 @@ import (
 	"github.com/allouis/attractor/internal/items"
 )
 
-// GitHub lists pull requests via the machine-authed `gh` CLI
-// (items-spec §8: the first source, PRs → review). The runner is
-// injectable so tests feed canned JSON without touching the network.
+// GitHub lists open PRs and issues (mine: authored or assigned) via the
+// machine-authed `gh` CLI (items-spec §8: the first source, PR → review,
+// issue → implement). The runner is injectable so tests feed canned JSON
+// without touching the network.
 type GitHub struct {
 	run func(ctx context.Context, args ...string) ([]byte, error)
 }
@@ -36,8 +37,10 @@ func ghExec(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// ghPR is the subset of `gh search prs --json …` we map into an Item.
-type ghPR struct {
+// ghSearchResult is the subset of `gh search prs|issues --json …` we map
+// into an Item. The same shape covers PRs and issues; the kind is passed
+// to item() so the same struct yields either type.
+type ghSearchResult struct {
 	Number     int    `json:"number"`
 	Title      string `json:"title"`
 	URL        string `json:"url"`
@@ -46,54 +49,98 @@ type ghPR struct {
 	} `json:"repository"`
 }
 
-// List fetches open PRs assigned to the authenticated user. The PR
-// number is unique only within a repo, so the external id is
-// `owner/repo#number`.
+// List surfaces the user's actionable GitHub work. When filter.Assigned
+// (the UI's only mode), it unions FOUR `gh search` queries — open PRs and
+// issues, authored by OR assigned to @me — deduped by (type,
+// owner/repo#number); a PR both authored and assigned collapses to one.
+// The number is unique only within a repo, so the external id is
+// `owner/repo#number`. The unfiltered path lists open PRs alone.
 func (g *GitHub) List(ctx context.Context, filter Filter) ([]Item, error) {
-	args := []string{"search", "prs", "--state=open", "--json", "number,title,url,repository"}
-	if filter.Assigned {
-		args = append(args, "--assignee=@me")
+	if !filter.Assigned {
+		return g.search(ctx, "prs", "pr")
 	}
-	out, err := g.run(ctx, args...)
-	if err != nil {
-		return nil, err
+	queries := []struct {
+		kind string // gh search subcommand: prs|issues
+		typ  string // Item.Ref.Type: pr|issue
+		role string // --author=@me | --assignee=@me
+	}{
+		{"prs", "pr", "--author=@me"},
+		{"prs", "pr", "--assignee=@me"},
+		{"issues", "issue", "--author=@me"},
+		{"issues", "issue", "--assignee=@me"},
 	}
-	var prs []ghPR
-	if err := json.Unmarshal(out, &prs); err != nil {
-		return nil, fmt.Errorf("parse gh output: %w", err)
-	}
-	items := make([]Item, 0, len(prs))
-	for _, pr := range prs {
-		items = append(items, pr.item())
+	items := []Item{}
+	seen := map[string]bool{}
+	for _, q := range queries {
+		batch, err := g.search(ctx, q.kind, q.typ, q.role)
+		if err != nil {
+			return nil, err
+		}
+		for _, it := range batch {
+			if key := it.Ref.String(); !seen[key] {
+				seen[key] = true
+				items = append(items, it)
+			}
+		}
 	}
 	return items, nil
 }
 
-// Get resolves a single PR to an Item. The external id is
-// `owner/repo#number` (unique across repos); `gh pr view` fetches the one
-// PR so a dispatch can read its vars.
-func (g *GitHub) Get(ctx context.Context, ref items.ItemRef) (Item, error) {
-	repo, num, ok := splitPRRef(ref.ExternalID)
-	if !ok {
-		return Item{}, fmt.Errorf("github: invalid pr ref %q: want owner/repo#number", ref.ExternalID)
+// search runs one `gh search <kind> --state=open …` query and maps each
+// result to an Item of the given type. extra carries query flags such as
+// --author=@me.
+func (g *GitHub) search(ctx context.Context, kind, typ string, extra ...string) ([]Item, error) {
+	args := append([]string{"search", kind, "--state=open", "--json", "number,title,url,repository"}, extra...)
+	out, err := g.run(ctx, args...)
+	if err != nil {
+		return nil, err
 	}
-	// `gh pr view` has no `repository` JSON field (unlike `gh search
-	// prs`); the repo is already known from the ref, so we set it below.
-	out, err := g.run(ctx, "pr", "view", num, "--repo", repo, "--json", "number,title,url")
+	var results []ghSearchResult
+	if err := json.Unmarshal(out, &results); err != nil {
+		return nil, fmt.Errorf("parse gh output: %w", err)
+	}
+	items := make([]Item, 0, len(results))
+	for _, r := range results {
+		items = append(items, r.item(typ))
+	}
+	return items, nil
+}
+
+// Get resolves a single item ref to an Item, dispatching on ref.Type:
+// "pr" → `gh pr view`, "issue" → `gh issue view`. The external id is
+// `owner/repo#number` (unique across repos); the view fetches the one
+// item so a dispatch can read its vars.
+func (g *GitHub) Get(ctx context.Context, ref items.ItemRef) (Item, error) {
+	repo, num, ok := splitRef(ref.ExternalID)
+	if !ok {
+		return Item{}, fmt.Errorf("github: invalid ref %q: want owner/repo#number", ref.ExternalID)
+	}
+	var sub string
+	switch ref.Type {
+	case "pr":
+		sub = "pr"
+	case "issue":
+		sub = "issue"
+	default:
+		return Item{}, fmt.Errorf("github: unknown ref type %q: want pr or issue", ref.Type)
+	}
+	// `gh pr|issue view` has no `repository` JSON field (unlike `gh
+	// search`); the repo is already known from the ref, so we set it below.
+	out, err := g.run(ctx, sub, "view", num, "--repo", repo, "--json", "number,title,url")
 	if err != nil {
 		return Item{}, err
 	}
-	var pr ghPR
-	if err := json.Unmarshal(out, &pr); err != nil {
+	var r ghSearchResult
+	if err := json.Unmarshal(out, &r); err != nil {
 		return Item{}, fmt.Errorf("parse gh output: %w", err)
 	}
-	pr.Repository.NameWithOwner = repo
-	return pr.item(), nil
+	r.Repository.NameWithOwner = repo
+	return r.item(ref.Type), nil
 }
 
-// splitPRRef splits an `owner/repo#number` external id. Both halves must
+// splitRef splits an `owner/repo#number` external id. Both halves must
 // be non-empty.
-func splitPRRef(externalID string) (repo, num string, ok bool) {
+func splitRef(externalID string) (repo, num string, ok bool) {
 	repo, num, found := strings.Cut(externalID, "#")
 	if !found || repo == "" || num == "" {
 		return "", "", false
@@ -101,20 +148,22 @@ func splitPRRef(externalID string) (repo, num string, ok bool) {
 	return repo, num, true
 }
 
-// item maps a fetched PR to the generic Item, the single source of the
-// PR→Item shape shared by List and Get.
-func (pr ghPR) item() Item {
-	repo := pr.Repository.NameWithOwner
-	num := strconv.Itoa(pr.Number)
+// item maps a fetched search result to the generic Item, the single
+// source of the result→Item shape shared by List and Get. kind is "pr"
+// or "issue"; it sets Ref.Type and the number var name (pr_number vs
+// issue_number).
+func (r ghSearchResult) item(kind string) Item {
+	repo := r.Repository.NameWithOwner
+	num := strconv.Itoa(r.Number)
 	return Item{
-		Ref:   items.ItemRef{Source: "github", Type: "pr", ExternalID: repo + "#" + num},
-		Title: pr.Title,
-		URL:   pr.URL,
+		Ref:   items.ItemRef{Source: "github", Type: kind, ExternalID: repo + "#" + num},
+		Title: r.Title,
+		URL:   r.URL,
 		Vars: map[string]string{
-			"repo":      repo,
-			"pr_number": num,
-			"url":       pr.URL,
-			"title":     pr.Title,
+			"repo":           repo,
+			kind + "_number": num,
+			"url":            r.URL,
+			"title":          r.Title,
 		},
 	}
 }
