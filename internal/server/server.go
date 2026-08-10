@@ -188,6 +188,12 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /automations/{name}/run", s.runAutomation)
 	mux.HandleFunc("GET /ui", s.serveUI)
 	mux.HandleFunc("GET /ui/", s.serveUI)
+	// The app lives under /ui; send the bare root there so the front door (and
+	// a Tailscale-served hostname that proxies "/") lands on the UI, not a 404.
+	// {$} matches ONLY exactly "/", so unknown API paths still 404 as before.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui", http.StatusFound)
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("GET /version", s.getVersion)
 	s.httpsrv = &http.Server{
