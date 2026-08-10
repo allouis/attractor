@@ -190,19 +190,56 @@ func copyTree(src, dst string) error {
 }
 
 // vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk and
-// the three 9p share sources the nix module's sharedDirectories expand —
+// the four 9p share sources the nix module's sharedDirectories expand —
 // ATTRACTOR_JOB_DIR (job dir, ro), ATTRACTOR_WORKSPACE (per-run jj workspace,
-// ro transport the guest copies to ext4), and ATTRACTOR_REPO (the target repo
-// whose `.jj`/`.git` subtrees are shared for in-guest jj). GS drops virtiofs,
-// so there is no QEMU_OPTS: delivery rides the module's blessed 9p shares, not
-// a hand-wired vhost-user-fs device.
-func (l vmLauncher) vmEnv(runDir, jobDir, workspace, repoDir string) []string {
+// ro transport the guest copies to ext4), ATTRACTOR_REPO (the target repo
+// whose `.jj`/`.git` subtrees are shared for in-guest jj), and
+// ATTRACTOR_CREDS_DIR (staged LLM oauth creds, ro, the guest copies into
+// $HOME). GS drops virtiofs, so there is no QEMU_OPTS: delivery rides the
+// module's blessed 9p shares, not a hand-wired vhost-user-fs device.
+func (l vmLauncher) vmEnv(runDir, jobDir, workspace, repoDir, credsDir string) []string {
 	return append(os.Environ(),
 		"NIX_DISK_IMAGE="+filepath.Join(runDir, "vm.qcow2"),
 		"ATTRACTOR_JOB_DIR="+jobDir,
 		"ATTRACTOR_WORKSPACE="+workspace,
 		"ATTRACTOR_REPO="+repoDir,
+		"ATTRACTOR_CREDS_DIR="+credsDir,
 	)
+}
+
+// stageAgentCreds copies the daemon user's LLM oauth CREDENTIALS — and nothing
+// else — into dest, a per-run dir the guest gets over ro 9p, so the image's
+// bundled acp adapters (claude-agent-acp/codex-acp) can authenticate INSIDE
+// the VM (without this, an agent node in a VM fails at session/new with no
+// credentials). Only the credential files are staged, never the whole
+// ~/.claude (history, memory, projects), so untrusted in-guest code sees the
+// oauth token and nothing more. dest is always created — empty when the host
+// has no creds — so the module's static /mnt/creds share always has a valid
+// source; the guest then relies on env-based auth. Paths are the same relative
+// to the host ~ and the guest $HOME, so the guest copies them straight in
+// (docs/vm-creds-spec.md).
+func stageAgentCreds(dest string) error {
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	for _, rel := range []string{".claude/.credentials.json", ".codex/auth.json"} {
+		data, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			continue // that provider isn't logged in on the host — skip it
+		}
+		out := filepath.Join(dest, rel)
+		if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(out, data, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ensureJJRepo verifies dir is a jj-COLOCATED checkout, the precondition for
@@ -356,8 +393,18 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		}
 	}()
 
+	// Stage the LLM oauth creds so the image's bundled acp adapters can
+	// authenticate inside the guest (docs/vm-creds-spec.md). Always produces a
+	// dir (empty if the host has no creds) so the module's static creds share
+	// has a valid source.
+	credsDir := filepath.Join(runDir, "creds")
+	if err := stageAgentCreds(credsDir); err != nil {
+		run.failCrashed("vm launcher: stage agent creds: " + err.Error())
+		return err
+	}
+
 	cmd := exec.Command(runnerScript)
-	cmd.Env = l.vmEnv(runDir, jobDir, work, run.cwd)
+	cmd.Env = l.vmEnv(runDir, jobDir, work, run.cwd, credsDir)
 	console, err := os.Create(filepath.Join(runDir, "vm-console.log"))
 	if err != nil {
 		run.failCrashed("vm launcher: console: " + err.Error())

@@ -1,0 +1,30 @@
+// Minimal proof that an acp AGENT node authenticates and runs INSIDE a VM.
+// The image bundles the adapter but no creds; the launcher stages the host
+// oauth creds over the /mnt/creds share (docs/vm-creds-spec.md). Run through a
+// daemon started with `--runner vm` against a jj-colocated repo:
+//
+//   attractor serve --runner vm --vm-runner <run-nixos-vm> --vm-dir <dir>
+//   # then submit this pipeline for a jj-colocated repo (e.g. allouis/attractor)
+//
+// The `agent` node reaching `completed` proves in-guest authentication; the
+// `check` tool node confirms the agent actually ran (wrote the sentinel).
+digraph vm_agent_smoke {
+    goal = "Prove the acp agent authenticates and runs inside the VM"
+    acp_command = "claude-agent-acp"
+    max_node_visits = 2
+
+    start [shape=Mdiamond]
+
+    agent [type="codergen.acp", thread_id="smoke", fidelity="full",
+           timeout="10m",
+           prompt="Write a file named VM_AGENT_OK.txt in the current working directory whose only content is the word OK (no newline needed). Do nothing else."]
+
+    check [type="tool", timeout="2m",
+           tool_command="test \"$(cat VM_AGENT_OK.txt)\" = OK"]
+
+    done [shape=Msquare]
+
+    start -> agent
+    agent -> check [condition="outcome=success"]
+    check -> done
+}

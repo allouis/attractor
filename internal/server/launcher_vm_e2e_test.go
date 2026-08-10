@@ -144,6 +144,90 @@ func TestVMWorkspaceAcceptance(t *testing.T) {
 	}
 }
 
+// TestVMAgentCredsAcceptance is the cred-mount gate: it boots a real vm-runner
+// VM and runs a pipeline whose FIRST node is an acp AGENT node. The image
+// bundles the adapter but ships no credentials, so without the cred-mount the
+// agent fails at session/new ("authentication required") and the run never
+// completes. With it, the launcher stages the host oauth creds
+// (stageAgentCreds) onto the /mnt/creds share and the guest copies them into
+// $HOME, so the adapter authenticates IN-GUEST — the path tool-only VM runs
+// never exercised (docs/vm-creds-spec.md).
+//
+// Empirical + slow (a NixOS VM boot + a real Claude turn) AND consumes real
+// Claude quota, so it is gated behind ATTRACTOR_VM_E2E and additionally skipped
+// unless the host is actually logged in. Run it on the box:
+//
+//	nix build .#vm-runner
+//	ATTRACTOR_VM_E2E=1 nix develop -c go test ./internal/server/ \
+//	    -run TestVMAgentCredsAcceptance -count=1 -timeout 30m
+func TestVMAgentCredsAcceptance(t *testing.T) {
+	if os.Getenv("ATTRACTOR_VM_E2E") == "" {
+		t.Skip("set ATTRACTOR_VM_E2E=1 to boot a real vm-runner VM (slow; needs qemu; consumes Claude quota)")
+	}
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	home, _ := os.UserHomeDir()
+	if _, err := os.Stat(filepath.Join(home, ".claude", ".credentials.json")); err != nil {
+		t.Skipf("host not logged in to claude (%v); this gate needs real oauth creds to stage into the guest", err)
+	}
+	runner := os.Getenv("ATTRACTOR_VM_RUNNER")
+	if runner == "" {
+		runner = "../../result/bin/run-nixos-vm"
+	}
+	if _, err := os.Stat(runner); err != nil {
+		t.Skipf("vm-runner boot script not found (%v); run `nix build .#vm-runner` or set ATTRACTOR_VM_RUNNER", err)
+	}
+
+	// A jj-colocated repo with one tracked file so a workspace materialises and
+	// is copied to /work, where the agent writes its sentinel.
+	repo := t.TempDir()
+	if out, err := exec.Command("jj", "git", "init", repo).CombinedOutput(); err != nil {
+		t.Fatalf("jj git init: %v\n%s", err, out)
+	}
+	writeFixture(t, repo, "README.md", "vm agent creds fixture\n")
+	jjRun(t, repo, "describe", "-m", "creds fixture")
+
+	source, err := os.ReadFile("../../pipelines/vm-agent-smoke/pipeline.dot")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir()})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("server start: %v", err)
+	}
+	defer srv.Close()
+
+	run := srv.registry.NewRun(string(source), nil, nil, repo, nil, "", "", repo, nil)
+	run.cwd = repo
+
+	vmDir := t.TempDir()
+	l := NewVMLauncher(runner, vmDir)
+
+	done := make(chan error, 1)
+	go func() { done <- l.Launch(run, srv.reportURL()) }()
+
+	timeout := 30 * time.Minute
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Launch: %v", err)
+		}
+	case <-time.After(timeout):
+		t.Fatalf("VM run did not finish within %s (see %s)", timeout, filepath.Join(vmDir, run.ID))
+	}
+
+	console, _ := os.ReadFile(filepath.Join(vmDir, run.ID, "vm-console.log"))
+	if run.Status() != RunCompleted {
+		t.Fatalf("run status = %s, want completed — the agent node likely failed to authenticate in-guest; console:\n%s", run.Status(), tail(string(console), 10000))
+	}
+	// A missing/failed cred-mount surfaces as an auth error from the adapter.
+	if strings.Contains(strings.ToLower(string(console)), "authentication required") {
+		t.Fatalf("adapter reported `authentication required` — creds did not reach the guest; console:\n%s", tail(string(console), 10000))
+	}
+}
+
 // writeFixture writes a fixture file into repo, creating parent dirs so a
 // nested path (e.g. packages/pkg/project.json) works.
 func writeFixture(t *testing.T, repo, name, content string) {

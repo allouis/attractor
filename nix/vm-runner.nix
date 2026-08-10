@@ -6,8 +6,10 @@
 # All shares are plain 9p (module-blessed sharedDirectories, daemon-free),
 # their sources per-run shell variables the launcher sets (decision D6):
 # ATTRACTOR_JOB_DIR (job.json + source.dot, ro), ATTRACTOR_WORKSPACE (the
-# per-run host jj workspace, ro at /mnt/workspace), and ATTRACTOR_REPO (the
-# target repo, whose `.jj`/`.git` subtrees are shared for in-guest jj).
+# per-run host jj workspace, ro at /mnt/workspace), ATTRACTOR_REPO (the
+# target repo, whose `.jj`/`.git` subtrees are shared for in-guest jj), and
+# ATTRACTOR_CREDS_DIR (staged LLM oauth creds, ro at /mnt/creds, copied into
+# $HOME so the bundled acp adapters authenticate in-guest — docs/vm-creds-spec.md).
 #
 # The workspace is a READ-ONLY TRANSPORT: a shared mount can't host the SQLite
 # DBs real tools open (pnpm store index, Nx task DB → `disk I/O error`), so the
@@ -71,7 +73,26 @@ let
       mkdir -p "$cwd" || poweroff_run "mkdir $cwd failed"
       cp -a /mnt/workspace/. "$cwd"/ || poweroff_run "workspace copy to $cwd failed"
 
-      args=(run --report-to "$url" --run-id "$run_id" --report-token "$token"
+      # Deliver the LLM oauth creds the launcher staged (claude/codex) so the
+      # image's bundled acp adapters authenticate INSIDE the guest. /mnt/creds
+      # is a ro TRANSPORT; copy into $HOME so an in-guest token refresh (a
+      # write) lands on guest ext4, not the ro mount. Empty creds dir (host not
+      # logged in) → no-op, and the run falls back to env-based auth. HOME is
+      # exported for the whole run so the adapter (spawned by attractor) finds
+      # ~/.claude / ~/.codex here.
+      export HOME=/root
+      if [ -d /mnt/creds ]; then
+        cp -a /mnt/creds/. "$HOME"/ 2>/dev/null || true
+      fi
+
+      # --backend acp: `attractor run` DEFAULTS to the simulation backend, which
+      # executes every codergen.acp node as an instant no-op. A VM run is always
+      # a real run, so force the real ACP backend; the specific adapter
+      # (claude-agent-acp / codex-acp) comes from the pipeline's graph/node
+      # `acp_command` attribute, authenticating with the creds copied into $HOME
+      # above (docs/vm-creds-spec.md). Tool-only pipelines have no codergen node
+      # so this is a harmless no-op for them.
+      args=(run --backend acp --report-to "$url" --run-id "$run_id" --report-token "$token"
             --cwd "$cwd" --base-dir /mnt/job --logs /tmp/attractor-run)
       while IFS= read -r kv; do args+=(-var "$kv"); done \
         < <(jq -r '.vars // {} | to_entries[] | "\(.key)=\(.value)"' "$job")
@@ -143,6 +164,14 @@ in
         target = "/mnt/repo/.git";
         securityModel = "none";
       };
+      # LLM oauth creds the launcher stages per run (only the credential files,
+      # never the whole ~/.claude). A ro TRANSPORT the runner copies into $HOME
+      # so the bundled acp adapters authenticate in-guest (docs/vm-creds-spec.md).
+      creds = {
+        source = ''"$ATTRACTOR_CREDS_DIR"'';
+        target = "/mnt/creds";
+        securityModel = "none";
+      };
     };
   };
 
@@ -152,6 +181,10 @@ in
   # device/fsType; we only append the `ro` option here (fileSystems options is
   # a list → the two definitions merge, no conflict).
   virtualisation.fileSystems."/mnt/workspace".options = [ "ro" ];
+
+  # /mnt/creds is a ro transport too (the runner copies it into $HOME); keep the
+  # guest from writing back to the host's staged creds.
+  virtualisation.fileSystems."/mnt/creds".options = [ "ro" ];
 
   # QEMU user networking gives the guest gateway 10.0.2.2 = the host; bring
   # the link up so the run can phone home (decision D7).
@@ -188,8 +221,8 @@ in
 
   systemd.services.attractor-runner = {
     description = "Run this VM's attractor pipeline job";
-    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "docker.service" ];
-    requires = [ "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" ];
+    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "mnt-creds.mount" "docker.service" ];
+    requires = [ "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "mnt-creds.mount" ];
     wants = [ "network-online.target" "docker.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {

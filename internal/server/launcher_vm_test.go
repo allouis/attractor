@@ -238,7 +238,7 @@ func TestWorkspaceStoreReachableInGuest(t *testing.T) {
 // device. Guards against reintroducing QEMU_OPTS/virtiofs delivery.
 func TestVMEnvUsesWorkspaceAndRepo(t *testing.T) {
 	l := vmLauncher{}
-	env := l.vmEnv("/vm/abc", "/vm/abc/job", "/vm/abc/work", "/repo")
+	env := l.vmEnv("/vm/abc", "/vm/abc/job", "/vm/abc/work", "/repo", "/vm/abc/creds")
 	find := func(key string) string {
 		for _, e := range env {
 			if strings.HasPrefix(e, key+"=") {
@@ -260,6 +260,52 @@ func TestVMEnvUsesWorkspaceAndRepo(t *testing.T) {
 	}
 	if got := find("NIX_DISK_IMAGE"); got != "/vm/abc/vm.qcow2" {
 		t.Errorf("NIX_DISK_IMAGE = %q", got)
+	}
+	if got := find("ATTRACTOR_CREDS_DIR"); got != "/vm/abc/creds" {
+		t.Errorf("ATTRACTOR_CREDS_DIR = %q, want the staged-creds dir", got)
+	}
+}
+
+// stageAgentCreds copies ONLY the oauth credential files into the per-run creds
+// dir, preserving their path relative to ~, and copies nothing else from
+// ~/.claude (history/memory/projects stay on the host). The dir is always
+// created even with no creds, so the module's static /mnt/creds share has a
+// valid source.
+func TestStageAgentCredsCopiesOnlyCredentials(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// Host ~/.claude with a credential file AND sensitive non-cred files.
+	mustWrite(t, filepath.Join(home, ".claude", ".credentials.json"), `{"token":"x"}`)
+	mustWrite(t, filepath.Join(home, ".claude", "history.jsonl"), "secret history")
+	mustWrite(t, filepath.Join(home, ".claude", "projects", "p.json"), "secret project")
+
+	dest := filepath.Join(t.TempDir(), "creds")
+	if err := stageAgentCreds(dest); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dest, ".claude", ".credentials.json")); err != nil || string(got) != `{"token":"x"}` {
+		t.Fatalf("credentials not staged: %q err=%v", got, err)
+	}
+	// Non-credential files must NOT be copied.
+	for _, leaked := range []string{".claude/history.jsonl", ".claude/projects/p.json"} {
+		if _, err := os.Stat(filepath.Join(dest, leaked)); !os.IsNotExist(err) {
+			t.Errorf("%s leaked into the guest creds share (err=%v); only credential files may cross", leaked, err)
+		}
+	}
+	// codex absent on this host → skipped, not an error; dir still exists.
+	if _, err := os.Stat(dest); err != nil {
+		t.Errorf("creds dir must always exist as the share source: %v", err)
+	}
+}
+
+// mustWrite writes data to path, creating parent dirs.
+func mustWrite(t *testing.T, path, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
