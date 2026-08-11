@@ -150,6 +150,13 @@ auto-scrolling while live (scroll-up pauses following).
   visible; full stdout/stderr collapsed behind a toggle. A **failed**
   check auto-expands its output tail — the thing you need is on screen
   without a click.
+- **ANSI rendering**: captured outputs carry SGR escapes (nix, pnpm, Nx
+  all colorize). Stage files store the raw bytes (verbatim record); the
+  UI renders them — HTML-escape first (content is attacker-controlled),
+  then map the common SGR subset (16/256 fg colors, bold, dim, reset) to
+  theme-aware spans and strip everything else (cursor movement, OSC) so
+  no raw `\x1b[` garbage reaches the operator. Applies wherever stage
+  output renders: feed blocks, inspector, and the artifacts file viewer.
 - Gate questions and the human's answers (with notes) → first-class
   turns, visually distinct. (This seam is where steering input lands
   later.)
