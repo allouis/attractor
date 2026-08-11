@@ -105,6 +105,22 @@ func (d *Dir) Exists(name string) bool {
 	return err == nil
 }
 
+// Create opens name within the root for writing, truncating any existing file
+// and creating parents. The caller closes the returned file. Unlike OpenAppend
+// it starts from an empty file — the same replace semantics as Write, but with
+// an incrementally-writable handle so a caller can stream output as it is
+// produced (e.g. a tool's stdout/stderr while the command runs).
+func (d *Dir) Create(name string) (*os.File, error) {
+	p, err := d.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil { // runstore:allow the seam owns dir creation
+		return nil, err
+	}
+	return os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644) // runstore:allow the seam owns writes
+}
+
 // OpenAppend opens name within the root for appending, creating it and its
 // parents. The caller closes the returned file.
 func (d *Dir) OpenAppend(name string) (*os.File, error) {

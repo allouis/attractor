@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 
 	"github.com/allouis/attractor/internal/engine"
@@ -55,16 +56,29 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 		exe.Dir = stage.Root()
 	}
 
+	// Stream stdout/stderr to the stage files WHILE the command runs (via
+	// io.MultiWriter) so a transport can tail a live check (ui-run-view-v3 P5b);
+	// the in-memory buffers stay for FailureReason truncation and the context
+	// updates below. The stage files are created before exec so they exist (and
+	// grow) from the first byte. Streaming needs an incrementally-writable
+	// handle, so this goes through runstore's Create seam rather than the
+	// write-once stage.Write used before.
 	var stdout, stderr bytes.Buffer
-	exe.Stdout = &stdout
-	exe.Stderr = &stderr
-	err = exe.Run()
-
-	// Persist stdout/stderr to the stage dir regardless of cwd.
+	outW := io.Writer(&stdout)
+	errW := io.Writer(&stderr)
 	if stage != nil {
-		_ = stage.Write("stdout.txt", stdout.Bytes())
-		_ = stage.Write("stderr.txt", stderr.Bytes())
+		if f, err := stage.Create("stdout.txt"); err == nil {
+			defer f.Close()
+			outW = io.MultiWriter(f, &stdout)
+		}
+		if f, err := stage.Create("stderr.txt"); err == nil {
+			defer f.Close()
+			errW = io.MultiWriter(f, &stderr)
+		}
 	}
+	exe.Stdout = outW
+	exe.Stderr = errW
+	err = exe.Run()
 
 	if err != nil {
 		return engine.Outcome{
