@@ -166,6 +166,20 @@
            padding: 0 var(--space-2); border-radius: 999px; border: 1px solid var(--border);
            text-decoration: none; margin-right: var(--space-1); }
   .badge.in-progress { color: var(--state-running); border-color: var(--state-running); }
+  /* R1 header card (ui-run-view-v3): the run's identity at a glance —
+     issue + title, status, repo, workflow, runner, live elapsed, run id.
+     Hydrated once from GET /state; never derived from the SSE stream. */
+  .run-head { background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: var(--space-3) var(--space-4);
+    display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5);
+    align-items: baseline; margin-bottom: var(--space-3); }
+  .run-head h1 { font-size: var(--font-lg); margin: 0; font-weight: 650;
+    flex-basis: 100%; }
+  .run-head h1 a { color: var(--accent); text-decoration: none; }
+  .run-head h1 a:hover { text-decoration: underline; }
+  .run-head .kv { color: var(--text-muted); font-size: var(--font-sm); }
+  .run-head .kv b { color: var(--text); font-weight: 550; }
+  .run-head .elapsed { font-variant-numeric: tabular-nums; }
   .layout { display: grid; grid-template-columns: 1fr 360px; gap: var(--space-4); align-items: start; }
   /* Grid items default to min-width:auto, refusing to shrink below their
      content's min-content width. Without this the collapsed single-column
@@ -394,7 +408,7 @@
   </section>
   <section id="run-view">
     <p><a href="#runs">&larr; all runs</a></p>
-    <h2 id="run-title"></h2>
+    <div id="run-head" class="run-head" aria-live="polite"></div>
     <div id="run-actions" class="run-actions"></div>
     <div id="run-blocked"></div>
     <div id="run-failure"></div>
@@ -467,6 +481,7 @@ let lastCompletedNode = null;  // most recent node to finish — the node a gate
 const gatePreceding = {};      // gate node id -> node whose output that gate reviews (U5, plan-at-gate)
 let pinnedNode = false;        // the user clicked a node: stop auto-selecting the active one (U2)
 let dockTimer = null;
+let headTimer = null;          // ticks the header card's live elapsed clock
 let runsTimer = null;          // fleet-list poll while the Runs view is open
 let configLoaded = null;       // last GET /config doc (redacted) the view rendered
 let linearClear = false;       // pending explicit Linear-key clear (Clear button)
@@ -577,6 +592,7 @@ const TABS = {
 function teardownRun() {
   if (es) { es.close(); es = null; }
   if (dockTimer) { clearInterval(dockTimer); dockTimer = null; }
+  if (headTimer) { clearInterval(headTimer); headTimer = null; }
   currentRun = null;
 }
 
@@ -1633,7 +1649,9 @@ async function openRun(id) {
   timeline.length = 0;
   highlightNav('runs');
   showView('run-view');
-  $('run-title').textContent = id;
+  if (headTimer) { clearInterval(headTimer); headTimer = null; }
+  $('run-head').innerHTML = loadingState('loading…');
+  loadRunState(id);
   $('run-failure').innerHTML = '';
   $('run-blocked').innerHTML = '';
   if ($('tl-text')) $('tl-text').value = '';
@@ -1664,6 +1682,84 @@ async function loadRunActions(id) {
   } catch (e) { return; }
   if (currentRun !== id) return;   // navigated away while fetching
   $('run-actions').innerHTML = runActionsHtml(currentRunSummary);
+}
+
+// loadRunState hydrates the R1 header card from GET /state (ui-run-view-v3 R1):
+// the run's identity at a glance — issue identifier+title linked to the tracker,
+// status pill, repo, workflow, runner+image, live elapsed, run id. This is the
+// first hydrate-then-append consumer: every field comes from the server-computed
+// state document, never derived from the SSE stream. A running run gets a
+// ticking elapsed clock; a load failure falls back to the bare run id.
+async function loadRunState(id) {
+  let st = null;
+  try {
+    const r = await fetch(`/pipelines/${id}/state`);
+    if (r.ok) st = await r.json();
+  } catch (e) { /* fall through to the id-only header */ }
+  if (currentRun !== id) return;   // navigated away while fetching
+  if (!st) { $('run-head').innerHTML = `<h1>${escapeHtml(id.slice(0, 16))}</h1>`; return; }
+  renderRunHead(st);
+  // Tick the live clock only while the run is unfinished; a terminal run's
+  // elapsed is fixed (completed_at − started_at) and needs no timer.
+  const live = st.started_at && !st.completed_at &&
+    st.status !== 'completed' && st.status !== 'failed' && st.status !== 'cancelled';
+  if (live) {
+    headTimer = setInterval(() => {
+      const el = $('run-head')?.querySelector('.elapsed');
+      if (el) el.textContent = fmtElapsed(st.started_at, null);
+    }, 1000);
+  }
+}
+
+// renderRunHead paints the header card from a /state document. Every
+// attacker-controlled field (item metadata, repo, workflow, node ids from the
+// DOT source) is escaped before it reaches innerHTML.
+function renderRunHead(st) {
+  const parts = [`<h1>${runHeadTitle(st)}</h1>`];
+  // Status pill (the fleet's status primitive); name the active node when the
+  // server derived one (mock: "running · implement").
+  let statusLabel = st.status || '';
+  if (st.active_nodes && st.active_nodes.length) statusLabel += ' · ' + st.active_nodes[0];
+  parts.push(stateBadge(st.status, statusLabel));
+  const kv = (label, value) => `<span class="kv">${label} <b>${escapeHtml(value)}</b></span>`;
+  if (st.repo) parts.push(kv('repo', st.repo));
+  if (st.workflow_name) parts.push(kv('workflow', st.workflow_name));
+  const pl = st.placement || {};
+  if (pl.runner) parts.push(kv('runner', pl.image ? `${pl.runner} · ${pl.image}` : pl.runner));
+  parts.push(`<span class="kv">elapsed <b class="elapsed">${escapeHtml(fmtElapsed(st.started_at, st.completed_at || null))}</b></span>`);
+  parts.push(kv('run', (st.id || '').slice(0, 8)));
+  $('run-head').innerHTML = parts.join('\n');
+}
+
+// runHeadTitle builds the issue line: the identifier linked to the tracker url,
+// then the title as plain text (mock: "<a>HKG-1914</a> · Spike the …"). No item
+// falls back to the title, then the run id.
+function runHeadTitle(st) {
+  const item = st.item || {};
+  const ident = item.identifier || '';
+  const title = item.title || '';
+  const link = (text) => item.url
+    ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`
+    : escapeHtml(text);
+  if (ident) return link(ident) + (title ? ' · ' + escapeHtml(title) : '');
+  if (title) return link(title);
+  return escapeHtml(st.id || '');
+}
+
+// fmtElapsed renders the header's elapsed clock, tabular-nums friendly: "Hh MMm"
+// past an hour, "Mm SSs" past a minute, else "Ss". No end means "now" (a live
+// run's ticking clock); no start is the em-dash placeholder.
+function fmtElapsed(startIso, endIso) {
+  if (!startIso) return '—';
+  const start = new Date(startIso).getTime();
+  if (isNaN(start)) return '—';
+  const end = endIso ? new Date(endIso).getTime() : Date.now();
+  let secs = Math.max(0, Math.floor((end - start) / 1000));
+  const h = Math.floor(secs / 3600); secs -= h * 3600;
+  const m = Math.floor(secs / 60); const s = secs - m * 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
 }
 
 // restartRun confirms then POSTs /pipelines/{id}/restart (re-run-from-failure).
