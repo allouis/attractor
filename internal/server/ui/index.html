@@ -583,7 +583,8 @@ let selectedNode = null;       // node id in the pane
 const nodeProse = {};          // node id -> raw prose chunks (no tool lines) — the
                                // plan-at-gate fallback when the daemon has no stage
                                // files (VM runs keep stages on the guest's disk)
-const nodeState = {};          // node id -> status class
+let runState = null;           // last GET /state doc — the ONLY source of node
+                               // status paint (hydrate-then-append; never SSE replay)
 const nodeFindings = {};       // node id -> child-pipeline findings that node produced (T9b)
 let activeParentNode = null;   // last non-child stage_started: owns forwarded child findings (T9b)
 let lastCompletedNode = null;  // most recent node to finish — the node a gate follows
@@ -1746,8 +1747,9 @@ async function openRun(id) {
   teardownRun();
   currentRun = id;
   selectedNode = null;
+  runState = null;
+  if (stateRehydrateTimer) { clearTimeout(stateRehydrateTimer); stateRehydrateTimer = null; }
   for (const k in nodeProse) delete nodeProse[k];
-  for (const k in nodeState) delete nodeState[k];
   for (const k in nodeFindings) delete nodeFindings[k];
   for (const k in gatePreceding) delete gatePreceding[k];
   activeParentNode = null;
@@ -1806,7 +1808,9 @@ async function loadRunState(id) {
   } catch (e) { /* fall through to the id-only header */ }
   if (currentRun !== id) return;   // navigated away while fetching
   if (!st) { $('run-head').innerHTML = `<h1>${escapeHtml(id.slice(0, 16))}</h1>`; return; }
+  runState = st;
   renderRunHead(st);
+  paintGraphFromState();
   hydrateRepoChecks(id, st.repo);
   // Tick the live clock only while the run is unfinished; a terminal run's
   // elapsed is fixed (completed_at − started_at) and needs no timer.
@@ -1818,6 +1822,50 @@ async function loadRunState(id) {
       if (el) el.textContent = fmtElapsed(st.started_at, null);
     }, 1000);
   }
+}
+
+// stateRehydrateTimer debounces the SSE-driven /state re-fetch: a lifecycle
+// event (a stage started/finished, the run terminating) changes which node is
+// active/failed, so the graph + header must re-hydrate from the server's
+// authoritative, fail-aware state — never from replay. A burst of events
+// coalesces into one re-fetch (leading debounce) so a reconnect's full replay
+// doesn't hammer the endpoint.
+let stateRehydrateTimer = null;
+function scheduleStateRehydrate() {
+  if (stateRehydrateTimer) return;
+  stateRehydrateTimer = setTimeout(() => {
+    stateRehydrateTimer = null;
+    if (currentRun) rehydrateState(currentRun);
+  }, 300);
+}
+
+// rehydrateState re-fetches GET /state and repaints the header + graph from it.
+// This is the append side of hydrate-then-append: SSE tells us WHEN state
+// changed, the server tells us WHAT the state is. A terminal run stops the live
+// elapsed clock so its final elapsed freezes.
+async function rehydrateState(id) {
+  let st = null;
+  try {
+    const r = await fetch(`/pipelines/${id}/state`);
+    if (r.ok) st = await r.json();
+  } catch (e) { return; }
+  if (currentRun !== id || !st) return;
+  runState = st;
+  renderRunHead(st);
+  paintGraphFromState();
+  const terminal = st.status === 'completed' || st.status === 'failed' || st.status === 'cancelled';
+  if (terminal && headTimer) { clearInterval(headTimer); headTimer = null; }
+}
+
+// paintGraphFromState paints every graph node's status STRICTLY from the last
+// /state hydrate (ui-run-view-v3 R4) — the fail-aware, server-computed truth.
+// Idempotent: it fully repaints from scratch, so calling it after a graph load,
+// a /state hydrate, or an SSE-driven re-fetch all converge on the same picture
+// (refresh is idempotent by construction). No-ops until both the graph SVG and
+// a /state doc exist; whichever arrives second triggers the real paint.
+function paintGraphFromState() {
+  if (!runState || !runState.nodes) return;
+  for (const id in runState.nodes) paintNode(id, runState.nodes[id].status);
 }
 
 // hydrateRepoChecks loads the run repo's configured check commands (GET
@@ -1915,23 +1963,32 @@ async function loadGraph(id) {
     // A graph-node click both inspects the node (R3) and scopes the feed to it
     // (R2) — the two surfaces stay in sync on the same gesture.
     g.addEventListener('click', () => { selectNode(id); setFeedScope(id); });
-    if (nodeState[id]) paintNode(id, nodeState[id]);
   });
+  // Paint status strictly from the last /state hydrate. loadGraph and
+  // loadRunState race (neither awaits the other); whichever finishes second
+  // paints, and paintGraphFromState is idempotent, so the picture is the same.
+  paintGraphFromState();
 }
 
-// paintNode colours a graphviz node's shape by status.
-function paintNode(id, cls) {
-  nodeState[id] = cls;
+// paintNode colours a graphviz node's shape by its server-derived status
+// (ui-run-view-v3 R4): completed/failed/running (active) tint the fill via a
+// status class and set the stroke; pending clears back to the default. Status
+// comes only from /state (paintGraphFromState), never the SSE stream, so a
+// refresh repaints identically. Idempotent — each call fully (re)sets the
+// node's classes and stroke from the given status.
+function paintNode(id, status) {
   const g = [...$('graph').querySelectorAll('g.node')]
     .find(g => g.querySelector('title')?.textContent === id);
   if (!g) return;
   const color = { running: 'var(--state-running)', completed: 'var(--state-success)',
-                  failed: 'var(--state-failed)', retrying: 'var(--state-retrying)' }[cls];
-  g.classList.toggle('pulse', cls === 'running');
+                  failed: 'var(--state-failed)', retrying: 'var(--state-retrying)' }[status] || '';
+  // Status class drives the subtle fill tint + active pulse (CSS); the stroke is
+  // an INLINE style so it beats the .graph-pane stylesheet's default node rule.
+  g.classList.toggle('node-active', status === 'running');
+  g.classList.toggle('node-completed', status === 'completed');
+  g.classList.toggle('node-failed', status === 'failed');
   g.querySelectorAll('polygon, ellipse, path').forEach(shape => {
-    // Inline style, not a presentation attribute: the graph restyle sets a
-    // default node stroke via the stylesheet, which an attribute would lose to.
-    if (color) shape.style.stroke = color;
+    shape.style.stroke = color;
   });
 }
 
@@ -1973,21 +2030,22 @@ function attachStream(id) {
       // Track the active parent node so a forwarded child terminal (which
       // carries no node_id) can be attributed to the node running the child
       // pipeline (T9b). Child stage_starts belong to the nested run, not here.
-      if (!isChildEvent(ev)) activeParentNode = ev.node_id;
-      paintNode(ev.node_id, 'running');
+      if (!isChildEvent(ev)) { activeParentNode = ev.node_id; scheduleStateRehydrate(); }
       // Follow the run: surface the active node's live log unless the user
       // pinned a node by clicking one (U2). Replay re-runs this, so a reload
       // lands on whatever was last running.
       if (!isChildEvent(ev) && !pinnedNode) selectNode(ev.node_id, false);
     },
     stage_completed: ev => {
-      paintNode(ev.node_id, 'completed');
-      // Remember the node that just produced output so a gate firing next can
-      // point back at it (plan_gate reviews plan's output — plan-at-gate, U5).
-      if (!isChildEvent(ev)) lastCompletedNode = ev.node_id;
+      if (!isChildEvent(ev)) {
+        // Remember the node that just produced output so a gate firing next can
+        // point back at it (plan_gate reviews plan's output — plan-at-gate, U5).
+        lastCompletedNode = ev.node_id;
+        scheduleStateRehydrate();
+      }
     },
-    stage_failed:    ev => paintNode(ev.node_id, 'failed'),
-    stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
+    stage_failed:    ev => { if (!isChildEvent(ev)) scheduleStateRehydrate(); },
+    stage_retrying:  ev => { if (!isChildEvent(ev)) scheduleStateRehydrate(); },
     stage_progress:  ev => appendProgress(ev),
     // Only the PARENT run's completion is terminal. A forwarded child
     // pipeline_completed (a child review that passed) must not end the stream —
@@ -1995,7 +2053,7 @@ function attachStream(id) {
     // failure (T8b). The parent's own completion closes the run.
     pipeline_completed: ev => {
       if (isChildEvent(ev)) return;
-      done(); loadArtifacts();
+      done(); loadArtifacts(); scheduleStateRehydrate();
     },
     // A forwarded child pipeline_failed is a nested run's verdict/findings, not
     // the run's failure (T9b): attribute it to the node that ran the child
@@ -2004,7 +2062,7 @@ function attachStream(id) {
     // and terminal.
     pipeline_failed:    ev => {
       if (isChildEvent(ev)) { recordNodeFinding(activeParentNode, ev.message); return; }
-      $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); loadArtifacts();
+      $('run-failure').innerHTML = failureBannerHtml(ev.message); done(); loadArtifacts(); scheduleStateRehydrate();
     },
     // Gate events drive the dock live (U5): a run blocks (interview_started) or
     // resumes (answered/timeout) between polls, so refresh the dock + banner
@@ -2136,7 +2194,7 @@ function recordNodeFinding(node, message) {
   (nodeFindings[node] = nodeFindings[node] || []).push(message);
   if (selectedNode === node) {
     const box = $('node-findings');
-    if (box) box.innerHTML = nodeFindingsHtml(nodeFindings[node], nodeState[node] === 'completed');
+    if (box) box.innerHTML = nodeFindingsHtml(nodeFindings[node], runState?.nodes?.[node]?.status === 'completed');
   }
 }
 
