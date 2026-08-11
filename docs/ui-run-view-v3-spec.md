@@ -18,9 +18,10 @@ happening — in six concrete ways:
    nothing indicates that.
 4. The bottom Events timeline shows lifecycle rows only ("stage_started
    plan") — redundant with the graph, answers no operator question.
-5. Clicking a node shows "stage detail unavailable" on every VM run:
-   stage files live on the guest disk; the daemon's `/stages/{node}`
-   404s.
+5. Clicking a node shows "stage detail unavailable" throughout a live
+   VM run: stage files sync to the daemon only at the run's END (the
+   terminal-event UploadDir sweep), so mid-run — when the operator is
+   actually watching, e.g. at a plan gate — `/stages/{node}` 404s.
 6. Refreshing the page changes which node shows as "Active": the UI
    re-derives pipeline state client-side by replaying the SSE stream
    into ad-hoc accumulators, and the derivation is order-sensitive.
@@ -95,20 +96,20 @@ store** (in-guest commits land there by design — vm-workspace-spec W2).
 every runner. Empty diff means "no commits yet", rendered as that, not
 as "no diff".
 
-### P3 — stage-output phone-home
+### P3 — stage outputs sync per stage, not at run end
 
-At `stage_completed`, the child pushes the stage's output files to the
-daemon over the existing phone-home artifact channel; the daemon stores
-them under the run's stage dir so `GET /stages/{node}` works for every
-runner:
+Stage phone-home already exists — but only at the run's END: report mode
+uploads the whole stage tree right before forwarding the terminal event
+(cli.go runEngineReporting, `UploadDir`). So a FINISHED VM run has full
+stage files daemon-side (codergen `response.md`, tool
+`stdout.txt`/`stderr.txt`, per-stage `status.json`), while a LIVE one
+has nothing — which is exactly when the operator is looking (the plan
+gate had nothing to show mid-run), and a crashed/killed VM loses the lot.
 
-- codergen stages: `response.md` + `status.json`.
-- **tool stages: `stdout.txt` + `stderr.txt` + exit code.** The tool
-  handler already writes these to the stage dir (tool.go) — today they
-  are guest-local for VM runs and rendered nowhere for any runner, so
-  the full lint/test output an operator most wants is invisible
-  (`stage_completed` carries only status + duration; a failing check's
-  failure_reason truncates stderr to 200 chars).
+P3 moves the sync to **each `stage_completed`**: upload that stage's dir
+incrementally (the terminal-event upload stays as the catch-all sweep).
+`GET /stages/{node}` then works for every completed stage of every
+runner while the run is live.
 
 Prompts do NOT phone home — they are served up front by P1's node
 endpoint. The streamed events remain the live transcript; the stage
@@ -192,7 +193,7 @@ pending ones.
 |----|-----------|--------|
 | P1 | /state + /nodes/{node} endpoints, server-derived fail-aware active set, header data included; UI untouched | todo |
 | P2 | diff endpoint works for local/vm runs via the shared jj store; "no commits yet" distinguished from "no diff" | todo |
-| P3 | stage outputs phone home at completion (codergen response.md; tool stdout/stderr + exit code); /stages/{node} serves them under every runner | todo |
+| P3 | stage dirs upload at each stage_completed (terminal sweep stays as catch-all); /stages/{node} serves completed stages of LIVE runs under every runner | todo |
 | P4 | runner-parity e2e suite (direct vs local) over /state, /nodes, /stages (incl. tool stdout/stderr), /diff, /questions; red on pre-P1 daemon, green after P1-P3 | todo |
 | R1 | header card from /state | todo |
 | R2 | the feed (prose bubbles, collapsed tool rows, lifecycle dividers, gate turns, scope filter + breadcrumb) replacing the timeline as main surface | todo |
