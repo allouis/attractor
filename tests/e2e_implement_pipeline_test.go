@@ -52,11 +52,26 @@ func TestImplementPipeline_LintsClean(t *testing.T) {
 func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	g := buildImplementGraph(t)
 
-	// start -> plan (codergen) -> plan_gate (wait.human): a human approves
-	// the plan before any code is written, and can send it back to plan.
-	planID := g.OutgoingEdges("start")[0].To
+	// start -> baseline_* (tool chain proving the starting point is green)
+	// -> plan (codergen) -> plan_gate (wait.human): a human approves the
+	// plan before any code is written, and can send it back to plan.
+	cursor := g.OutgoingEdges("start")[0].To
+	baselines := 0
+	baselineIDs := map[string]bool{}
+	for g.Nodes[cursor].Type() == "tool" {
+		baselineIDs[cursor] = true
+		if !strings.Contains(g.Nodes[cursor].Attrs["tool_command"], "$context.check.") {
+			t.Fatalf("baseline node %q does not run a configured check", cursor)
+		}
+		baselines++
+		cursor = g.OutgoingEdges(cursor)[0].To
+	}
+	if baselines < 4 {
+		t.Fatalf("want >=4 baseline check nodes before plan, got %d", baselines)
+	}
+	planID := cursor
 	if p := g.Nodes[planID]; p.Type() != "codergen" {
-		t.Fatalf("first stage %q type=%q, want codergen", planID, p.Type())
+		t.Fatalf("post-baseline stage %q type=%q, want codergen", planID, p.Type())
 	}
 	var gateID string
 	for _, e := range g.OutgoingEdges(planID) {
@@ -91,6 +106,9 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	for id, n := range g.Nodes {
 		if n.Type() != "tool" || !strings.Contains(n.Attrs["tool_command"], "$context.check.") {
 			continue
+		}
+		if baselineIDs[id] {
+			continue // baseline copies terminate the run, they don't gate implement
 		}
 		checkTools++
 		back := false
