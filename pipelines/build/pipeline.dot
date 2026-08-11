@@ -14,7 +14,7 @@
 // so they see exactly this milestone's change. Advance it between runs.
 //
 // Loop shape:
-//   plan -> implement -> verify -> review_loop
+//   plan -> plan_gate (human) -> implement -> verify -> review_loop
 //   verify   fail -> implement        (test/gate failures, same thread)
 //   review_loop success -> record     (synth PASS: no blocking findings)
 //   review_loop fail    -> fix        (synth FAIL: blocking findings)
@@ -36,6 +36,10 @@ digraph build {
 
     plan [type="codergen.acp", thread_id="build", fidelity="full",
           timeout="20m", prompt="@prompts/plan.md"]
+
+    // Human check-in on the plan before any code gets written. Console
+    // when run from a TTY; auto-approved in non-interactive runs.
+    plan_gate [shape=hexagon, label="Does the plan make sense?"]
 
     implement [type="codergen.acp", thread_id="build", fidelity="full",
                timeout="120m", goal_gate=true, retry_target="plan",
@@ -65,7 +69,9 @@ digraph build {
     done [shape=Msquare]
 
     start -> plan
-    plan -> implement
+    plan -> plan_gate
+    plan_gate -> implement [label="[A] Approve plan"]
+    plan_gate -> plan      [label="[R] Revise plan"]
     implement -> verify      [condition="outcome=success"]
     implement -> plan        [condition="outcome=fail", label="Replan"]
     verify -> review_loop     [condition="outcome=success"]
