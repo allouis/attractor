@@ -2,11 +2,13 @@
 // review-pipeline-spec RV3).
 //
 // The daemon dispatches this via POST /items/run: it resolves the PR
-// Item to vars (repo, pr_number, url, title), maps repo -> a local
-// jj-colocated checkout, and sets that as the run's cwd. The first node
-// is a deterministic tool node — attractor never trusts the agent to
-// check the branch out — then `review_loop` runs the shared multi-lens
-// review-core sub-pipeline inline via stack.manager_loop.
+// Item to vars (repo, pr_number, url, title). The review is DIFF-BASED:
+// `review_loop` runs the shared multi-lens review-core sub-pipeline inline
+// via stack.manager_loop, seeding each lens's diff_cmd with `gh pr diff`.
+// That reads the PR straight from the GitHub API, so it needs no local
+// checkout and works under ANY runner — including a VM whose /work jj
+// workspace has no `.git` (an earlier `gh pr checkout` node failed there,
+// and even on the host it ran outside a git worktree: "not a git repository").
 //
 // `review_loop` seeds review-core's one input, diff_cmd, with the PR's
 // diff command; the override's $context.pr_number/$context.repo are
@@ -23,16 +25,12 @@ digraph review {
 
     start [shape=Mdiamond]
 
-    checkout [type="tool", timeout="5m",
-              tool_command="gh pr checkout $context.pr_number --repo $context.repo"]
-
     review_loop [type="stack.manager_loop",
                  stack.child_dotfile="../review-core/pipeline.dot",
                  stack.child.var.diff_cmd="gh pr diff $context.pr_number --repo $context.repo"]
 
     done [shape=Msquare]
 
-    start -> checkout
-    checkout -> review_loop [condition="outcome=success"]
+    start -> review_loop
     review_loop -> done
 }
