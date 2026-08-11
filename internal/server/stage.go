@@ -18,6 +18,7 @@ type stageDetail struct {
 	Status    string            `json:"status"`
 	Prompt    string            `json:"prompt"`
 	Response  string            `json:"response"`
+	ExitCode  string            `json:"exit_code,omitempty"`
 	ToolCalls []json.RawMessage `json:"tool_calls"`
 }
 
@@ -51,13 +52,17 @@ func readStageDetail(stageDir string) stageDetail {
 		ToolCalls: readToolCalls(filepath.Join(stageDir, "tool_calls")),
 	}
 	// status.json is the engine.Outcome; its status string lives under the
-	// "outcome" key. Absent (stage still running) leaves Status empty.
+	// "outcome" key, and a tool node records its process exit code in the
+	// outcome context (tool.exit_code) — surfaced so the inspector can show a
+	// tool's exit code. Absent (stage still running) leaves both empty.
 	if data, err := os.ReadFile(filepath.Join(stageDir, "status.json")); err == nil {
 		var st struct {
-			Outcome string `json:"outcome"`
+			Outcome        string            `json:"outcome"`
+			ContextUpdates map[string]string `json:"context_updates"`
 		}
 		if json.Unmarshal(data, &st) == nil {
 			d.Status = st.Outcome
+			d.ExitCode = st.ContextUpdates["tool.exit_code"]
 		}
 	}
 	return d

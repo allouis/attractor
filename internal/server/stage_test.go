@@ -130,6 +130,42 @@ func TestGetStageNumericToolCallOrder(t *testing.T) {
 	}
 }
 
+// TestGetStageSurfacesToolExitCode: a tool stage records its process exit code
+// in the outcome context (tool.exit_code); the stage detail surfaces it so the
+// R3 inspector can show a tool node's exit code alongside its stdout/stderr.
+func TestGetStageSurfacesToolExitCode(t *testing.T) {
+	srv, tmp := newStageTestServer(t)
+	logsRoot := filepath.Join(tmp, "r1")
+	addRun(srv, "r1", logsRoot)
+	stageDir := filepath.Join(logsRoot, "test")
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stageDir, "status.json"),
+		[]byte(`{"outcome":"fail","context_updates":{"tool.exit_code":"2"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL() + "/pipelines/r1/stages/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got struct {
+		Status   string `json:"status"`
+		ExitCode string `json:"exit_code"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "fail" {
+		t.Errorf("status = %q, want fail", got.Status)
+	}
+	if got.ExitCode != "2" {
+		t.Errorf("exit_code = %q, want 2 (from the tool outcome context)", got.ExitCode)
+	}
+}
+
 func TestGetStageNoStatusFile(t *testing.T) {
 	srv, tmp := newStageTestServer(t)
 	logsRoot := filepath.Join(tmp, "r1")
