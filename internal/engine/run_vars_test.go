@@ -89,6 +89,24 @@ func TestRunSeededDeclaredVarSucceeds(t *testing.T) {
 	}
 }
 
+// TestFreshContextSeedsHumanNote: a fresh run seeds human.note="" so a
+// prompt referencing $context.human.note resolves on the first visit — before
+// any gate answer exists — instead of failing loud on the undefined key.
+func TestFreshContextSeedsHumanNote(t *testing.T) {
+	eng := New(Config{Registry: NewRegistry()})
+	g := buildGraph(t, `digraph d { start [shape=Mdiamond] done [shape=Msquare] start -> done }`)
+	ctx, err := eng.freshContext(g)
+	if err != nil {
+		t.Fatalf("freshContext: %v", err)
+	}
+	if v, ok := ctx.Lookup("human.note"); !ok || v != "" {
+		t.Fatalf("human.note = %q present=%v, want present+empty", v, ok)
+	}
+	if _, err := ctx.Expand("feedback: $context.human.note"); err != nil {
+		t.Fatalf("expand referencing seeded human.note should resolve: %v", err)
+	}
+}
+
 // TestRunResumeSkipsDeclaredVarValidation: `vars=` validation is a
 // fresh-run start gate, not re-checked on resume. A run resumed from a
 // checkpoint whose context lacks a declared key (e.g. written by a binary

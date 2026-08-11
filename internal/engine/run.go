@@ -358,6 +358,11 @@ func (e *Engine) resetState(g *graph.Graph, startAt string) (*runState, error) {
 func (e *Engine) freshContext(g *graph.Graph) (*Context, error) {
 	ctx := NewContext()
 	ctx.MirrorGraph(g)
+	// Seed the human-gate note key so a prompt referencing $context.human.note
+	// resolves on the first visit — before any gate has been answered.
+	// wait.human overwrites it with each answer's note (handler.WaitHuman).
+	// Seeded before the initial context so an explicit seed can still win.
+	ctx.Set("human.note", "")
 	ctx.Apply(e.initialContext)
 	resolved, err := ctx.Expand(g.Goal())
 	if err != nil {

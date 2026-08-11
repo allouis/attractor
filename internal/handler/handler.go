@@ -323,6 +323,11 @@ func (h WaitHuman) Execute(env engine.HandlerEnv) engine.Outcome {
 		ContextUpdates: map[string]string{
 			"human.gate.selected": selected.Key,
 			"human.gate.label":    selected.Label,
+			// The optional note the human attached to the answer, surfaced to
+			// the revisited node's prompt as reviewer feedback ($context.human.note).
+			// The engine seeds this key to "" at run start, so a first visit
+			// before any answer still resolves; each answer overwrites it.
+			"human.note": answer.Text,
 		},
 	}
 }

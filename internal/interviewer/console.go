@@ -39,18 +39,29 @@ func (c Console) Ask(q Question) (Answer, error) {
 		return Answer{Value: AnswerSkipped}, fmt.Errorf("console interviewer: %w", err)
 	}
 	choice := strings.TrimSpace(line)
+	// After a valid choice, offer an optional free-text note (reviewer
+	// feedback surfaced to the revisited node as $context.human.note). It is
+	// optional: a blank line or EOF (piped/non-interactive) yields no note.
+	note := func() string {
+		fmt.Fprint(out, "note (optional, enter to skip)> ")
+		l, err := reader.ReadString('\n')
+		if err != nil && l == "" {
+			return ""
+		}
+		return strings.TrimSpace(l)
+	}
 	if choice == "" && len(q.Options) > 0 {
 		opt := q.Options[0]
-		return Answer{Value: AnswerChoice, SelectedOption: &opt}, nil
+		return Answer{Value: AnswerChoice, SelectedOption: &opt, Text: note()}, nil
 	}
 	for i, opt := range q.Options {
 		if strings.EqualFold(choice, opt.Key) || strings.EqualFold(choice, opt.Label) {
 			o := opt
-			return Answer{Value: AnswerChoice, SelectedOption: &o}, nil
+			return Answer{Value: AnswerChoice, SelectedOption: &o, Text: note()}, nil
 		}
 		if choice == fmt.Sprintf("%d", i+1) {
 			o := opt
-			return Answer{Value: AnswerChoice, SelectedOption: &o}, nil
+			return Answer{Value: AnswerChoice, SelectedOption: &o, Text: note()}, nil
 		}
 	}
 	// Unrecognised input falls through to the first option to keep the

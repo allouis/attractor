@@ -72,6 +72,53 @@ func TestWaitHumanTimeoutSelectsDefaultChoice(t *testing.T) {
 	}
 }
 
+// noteInterviewer answers with a chosen option carrying a free-text note.
+type noteInterviewer struct {
+	key, label, note string
+}
+
+func (n noteInterviewer) Ask(q interviewer.Question) (interviewer.Answer, error) {
+	return interviewer.Answer{
+		Value:          interviewer.AnswerChoice,
+		SelectedOption: &interviewer.Option{Key: n.key, Label: n.label},
+		Text:           n.note,
+	}, nil
+}
+
+// A wait.human answer that carries a note records it into context as
+// human.note, so the revisited node's prompt can surface it as feedback.
+func TestWaitHumanRecordsNote(t *testing.T) {
+	g := buildGate(t, ``)
+	env := engine.HandlerEnv{Node: g.Nodes["gate"], Graph: g, RunID: "r", Context: engine.NewContext(),
+		Emit: func(engine.Event) {}}
+	iv := noteInterviewer{key: "F", label: "[F] Fix", note: "tighten the error path"}
+	out := WaitHuman{Interviewer: iv}.Execute(env)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("outcome = %v, want success", out.Status)
+	}
+	if out.ContextUpdates["human.note"] != "tighten the error path" {
+		t.Fatalf("human.note = %q, want the answer note", out.ContextUpdates["human.note"])
+	}
+	if out.PreferredLabel != "[F] Fix" {
+		t.Fatalf("preferred_label = %q, want [F] Fix", out.PreferredLabel)
+	}
+}
+
+// A choice answer without a note records an empty human.note (the seeded
+// default is preserved, not corrupted).
+func TestWaitHumanNoteAbsent(t *testing.T) {
+	g := buildGate(t, ``)
+	env := engine.HandlerEnv{Node: g.Nodes["gate"], Graph: g, RunID: "r", Context: engine.NewContext(),
+		Emit: func(engine.Event) {}}
+	out := WaitHuman{Interviewer: noteInterviewer{key: "A", label: "[A] Approve"}}.Execute(env)
+	if _, ok := out.ContextUpdates["human.note"]; !ok {
+		t.Fatalf("human.note should be set (empty) on every answer")
+	}
+	if out.ContextUpdates["human.note"] != "" {
+		t.Fatalf("human.note = %q, want empty", out.ContextUpdates["human.note"])
+	}
+}
+
 // A timeout with no default_choice retries the gate.
 func TestWaitHumanTimeoutNoDefaultRetries(t *testing.T) {
 	g := buildGate(t, ``)

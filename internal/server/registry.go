@@ -602,7 +602,10 @@ func (r *Run) SubmitAnswer(qid string, payload AnswerPayload) error {
 	answer := interviewer.Answer{Value: interviewer.AnswerText, Text: payload.Text}
 	if payload.Key != "" || payload.Label != "" {
 		opt := &interviewer.Option{Key: payload.Key, Label: payload.Label}
-		answer = interviewer.Answer{Value: interviewer.AnswerChoice, SelectedOption: opt}
+		// Carry the optional note (Text) alongside the choice so the gate
+		// handler can record it as $context.human.note. Dropping it here would
+		// lose feedback attached to an option answer (e.g. "[R] Revise" + why).
+		answer = interviewer.Answer{Value: interviewer.AnswerChoice, SelectedOption: opt, Text: payload.Text}
 	}
 	select {
 	case pq.answer <- answer:

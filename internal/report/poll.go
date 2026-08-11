@@ -98,6 +98,9 @@ func controlToAnswer(a ControlAnswer) interviewer.Answer {
 		return interviewer.Answer{
 			Value:          interviewer.AnswerChoice,
 			SelectedOption: &interviewer.Option{Key: a.Key, Label: a.Label},
+			// Carry the optional note so the polling child's wait.human handler
+			// records it as $context.human.note (mirrors the daemon SubmitAnswer).
+			Text: a.Text,
 		}
 	}
 	return interviewer.Answer{Value: interviewer.AnswerText, Text: a.Text}
