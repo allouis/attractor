@@ -9,7 +9,53 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/allouis/attractor/internal/graph"
 )
+
+// writeJob must deliver the WHOLE pipeline catalog (the running pipeline AND
+// its siblings) into the job share and name the running pipeline in
+// base_subdir — so a stack.manager_loop child like `../review-core` resolves
+// in the guest, which runs subgraphs in-process.
+func TestWriteJobDeliversCatalogSiblings(t *testing.T) {
+	catalog := t.TempDir()
+	for _, name := range []string{"review-pr", "review-core"} {
+		dir := filepath.Join(catalog, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pipeline.dot"), []byte("digraph{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := vmLauncher{vmDir: t.TempDir(), guestHost: "10.0.2.2"}
+	run := &Run{
+		ID:     "abc",
+		source: "digraph d {}",
+		graph:  &graph.Graph{BaseDir: filepath.Join(catalog, "review-pr")},
+		cwd:    t.TempDir(), // != baseDir so the catalog copy runs
+	}
+	jobDir, err := l.writeJob(run, "http://127.0.0.1:7681")
+	if err != nil {
+		t.Fatalf("writeJob: %v", err)
+	}
+	for _, rel := range []string{"review-pr/pipeline.dot", "review-core/pipeline.dot"} {
+		if _, err := os.Stat(filepath.Join(jobDir, rel)); err != nil {
+			t.Errorf("%s not delivered to the guest (manager_loop ../review-core would fail): %v", rel, err)
+		}
+	}
+	var job vmJob
+	data, err := os.ReadFile(filepath.Join(jobDir, "job.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &job); err != nil {
+		t.Fatal(err)
+	}
+	if job.BaseSubdir != "review-pr" {
+		t.Errorf("base_subdir = %q, want review-pr (the running pipeline's subdir)", job.BaseSubdir)
+	}
+}
 
 func TestVMLauncherResolvesImagePerRun(t *testing.T) {
 	l := vmLauncher{

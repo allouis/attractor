@@ -54,6 +54,12 @@ let
       token=$(jq -r '.token // ""' "$job")
       url=$(jq -r .report_url "$job")
       cwd=$(jq -r '.cwd // "/work"' "$job")
+      # The launcher copies the whole pipeline catalog into /mnt/job; base_subdir
+      # is this pipeline's dir within it. `--base-dir` points there so @prompts
+      # and a manager_loop `../sibling/pipeline.dot` resolve to delivered files.
+      base_subdir=$(jq -r '.base_subdir // ""' "$job")
+      base_dir=/mnt/job
+      [ -n "$base_subdir" ] && base_dir="/mnt/job/$base_subdir"
 
       # G1: /mnt/workspace is a ro 9p TRANSPORT — copy it onto the guest's own
       # ext4 and run all tools in "$cwd" (/work). Real tools open SQLite DBs
@@ -98,15 +104,17 @@ let
         git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" || true
       fi
 
-      # --backend acp: `attractor run` DEFAULTS to the simulation backend, which
-      # executes every codergen.acp node as an instant no-op. A VM run is always
-      # a real run, so force the real ACP backend; the specific adapter
-      # (claude-agent-acp / codex-acp) comes from the pipeline's graph/node
-      # `acp_command` attribute, authenticating with the creds copied into $HOME
-      # above (docs/vm-creds-spec.md). Tool-only pipelines have no codergen node
-      # so this is a harmless no-op for them.
-      args=(run --backend acp --report-to "$url" --run-id "$run_id" --report-token "$token"
-            --cwd "$cwd" --base-dir /mnt/job --logs /tmp/attractor-run)
+      # No --backend flag: `attractor run` then routes each codergen node by its
+      # llm_provider/llm_model through the provider config the launcher staged at
+      # $HOME/.attractor/config.json (default_provider + which acp command each
+      # provider maps to — claude-agent-acp / codex-acp), authenticating with the
+      # creds copied into $HOME above (docs/vm-creds-spec.md). A run-wide
+      # `--backend acp` would instead force ONE command and break the multi-
+      # provider lenses in review-core (anthropic + codex); the default routing
+      # is what the daemon uses too. (Missing config → routing falls back to
+      # simulation, so the config delivery must succeed for real agent nodes.)
+      args=(run --report-to "$url" --run-id "$run_id" --report-token "$token"
+            --cwd "$cwd" --base-dir "$base_dir" --logs /tmp/attractor-run)
       while IFS= read -r kv; do args+=(-var "$kv"); done \
         < <(jq -r '.vars // {} | to_entries[] | "\(.key)=\(.value)"' "$job")
       args+=(/mnt/job/source.dot)

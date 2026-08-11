@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/allouis/attractor/internal/config"
 )
 
 // vmLauncher runs each pipeline inside its own NixOS VM (nix/vm-runner.nix).
@@ -87,11 +89,16 @@ func (l vmLauncher) ImageNames() []string {
 
 // vmJob is the per-run job the guest reads off the 9p job share.
 type vmJob struct {
-	RunID     string            `json:"run_id"`
-	Token     string            `json:"token"`
-	ReportURL string            `json:"report_url"`
-	Cwd       string            `json:"cwd"`
-	Vars      map[string]string `json:"vars,omitempty"`
+	RunID     string `json:"run_id"`
+	Token     string `json:"token"`
+	ReportURL string `json:"report_url"`
+	Cwd       string `json:"cwd"`
+	// BaseSubdir names this pipeline's dir within the catalog copied into
+	// /mnt/job (empty for a raw-dot run). The guest sets `--base-dir
+	// /mnt/job/<BaseSubdir>` so a manager_loop child like `../review-core`
+	// resolves to a sibling that was delivered alongside it.
+	BaseSubdir string            `json:"base_subdir,omitempty"`
+	Vars       map[string]string `json:"vars,omitempty"`
 }
 
 // guestReportURL rewrites the daemon's reportURL host to the address the
@@ -118,23 +125,33 @@ func (l vmLauncher) writeJob(run *Run, reportURL string) (jobDir string, err err
 	if err := os.MkdirAll(jobDir, 0o755); err != nil {
 		return "", err
 	}
-	// Ship the pipeline's base-dir (its `prompts/` and any other @file
-	// dependencies) into the job share so `--base-dir /mnt/job` resolves them
-	// in the guest. Without this a pipeline with `@prompts/…` dies in the VM
-	// with "no such file". Skip when the base-dir is the working tree itself
-	// (a raw-dot run): that whole tree is already mounted at /mnt/workspace,
-	// and copying it into the job share would duplicate the entire repo.
+	// Ship the whole pipeline CATALOG (this pipeline AND its siblings, with
+	// their `prompts/` and @file deps) into the job share, so a
+	// stack.manager_loop child like `../review-core` resolves in the guest —
+	// the guest runs subgraphs IN-PROCESS and needs their files, not just the
+	// parent's dir. The catalog entries are symlinks (into the repo / nix
+	// store), so resolve to the real pipeline dir and copy its PARENT; the
+	// guest points `--base-dir` at this pipeline's subdir within the copy
+	// (BaseSubdir), from which `../sibling` resolves. Skipped for a raw-dot run
+	// (base-dir is the working tree, already at /mnt/workspace).
+	baseSubdir := ""
 	if base := run.baseDir(); base != "" && base != run.cwd {
-		if err := copyTree(base, jobDir); err != nil {
-			return "", fmt.Errorf("copy pipeline base-dir: %w", err)
+		real, err := filepath.EvalSymlinks(base)
+		if err != nil {
+			real = base
 		}
+		if err := copyTree(filepath.Dir(real), jobDir); err != nil {
+			return "", fmt.Errorf("copy pipeline catalog: %w", err)
+		}
+		baseSubdir = filepath.Base(real)
 	}
 	job := vmJob{
-		RunID:     run.ID,
-		Token:     run.Token(),
-		ReportURL: guestReportURL(reportURL, l.guestHost),
-		Cwd:       guestWorkDir,
-		Vars:      run.initialContext,
+		RunID:      run.ID,
+		Token:      run.Token(),
+		ReportURL:  guestReportURL(reportURL, l.guestHost),
+		Cwd:        guestWorkDir,
+		BaseSubdir: baseSubdir,
+		Vars:       run.initialContext,
 	}
 	data, err := json.MarshalIndent(job, "", "  ")
 	if err != nil {
@@ -231,6 +248,7 @@ func stageAgentCreds(dest string) error {
 	if err != nil {
 		return err
 	}
+	_ = stageProviderConfig(dest)
 	for _, rel := range []string{".claude/.credentials.json", ".codex/auth.json", ".config/gh/hosts.yml"} {
 		data, err := os.ReadFile(filepath.Join(home, rel))
 		if err != nil {
@@ -245,6 +263,40 @@ func stageAgentCreds(dest string) error {
 		}
 	}
 	return nil
+}
+
+// stageProviderConfig delivers the daemon's provider routing — default_provider
+// plus which acp command each llm_provider maps to — into dest at
+// `.attractor/config.json`, so the guest's `attractor run` (which resolves a
+// codergen node's llm_provider/llm_model to a command) finds it at
+// $HOME/.attractor/config.json. Without it, provider routing in the guest falls
+// back to the simulation backend (no-op agent nodes) or, under `--backend acp`
+// with no --acp-cmd, fails "no agent command configured". ONLY the provider
+// section crosses — never repos (host paths) or secrets like a Linear key. A
+// missing host config is not fatal (the guest then simulates), so the caller
+// ignores the error.
+func stageProviderConfig(dest string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	doc, err := config.LoadDocument(home)
+	if err != nil {
+		return err
+	}
+	minimal := struct {
+		DefaultProvider string                     `json:"default_provider"`
+		Providers       map[string]config.Provider `json:"providers"`
+	}{doc.DefaultProvider, doc.Providers}
+	data, err := json.MarshalIndent(minimal, "", "  ")
+	if err != nil {
+		return err
+	}
+	out := filepath.Join(dest, ".attractor", "config.json")
+	if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(out, data, 0o600)
 }
 
 // ensureJJRepo verifies dir is a jj-COLOCATED checkout, the precondition for

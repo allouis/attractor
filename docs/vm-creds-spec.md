@@ -49,10 +49,34 @@ this acceptable are the VM boundary itself: **per-run ephemeral guests** and
 reaches an egress broker over a scoped path) is future work; this ships the
 credential mount the operator opted into so agent pipelines run in VMs now.
 
+## Running a full pipeline in the guest
+
+A VM run executes the whole graph **inside the guest** — the daemon boots the
+VM and a fresh `attractor run source.dot` runs there, and a
+`stack.manager_loop` spawns its child engine in-process *in the guest*. So the
+guest needs everything that run touches:
+
+- **Sub-pipelines.** `writeJob` copies the whole pipeline **catalog** (this
+  pipeline AND its siblings) into `/mnt/job`, and the guest sets `--base-dir
+  /mnt/job/<pipeline>` — so a manager_loop child like `../review-core` resolves
+  to a delivered sibling. Without it, a review/implement pipeline dies in-guest
+  with "no such file: ../review-core/pipeline.dot".
+- **Provider routing.** `stageProviderConfig` delivers the daemon's
+  `default_provider` + `providers` (which acp command each llm_provider maps to)
+  to `$HOME/.attractor/config.json`, so the guest routes each codergen node by
+  its `llm_provider`/`llm_model` (e.g. review-core's five lenses: four anthropic
+  + one codex). ONLY the provider section crosses — no repos, no secrets. The
+  guest runs `attractor run` with **no `--backend`** so this routing applies; a
+  run-wide `--backend acp` would force one command and break multi-provider
+  pipelines, and missing config silently routes to simulation.
+
 ## Verification
 
 `pipelines/vm-agent-smoke/pipeline.dot`: one `codergen.acp` node writes a
 sentinel file, a `tool` node asserts it. Run it through a daemon started with
 `--runner vm` against a jj-colocated repo → the agent node reaching `completed`
-proves the adapter authenticated inside the guest. This is the test the
-tool-only Ghost VM runs never exercised.
+proves the adapter authenticated inside the guest.
+
+`pipelines/review-pr` against a Ghost PR (Ghost is `runner=vm`) exercises the
+full path: the manager_loop child (`../review-core`) resolves, its five lenses
+route to their providers, and `synth` returns a verdict — all in-guest.
