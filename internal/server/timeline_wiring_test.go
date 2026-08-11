@@ -57,7 +57,7 @@ const sandbox = { window: { addEventListener() {} }, document, location: {},
   console, EventSource: FakeES, fetch, setTimeout, clearTimeout };
 vm.createContext(sandbox);
 vm.runInContext(m[1] + '\nglobalThis.__setRun = (r) => { currentRun = r; };' +
-  '\nglobalThis.__nodeLog = nodeLog;', sandbox);
+  '\nglobalThis.__nodeProse = nodeProse;', sandbox);
 
 const fire = (kind, ev) => (listeners[kind] || []).forEach(fn => fn({ data: JSON.stringify(ev) }));
 const feed = () => {
@@ -84,7 +84,7 @@ feed();
 process.stdout.write(JSON.stringify({
   rows: els['tl-rows'].innerHTML,
   failure: els['run-failure'].innerHTML,
-  nodeLog: (sandbox.__nodeLog['plan'] || []).length,
+  nodeProse: (sandbox.__nodeProse['plan'] || []).length,
 }));
 `
 	out, err := exec.Command("node", "-e", harness, uiPath).CombinedOutput()
@@ -106,10 +106,10 @@ process.stdout.write(JSON.stringify({
 	if strings.Contains(result, "stage_progress") || strings.Contains(result, "TOKENFRAGMENT") {
 		t.Errorf("timeline flooded with stage_progress deltas (should be inspector-only):\n%s", result)
 	}
-	// ...but stage_progress still drives the inspector's node log (500 chunks
-	// per connection, deduped across the reconnect).
-	if !strings.Contains(result, `"nodeLog":500`) {
-		t.Errorf("stage_progress no longer reaches the node log:\n%s", result)
+	// ...but stage_progress still accumulates the node's prose (500 chunks per
+	// connection, deduped across the reconnect) — the gate plan fallback.
+	if !strings.Contains(result, `"nodeProse":500`) {
+		t.Errorf("stage_progress no longer reaches the node prose:\n%s", result)
 	}
 	// Reconnect replayed every event a second time; the cursor must dedup, so
 	// each kind appears exactly once.

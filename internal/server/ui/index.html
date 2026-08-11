@@ -197,9 +197,14 @@
           background: var(--surface-1); }
   #node-pane { min-height: 120px; }
   #node-pane h3 { margin: 0 0 var(--space-2); }
-  #node-log { white-space: pre-wrap; font: var(--font-sm)/1.45 ui-monospace, monospace;
-              margin-top: var(--space-2); max-height: 320px; overflow: auto; }
   #node-pane h4 { margin: var(--space-3) 0 var(--space-1); font-size: var(--font-sm); }
+  /* R3 inspector: tabular-nums timing so durations align; a tool's exit code
+     goes red only when non-zero; the feed-slice pointer is quiet chrome. */
+  .ins-dur, .ins-exit { font-variant-numeric: tabular-nums; }
+  .ins-exit { font-weight: 600; }
+  .ins-exit.fail { color: var(--state-failed); }
+  .ins-attempts { font-size: var(--font-sm); }
+  .ins-feed { font-size: var(--font-sm); margin-top: var(--space-3); }
   /* Node findings: a node's forwarded child-pipeline verdict (T9b). Muted, not
      error-red — on a completed node the fix loop resolved them. */
   .node-findings { color: var(--text-muted); margin: var(--space-2) 0; }
@@ -575,12 +580,10 @@ const $ = (id) => document.getElementById(id);
 let es = null;                 // active EventSource
 let currentRun = null;         // run id being viewed
 let selectedNode = null;       // node id in the pane
-const nodeLog = {};            // node id -> accumulated log html chunks
 const nodeProse = {};          // node id -> raw prose chunks (no tool lines) — the
                                // plan-at-gate fallback when the daemon has no stage
                                // files (VM runs keep stages on the guest's disk)
 const nodeState = {};          // node id -> status class
-const nodeTiming = {};         // node id -> {start, end} ISO ts from the stream
 const nodeFindings = {};       // node id -> child-pipeline findings that node produced (T9b)
 let activeParentNode = null;   // last non-child stage_started: owns forwarded child findings (T9b)
 let lastCompletedNode = null;  // most recent node to finish — the node a gate follows
@@ -608,9 +611,9 @@ const EVENT_KINDS = [
 
 // TIMELINE_SKIP are kinds the U3 timeline does NOT log. stage_progress is
 // emitted once per assistant token (acp.go / claudecode.go) — thousands per
-// run; it is the inspector's live tail (U2), not a high-level timeline event.
-// It still flows through the dispatch (paint + node-log side-effects and the
-// replay cursor), it just never becomes a timeline row.
+// run; it feeds the run feed (R2) and the node's prose accumulator, not a
+// high-level timeline event. It still flows through the dispatch (paint +
+// prose side-effects and the replay cursor), it just never becomes a row.
 const TIMELINE_SKIP = new Set(['stage_progress']);
 
 // TIMELINE_MAX caps the retained event log so a long-running or looping run
@@ -1743,10 +1746,8 @@ async function openRun(id) {
   teardownRun();
   currentRun = id;
   selectedNode = null;
-  for (const k in nodeLog) delete nodeLog[k];
   for (const k in nodeProse) delete nodeProse[k];
   for (const k in nodeState) delete nodeState[k];
-  for (const k in nodeTiming) delete nodeTiming[k];
   for (const k in nodeFindings) delete nodeFindings[k];
   for (const k in gatePreceding) delete gatePreceding[k];
   activeParentNode = null;
@@ -1942,7 +1943,7 @@ function attachStream(id) {
   // handled for this run; `pos` is the position within the current
   // connection's stream (reset on each open). Events at or below `applied`
   // were seen on an earlier connection, so skip them — otherwise a mid-run
-  // reconnect re-appends every node-log chunk.
+  // reconnect re-appends every prose chunk.
   let applied = 0, pos = 0;
   es.onopen = () => { pos = 0; };
   const on = (kind, fn) => es.addEventListener(kind, e => {
@@ -1951,13 +1952,10 @@ function attachStream(id) {
     applied = pos;
     fn(JSON.parse(e.data));
   });
-  // Record each stage's start/end from the stream so the inspector can show
-  // elapsed time without a timing field on GET …/stages/{node}.
-  const timing = (id) => (nodeTiming[id] = nodeTiming[id] || {});
   // On a terminal event, close the stream. The server ends the SSE
   // connection for finished runs, so leaving it open lets EventSource
   // reconnect every few seconds and replay the whole history again,
-  // duplicating node-log chunks each time.
+  // duplicating prose chunks each time.
   // On a terminal event, stop the dock poll too: the server clears a finished
   // run's questions, so one final refreshDock reconciles to empty and the
   // interval would otherwise poll a dead run forever in an open tab.
@@ -1976,19 +1974,19 @@ function attachStream(id) {
       // carries no node_id) can be attributed to the node running the child
       // pipeline (T9b). Child stage_starts belong to the nested run, not here.
       if (!isChildEvent(ev)) activeParentNode = ev.node_id;
-      timing(ev.node_id).start = ev.ts; paintNode(ev.node_id, 'running');
+      paintNode(ev.node_id, 'running');
       // Follow the run: surface the active node's live log unless the user
       // pinned a node by clicking one (U2). Replay re-runs this, so a reload
       // lands on whatever was last running.
       if (!isChildEvent(ev) && !pinnedNode) selectNode(ev.node_id, false);
     },
     stage_completed: ev => {
-      timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'completed');
+      paintNode(ev.node_id, 'completed');
       // Remember the node that just produced output so a gate firing next can
       // point back at it (plan_gate reviews plan's output — plan-at-gate, U5).
       if (!isChildEvent(ev)) lastCompletedNode = ev.node_id;
     },
-    stage_failed:    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); },
+    stage_failed:    ev => paintNode(ev.node_id, 'failed'),
     stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
     stage_progress:  ev => appendProgress(ev),
     // Only the PARENT run's completion is terminal. A forwarded child
@@ -2037,20 +2035,12 @@ function attachStream(id) {
 function appendProgress(ev) {
   const node = ev.node_id; if (!node) return;
   const kind = ev.detail && ev.detail.kind;
-  let html = '';
-  if (kind === 'assistant_delta') html = escapeHtml(ev.message || '');
-  else if (kind === 'tool_call') {
-    const name = (ev.detail && ev.detail.tool_name) || 'tool';
-    html = `<span class="tool">[${escapeHtml(name)}] ${escapeHtml(ev.message || '')}</span>\n`;
-  } else if (ev.message) html = escapeHtml(ev.message) + '\n';
-  if (!html) return;
+  // Accumulate only the node's prose (assistant deltas / plain messages) — the
+  // gate plan panel falls back to it when the daemon lacks the stage file (a VM
+  // run keeps stage files on the guest). Tool-call and lifecycle chunks carry no
+  // prose; the feed renders those, so the inspector no longer mirrors a live log.
   if (kind !== 'tool_call' && ev.message) {
     (nodeProse[node] = nodeProse[node] || []).push(ev.message);
-  }
-  (nodeLog[node] = nodeLog[node] || []).push(html);
-  if (node === selectedNode) {
-    const log = $('node-log');
-    if (log) { log.innerHTML += html; log.scrollTop = log.scrollHeight; }
   }
 }
 
@@ -2102,24 +2092,6 @@ function renderTimeline() {
     .map(e => timelineRowHtml(e.kind, e.ev))
     .join('');
   rows.innerHTML = html || emptyState(timeline.length ? 'no events match the filter' : 'no events yet');
-}
-
-// toolCallHtml renders one persisted tool_calls/*.json payload (web-ui-v2-spec
-// U2): the tool name as a collapsible summary over the pretty-printed payload.
-// ACP tool_call updates carry the tool under `_meta.claudeCode.toolName` and an
-// optional human-readable `title` (e.g. the actual shell command); without
-// these every row collapsed to a useless "tool". Every field is
-// attacker-controlled, so both label and body are escaped.
-function toolCallHtml(raw) {
-  const cc = (raw && raw._meta && raw._meta.claudeCode) || {};
-  const name = raw.tool_name || raw.tool || cc.toolName || raw.hook_name || 'tool';
-  const title = typeof raw.title === 'string' && raw.title.trim() && raw.title.trim() !== name
-    ? raw.title.trim() : '';
-  let body;
-  try { body = JSON.stringify(raw, null, 2); } catch (e) { body = String(raw); }
-  const titleSpan = title ? ` <span class="tool-call-title">${escapeHtml(title)}</span>` : '';
-  return `<details class="tool-call"><summary><span class="tool-call-name">${escapeHtml(name)}</span>${titleSpan}</summary>` +
-         `<pre class="overflow-x-auto">${escapeHtml(body)}</pre></details>`;
 }
 
 // eventMatchesFilter is the U3 timeline filter predicate. An empty kind keeps
@@ -2434,60 +2406,133 @@ function ansi256(n) {
   return `rgb(${std[n] || '0,0,0'})`;
 }
 
-// stageDetailHtml builds the U2 inspector panel from a stage's detail
-// (GET …/stages/{node}) and its timing (start/end from the event stream).
-// It surfaces status, elapsed time, prompt, response and each tool call, then
-// the live-tail #node-log container seeded with any chunks already streamed.
-// Every stage field is attacker-controlled and escaped. An empty status.json
-// (stage still running) reads as "running", not blank.
-function stageDetailHtml(id, detail, timing, logHtml, findings, resolved) {
-  const status = detail.status || 'running';
-  const calls = (detail.tool_calls || []).map(toolCallHtml).join('');
-  const section = (title, body) => body
-    ? `<h4>${title}</h4><pre class="stage-text overflow-x-auto">${escapeHtml(body)}</pre>` : '';
-  // The response is agent prose — render it as markdown (the shared safe
-  // subset), not raw monospace, so it reads the same as the feed bubbles.
-  const response = detail.response
-    ? `<h4>Response</h4><div class="stage-md md">${renderMarkdown(detail.response)}</div>` : '';
-  return `
-    <h3>${escapeHtml(id)}</h3>
-    <div class="stage-meta">
-      ${stateBadge(status)}
-      <span class="muted">${fmtDuration(timing.start, timing.end)}</span>
-    </div>
-    <div id="node-findings">${nodeFindingsHtml(findings, resolved)}</div>
-    ${section('Prompt', detail.prompt)}
-    ${response}
-    ${calls ? `<h4>Tool calls</h4>${calls}` : ''}
-    <h4>Output</h4>
-    <div id="node-log" class="overflow-x-auto">${logHtml || ''}</div>`;
+// nodeInspectorHtml builds the R3 node inspector, hydrated from three
+// server-computed sources rather than replay-derived accumulators: /state
+// (status + attempts + timing), /nodes (the resolved prompt — served even for a
+// yet-to-run node), and /stages (the response, or a tool node's output + exit
+// code). The node's transcript is the feed slice: selecting a node scopes the
+// feed (crumb visible), so the pane points there rather than re-rendering it.
+//
+// "stage detail unavailable" is unreachable by construction: a completed node
+// shows its files, a running one a live-tail note, a pending one its prompt with
+// a "not started" framing. Every field is attacker-controlled and escaped.
+function nodeInspectorHtml(o) {
+  o = o || {};
+  const id = o.id || '';
+  const st = o.state || { status: 'pending' };
+  const node = o.node || {};
+  const status = st.status || 'pending';
+  const pending = status === 'pending';
+  // Header: the authoritative status/attempts/timing from /state. Durations are
+  // tabular-nums so multi-node timings align; the per-attempt breakdown lives in
+  // the feed slice, so the header only names the count.
+  const attempts = st.attempts > 1 ? `<span class="ins-attempts muted">${st.attempts} attempts</span>` : '';
+  const meta = `<div class="stage-meta">${stateBadge(status)}${attempts}` +
+    `<span class="ins-dur">${fmtDuration(st.started_at, st.completed_at)}</span></div>`;
+  // Prompt: always from /nodes, so a yet-to-run node is informative, not broken.
+  let prompt = '';
+  if (node.prompt) {
+    const framing = pending ? ` <span class="muted">— not started</span>` : '';
+    prompt = `<h4>Prompt${framing}</h4><pre class="stage-text overflow-x-auto">${escapeHtml(node.prompt)}</pre>`;
+  } else if (pending) {
+    prompt = `<p class="muted">not started — this node has no prompt.</p>`;
+  }
+  const notStarted = pending && node.prompt ? `<p class="ins-notstarted muted">not started — prompt below</p>` : '';
+  const feednote = `<p class="ins-feed muted">Transcript is the feed below, scoped to <b>${escapeHtml(id)}</b>.</p>`;
+  return `<h3>${escapeHtml(id)}</h3>${meta}` +
+    `<div id="node-findings">${nodeFindingsHtml(o.findings, status === 'completed')}</div>` +
+    notStarted + prompt + nodeInspectorBody(o) + feednote;
 }
 
-// selectNode opens the U2 inspector for a node: fetch its stage detail
-// (GET …/stages/{node}) and render it. selectedNode guards the race where a
-// later click resolves before an earlier one, so a slow fetch never overwrites
-// a newer selection. The live tail keeps flowing into #node-log via
-// appendProgress once the panel is in place.
+// nodeInspectorBody renders the response-or-output section: a codergen node's
+// markdown response, or a tool node's ANSI-rendered stdout/stderr with its exit
+// code. A node that has not produced its output yet (running, or pending) points
+// at the live feed instead of showing an empty box.
+function nodeInspectorBody(o) {
+  const st = o.state || {};
+  const status = st.status || 'pending';
+  if (status === 'pending') return '';            // nothing ran yet; prompt shown above
+  const node = o.node || {};
+  const stage = o.stage || null;
+  if (node.type === 'tool') {
+    const exitTxt = o.exit != null
+      ? ` <span class="ins-exit${o.exit === 0 ? '' : ' fail'}">exit ${escapeHtml(String(o.exit))}</span>` : '';
+    let body;
+    if (o.output) body = `<pre class="stage-text overflow-x-auto">${ansiToHtml(o.output)}</pre>`;
+    else if (status === 'running') body = `<p class="muted">running — output streams in the feed below.</p>`;
+    else body = `<p class="muted">no output captured.</p>`;
+    return `<h4>Output${exitTxt}</h4>${body}`;
+  }
+  if (stage && stage.response) {
+    return `<h4>Response</h4><div class="stage-md md">${renderMarkdown(stage.response)}</div>`;
+  }
+  if (status === 'running') {
+    return `<h4>Response</h4><p class="muted">running — response streams in the feed below.</p>`;
+  }
+  return `<h4>Response</h4><p class="muted">no response recorded.</p>`;
+}
+
+// nodeDetailCache memoises GET /nodes/{node} per run: the prepared graph is
+// immutable, so a node's prompt/type is fetched once and reused across selects.
+const nodeDetailCache = {};
+
+// selectNode opens the R3 inspector for a node, hydrating it from /state,
+// /nodes, and /stages (and, for a completed tool node, its tail output). It
+// never renders "unavailable": whatever a source lacks degrades to a framed
+// note. selectedNode guards the race where a later click resolves first, so a
+// slow fetch never overwrites a newer selection.
 async function selectNode(id, manual = true) {
-  // A manual click pins the node so the run's auto-follow (stage_started)
-  // stops hijacking the inspector; auto-selection passes manual=false.
+  // A manual click pins the node so the run's auto-follow (stage_started) stops
+  // hijacking the inspector; auto-selection passes manual=false.
   if (manual) pinnedNode = true;
   selectedNode = id;
+  const run = currentRun;
   const pane = $('node-pane');
   if (pane) pane.innerHTML = loadingState();
-  let detail;
-  try {
-    const r = await fetch(`/pipelines/${currentRun}/stages/${id}`);
-    if (!r.ok) throw new Error(String(r.status));
-    detail = await r.json();
-  } catch (e) {
-    if (selectedNode === id && pane) pane.innerHTML = errorState('stage detail unavailable');
-    return;
+  const stale = () => selectedNode !== id || currentRun !== run;
+  const [state, node, stage] = await Promise.all([
+    fetchJSON(`/pipelines/${run}/state`),
+    fetchNodeDetail(run, id),
+    fetchJSON(`/pipelines/${run}/stages/${id}`),
+  ]);
+  if (stale()) return;
+  const nodeSt = (state && state.nodes && state.nodes[id]) || { status: 'pending' };
+  let output = null, exit = null;
+  // A completed/failed tool node's stdout/stderr are files served by the tail
+  // endpoint (the same source the feed's check blocks read); its exit code is on
+  // the stage detail (server-derived from the tool outcome context).
+  if (node && node.type === 'tool' && (nodeSt.status === 'completed' || nodeSt.status === 'failed')) {
+    output = await fetchStageOutput(run, id);
+    if (stale()) return;
+    if (stage && stage.exit_code != null && stage.exit_code !== '') exit = Number(stage.exit_code);
+    else if (nodeSt.outcome) exit = nodeSt.outcome === 'success' ? 0 : 1;
   }
-  if (selectedNode !== id) return;          // a later click won the race
-  if (pane) pane.innerHTML = stageDetailHtml(id, detail, nodeTiming[id] || {},
-    (nodeLog[id] || []).join(''), nodeFindings[id] || [], nodeState[id] === 'completed');
-  const log = $('node-log'); if (log) log.scrollTop = log.scrollHeight;
+  if (stale()) return;
+  if (pane) pane.innerHTML = nodeInspectorHtml({
+    id, state: nodeSt, node: node || {}, stage, output, exit,
+    findings: nodeFindings[id] || [],
+  });
+}
+
+// fetchJSON GETs a URL and returns its parsed JSON, or null on any failure —
+// the inspector composes from whatever resolves, so a missing source is a
+// framed note, never a thrown error.
+async function fetchJSON(url) {
+  try {
+    const r = await fetch(url);
+    if (r.ok) return await r.json();
+  } catch (e) { /* fall through to null */ }
+  return null;
+}
+
+// fetchNodeDetail returns GET /nodes/{node}, memoised per run (the prepared
+// graph is immutable, so a node's prompt/type never changes within a run).
+async function fetchNodeDetail(run, id) {
+  const key = run + '#' + id;
+  if (nodeDetailCache[key]) return nodeDetailCache[key];
+  const d = await fetchJSON(`/pipelines/${run}/nodes/${id}`);
+  if (d) nodeDetailCache[key] = d;
+  return d;
 }
 
 // ARTIFACT_RENDER_CAP bounds how much artifact text the run detail renders

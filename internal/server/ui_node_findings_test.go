@@ -149,22 +149,8 @@ func TestNodeFindingsHtml(t *testing.T) {
 	}
 }
 
-// TestNodeInspectorRendersFindings: the node inspector (stageDetailHtml)
-// surfaces the node's attributed findings inline (T9b — click the node → see
-// its child's verdict/findings). A node with no findings shows no leftover
-// section.
-func TestNodeInspectorRendersFindings(t *testing.T) {
-	html := evalUI(t, `stageDetailHtml("review_loop", {status:"completed"}, {}, "", ["finding X"], true)`)
-	for _, want := range []string{"finding X", "Findings", "resolved"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("node inspector missing %q:\n%s", want, html)
-		}
-	}
-	empty := evalUI(t, `stageDetailHtml("plan", {status:"running"}, {}, "", [], false)`)
-	if strings.Contains(empty, "Findings") {
-		t.Errorf("a node with no findings should show no findings section:\n%s", empty)
-	}
-}
+// (TestNodeInspectorRendersFindings lives in ui_inspector_test.go, driving the
+// R3 builder nodeInspectorHtml.)
 
 // TestReviewNotesSectionRemoved: the dedicated top-level Review-notes section
 // and the classifyPipelineFailed "review" case are gone (T9b) — findings now

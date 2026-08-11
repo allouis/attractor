@@ -47,17 +47,16 @@ func TestServer_UI_Polish(t *testing.T) {
 		}
 	}
 
-	// The prompt/response/output blocks scroll horizontally in-block rather than
-	// overflow: the stage-text pre and the live-tail node-log both carry
-	// overflow-x-auto.
-	detail := sliceFunc(t, page, "stageDetailHtml")
-	for _, cls := range []string{"stage-text overflow-x-auto", `id="node-log" class="overflow-x-auto"`} {
-		if !strings.Contains(detail, cls) {
-			t.Errorf("stageDetailHtml missing %q (inspector block does not scroll):\n%s", cls, detail)
-		}
+	// The R3 inspector's prompt block scrolls horizontally in-block rather than
+	// overflow (the stage-text pre carries overflow-x-auto); its response/output
+	// section (nodeInspectorBody) does the same for a tool node's captured output.
+	detail := sliceFunc(t, page, "nodeInspectorHtml")
+	if !strings.Contains(detail, "stage-text overflow-x-auto") {
+		t.Errorf("nodeInspectorHtml prompt block not overflow-x-auto (does not scroll):\n%s", detail)
 	}
-	if tc := sliceFunc(t, page, "toolCallHtml"); !strings.Contains(tc, "overflow-x-auto") {
-		t.Errorf("toolCallHtml pre not overflow-x-auto (wide JSON payload overflows):\n%s", tc)
+	outputBody := sliceFunc(t, page, "nodeInspectorBody")
+	if !strings.Contains(outputBody, "stage-text overflow-x-auto") {
+		t.Errorf("nodeInspectorBody output block not overflow-x-auto (wide output overflows):\n%s", outputBody)
 	}
 
 	// Interactive controls are ≥40px touch targets: the toolbar, config, modal
