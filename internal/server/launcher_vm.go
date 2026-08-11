@@ -319,6 +319,12 @@ func ensureJJRepo(dir string) error {
 	return nil
 }
 
+// runWorkspaceName is the per-run jj workspace a launcher-backed run's commits
+// land in within the shared host store (spec W1/W2). The vm launcher creates it
+// (and the reaper forgets it); getRunDiff resolves the run's diff tip from it
+// (`<name>@`). Shared so the two sides can never drift.
+func runWorkspaceName(runID string) string { return "run-" + runID }
+
 // materializeWorkspace adds an isolated jj workspace of repoDir at dest,
 // named name (spec W1). jj workspaces materialise only TRACKED files, so a
 // gitignored node_modules never appears — the run installs its own,
@@ -418,7 +424,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	// host (visible in `jj log`). The guest copies it onto its own ext4 and
 	// runs there — the shared mount is transport only (spec G1/GS).
 	work := filepath.Join(runDir, "work")
-	wsName := "run-" + run.ID
+	wsName := runWorkspaceName(run.ID)
 	if err := materializeWorkspace(run.cwd, work, wsName); err != nil {
 		run.failCrashed("vm launcher: materialize workspace: " + err.Error())
 		return err

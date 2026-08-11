@@ -461,6 +461,14 @@ func (r *Run) Cwd() string {
 	return r.cwd
 }
 
+// Placement returns the launcher this run requested ("vm", "local", "direct"),
+// read under the lock. "" means the daemon's default launcher.
+func (r *Run) Placement() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.placement
+}
+
 // RevBase / RevTip return the host jj commit_ids stamped at run start / end
 // (T9c). Empty when no host range was recorded (VM/non-jj run).
 func (r *Run) RevBase() string {
