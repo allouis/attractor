@@ -145,6 +145,45 @@ func TestStateHeaderFields(t *testing.T) {
 	}
 }
 
+// TestStateIdentifierPrefersVarOnReload pins the reload path: a run reloaded
+// from disk after a daemon restart must still surface the human identifier from
+// its seeded vars (e.g. "HKG-1914"), not the item_ref external id (the Linear
+// UUID). That requires the seeded context to survive in the manifest.
+func TestStateIdentifierPrefersVarOnReload(t *testing.T) {
+	base := t.TempDir()
+	writeManifestDir(t, base, "run1", Manifest{
+		ID:      "run1",
+		Status:  RunCompleted,
+		ItemRef: "linear:issue:uuid-abc-123",
+		InitialContext: map[string]string{
+			"identifier": "HKG-1914",
+			"title":      "Spike the jobs backend",
+			"url":        "https://linear.app/x/HKG-1914",
+		},
+	})
+	reg := newRunRegistry(base)
+	run, ok := reg.Get("run1")
+	if !ok {
+		t.Fatal("run not reloaded")
+	}
+	st := run.State()
+	if st.Item == nil {
+		t.Fatal("item missing")
+	}
+	if st.Item.Identifier != "HKG-1914" {
+		t.Errorf("identifier = %q, want HKG-1914 (seeded var), not the external id", st.Item.Identifier)
+	}
+	if st.Item.Source != "linear" {
+		t.Errorf("source = %q, want linear", st.Item.Source)
+	}
+	if st.Item.Title != "Spike the jobs backend" {
+		t.Errorf("title = %q", st.Item.Title)
+	}
+	if st.Item.URL != "https://linear.app/x/HKG-1914" {
+		t.Errorf("url = %q", st.Item.URL)
+	}
+}
+
 func TestStateDirectRunnerReportsDirect(t *testing.T) {
 	srv, _ := newStageTestServer(t)
 	run := &Run{

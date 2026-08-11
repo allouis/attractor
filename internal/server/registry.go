@@ -45,6 +45,11 @@ type Manifest struct {
 	Tokens        *engine.Usage `json:"tokens,omitempty"`
 	ItemRef       string        `json:"item_ref,omitempty"`
 	Repo          string        `json:"repo,omitempty"`
+	// InitialContext is the run's seeded context (Item vars + item.* metadata)
+	// stamped at dispatch. Persisted so a reloaded run still surfaces the item's
+	// human identifier/title/url in /state — a naive reload drops it and /state
+	// falls back to the item_ref external id (the tracker UUID).
+	InitialContext map[string]string `json:"initial_context,omitempty"`
 	// RevBase/RevTip are the host jj change-ids of the run's cwd at start and
 	// end (T9c): the range `jj diff --from RevBase --to RevTip` renders as the
 	// run's produced change. Empty for VM/non-jj runs.
@@ -103,21 +108,22 @@ func (r *runRegistry) reload() {
 			status = RunCancelled
 		}
 		run := &Run{
-			ID:           m.ID,
-			logsRoot:     m.LogsRoot,
-			status:       status,
-			startedAt:    m.StartedAt,
-			completedAt:  m.CompletedAt,
-			graphName:    m.GraphName,
-			workflowName: m.WorkflowName,
-			cwd:          m.Cwd,
-			itemRef:      m.ItemRef,
-			repo:         m.Repo,
-			revBase:      m.RevBase,
-			revTip:       m.RevTip,
-			subscribers:  map[chan engine.Event]struct{}{},
-			questions:    map[string]*pendingQuestion{},
-			persisted:    true,
+			ID:             m.ID,
+			logsRoot:       m.LogsRoot,
+			status:         status,
+			startedAt:      m.StartedAt,
+			completedAt:    m.CompletedAt,
+			graphName:      m.GraphName,
+			workflowName:   m.WorkflowName,
+			cwd:            m.Cwd,
+			itemRef:        m.ItemRef,
+			repo:           m.Repo,
+			initialContext: m.InitialContext,
+			revBase:        m.RevBase,
+			revTip:         m.RevTip,
+			subscribers:    map[chan engine.Event]struct{}{},
+			questions:      map[string]*pendingQuestion{},
+			persisted:      true,
 		}
 		if m.Outcome != "" {
 			run.outcome = &engine.Outcome{
@@ -988,6 +994,7 @@ func (r *Run) writeManifest() {
 	m.Cwd = r.cwd
 	m.ItemRef = r.itemRef
 	m.Repo = r.repo
+	m.InitialContext = r.initialContext
 	m.RevBase = r.revBase
 	m.RevTip = r.revTip
 	if r.graph != nil {
