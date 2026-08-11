@@ -54,7 +54,7 @@ const fetch = (url) => Promise.resolve({ ok: true, status: 200,
   json: () => Promise.resolve({}) });
 
 const sandbox = { window: { addEventListener() {} }, document, location: {},
-  console, EventSource: FakeES, fetch };
+  console, EventSource: FakeES, fetch, setTimeout, clearTimeout };
 vm.createContext(sandbox);
 vm.runInContext(m[1] + '\nglobalThis.__setRun = (r) => { currentRun = r; };' +
   '\nglobalThis.__nodeLog = nodeLog;', sandbox);
@@ -153,7 +153,7 @@ const el = () => ({ innerHTML: '', value: '', textContent: '', scrollTop: 0, scr
   insertAdjacentHTML(pos, html) { this.innerHTML += html; },
   classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {} });
 const document = { getElementById: (id) => (els[id] = els[id] || el()) };
-const sandbox = { window: { addEventListener() {} }, document, location: {}, console, EventSource: FakeES };
+const sandbox = { window: { addEventListener() {} }, document, location: {}, console, EventSource: FakeES, setTimeout, clearTimeout };
 vm.createContext(sandbox);
 vm.runInContext(m[1] + '\nglobalThis.__timeline = timeline;\nglobalThis.__MAX = TIMELINE_MAX;', sandbox);
 

@@ -42,7 +42,7 @@ const mkEl = () => ({ innerHTML: '', textContent: '', querySelectorAll: () => []
 const sandbox = {
   window: { addEventListener() {} },
   document: { getElementById: id => KNOWN.includes(id) ? (els[id] = els[id] || mkEl()) : null },
-  location: {}, console, EventSource: FakeES,
+  location: {}, console, EventSource: FakeES, setTimeout, clearTimeout,
   fetch: () => Promise.resolve({ ok: false, json: () => Promise.resolve({}) }),
 };
 vm.createContext(sandbox);

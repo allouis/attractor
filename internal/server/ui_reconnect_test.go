@@ -43,6 +43,7 @@ const sandbox = {
   location: {},
   console,
   EventSource: FakeES,
+  setTimeout, clearTimeout,
 };
 vm.createContext(sandbox);
 // Expose the lexically-scoped nodeLog so the test can inspect it.

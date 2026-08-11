@@ -52,7 +52,7 @@ const fetch = (url) => { fetched.push(url); return Promise.resolve({ ok: true, s
   json: () => Promise.resolve({ questions: [] }) }); };
 
 const sandbox = { window: { addEventListener() {} }, document, location: {},
-  console, EventSource: FakeES, fetch };
+  console, EventSource: FakeES, fetch, setTimeout, clearTimeout };
 vm.createContext(sandbox);
 vm.runInContext(m[1] + '\nglobalThis.__setRun = (r) => { currentRun = r; };', sandbox);
 

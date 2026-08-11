@@ -309,6 +309,75 @@
   .ansi-mag, .ansi-mag-b { color: var(--state-retrying); }
   .ansi-blk, .ansi-blk-b { color: var(--text-muted); }
   .ansi-wht, .ansi-wht-b { color: var(--text); }
+  /* R2 feed (ui-run-view-v3): the run as a conversation-like stream. The
+     approved mock's treatment, remapped onto the UI tokens. */
+  #run-feed { margin-top: var(--space-4); }
+  .fe-crumb { font-size: var(--font-sm); color: var(--text-muted); margin-bottom: var(--space-2); }
+  .fe-crumb b { color: var(--text); }
+  .fe-crumb a { color: var(--accent); }
+  .feed { display: flex; flex-direction: column; gap: var(--space-2); }
+  .fe-entry.scoped-out { display: none; }
+  .feed.hide-prose .fe-msg,
+  .feed.hide-checks .fe-check,
+  .feed.hide-lifecycle .fe-divider { display: none; }
+  .feed.hide-tools .fe-tools { display: none; }
+  /* Clickable node chip — scopes the feed. */
+  .fe-chip { font-size: 11px; font-weight: 600; letter-spacing: .04em; padding: 1px var(--space-2);
+    border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text-muted); cursor: pointer; }
+  .fe-chip:hover { color: var(--text); }
+  .fe-dur { font-variant-numeric: tabular-nums; }
+  /* Kind-filter chips in the crumb; the active ones are tinted. */
+  .fe-filter { font-size: 11px; padding: 1px var(--space-2); border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; }
+  .fe-filter.active { color: var(--accent); border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  /* Lifecycle divider: node chip · attempt · duration between hairlines. */
+  .fe-divider { display: flex; align-items: center; gap: var(--space-2); color: var(--text-muted);
+    font-size: var(--font-sm); margin: var(--space-1) 0; }
+  .fe-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .fe-divider.fe-div-fail .fe-div-meta { color: var(--state-failed); }
+  /* Prose bubble. */
+  .fe-msg { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: var(--space-2) var(--space-3); max-width: 78ch; }
+  .fe-who { font-size: 11.5px; color: var(--text-muted); margin-bottom: var(--space-1);
+    display: flex; gap: var(--space-2); align-items: center; }
+  .fe-prose { position: relative; }
+  .fe-prose-body { max-height: 260px; overflow: hidden; }
+  .fe-prose.open .fe-prose-body { max-height: none; }
+  .fe-more { display: block; margin-top: var(--space-1); background: none; border: 0;
+    color: var(--accent); cursor: pointer; padding: 0; min-height: auto; font: inherit; font-size: var(--font-sm); }
+  .fe-tools { margin-top: var(--space-1); font: var(--font-sm)/1.6 ui-monospace, monospace; color: var(--text-muted); }
+  .fe-tools summary { cursor: pointer; color: var(--accent); }
+  .fe-tool-row { padding-left: var(--space-3); white-space: nowrap; overflow-x: auto; }
+  .fe-live { color: var(--state-running); font-size: 11.5px; font-weight: 650; }
+  /* Tool/check output block: exit colour on the left border + the exit label. */
+  .fe-check { border: 1px solid var(--border); border-left: 4px solid var(--state-success);
+    border-radius: 8px; background: var(--surface-1); padding: var(--space-2) var(--space-3); max-width: 88ch; }
+  .fe-check.fail { border-left-color: var(--state-failed); }
+  .fe-check-row { display: flex; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; font-size: var(--font-sm); }
+  .fe-cmd { font-family: ui-monospace, monospace; font-size: var(--font-sm); }
+  .fe-exit { color: var(--state-success); font-weight: 600; }
+  .fe-check.fail .fe-exit { color: var(--state-failed); }
+  .fe-out { background: var(--surface-2); border-radius: 6px; padding: var(--space-2) var(--space-3);
+    font: var(--font-sm)/1.5 ui-monospace, monospace; overflow-x: auto; margin: var(--space-2) 0 var(--space-1);
+    white-space: pre-wrap; word-break: break-word; }
+  .fe-out-toggle { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0;
+    min-height: auto; font: inherit; font-size: var(--font-sm); }
+  .fe-out-note { font-size: var(--font-sm); }
+  /* Human gate — a first-class turn, accented; the answer bubble sits under it. */
+  .fe-gate { border: 1.5px solid var(--accent); border-radius: 10px; background: var(--surface-1);
+    padding: var(--space-3) var(--space-3); max-width: 78ch; }
+  .fe-gate-tag { color: var(--accent); font-weight: 600; }
+  .fe-q { font-weight: 600; margin-top: var(--space-1); }
+  .fe-plan { margin-top: var(--space-2); }
+  .fe-plan summary { cursor: pointer; color: var(--accent); font-size: var(--font-sm); }
+  .fe-plan-body { background: var(--surface-2); border-radius: 6px; padding: var(--space-2) var(--space-3);
+    margin-top: var(--space-2); max-height: 320px; overflow: auto; }
+  .fe-answer { border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid var(--accent); padding: var(--space-2) var(--space-3); max-width: 64ch;
+    margin: var(--space-1) 0 0 var(--space-5); }
+  .fe-answer .fe-who { margin-bottom: 2px; }
   /* Shared empty/loading/error placeholder (web-ui-v2-spec U1). Centred,
      padded, and colour-coded so a failure never reads like an empty list. */
   .state { color: var(--text-muted); text-align: center; padding: var(--space-5) 0; }
@@ -461,6 +530,14 @@
         <div id="human-dock"></div>
       </div>
     </div>
+    <!-- R2 feed (ui-run-view-v3): the run as a conversation-like stream — the
+         page's main surface. Built from the SSE replay history, appended to by
+         live events. The legacy Events timeline stays below for now (R4 deletes
+         it once the feed has proven itself). -->
+    <section id="run-feed">
+      <div id="feed-crumb" class="fe-crumb"></div>
+      <div id="feed" class="feed"></div>
+    </section>
     <section id="run-diff">
       <h3>Diff</h3>
       <div id="run-diff-body" class="diff min-w-0"></div>
@@ -1676,6 +1753,7 @@ async function openRun(id) {
   lastCompletedNode = null;
   pinnedNode = false;
   timeline.length = 0;
+  feedReset();
   highlightNav('runs');
   showView('run-view');
   if (headTimer) { clearInterval(headTimer); headTimer = null; }
@@ -1728,6 +1806,7 @@ async function loadRunState(id) {
   if (currentRun !== id) return;   // navigated away while fetching
   if (!st) { $('run-head').innerHTML = `<h1>${escapeHtml(id.slice(0, 16))}</h1>`; return; }
   renderRunHead(st);
+  hydrateRepoChecks(id, st.repo);
   // Tick the live clock only while the run is unfinished; a terminal run's
   // elapsed is fixed (completed_at − started_at) and needs no timer.
   const live = st.started_at && !st.completed_at &&
@@ -1738,6 +1817,22 @@ async function loadRunState(id) {
       if (el) el.textContent = fmtElapsed(st.started_at, null);
     }, 1000);
   }
+}
+
+// hydrateRepoChecks loads the run repo's configured check commands (GET
+// /config) so the feed's check blocks can show the command that ran — the
+// authoritative source, keyed by check node name (deps/typecheck/lint/test).
+async function hydrateRepoChecks(id, repo) {
+  if (!repo) return;
+  try {
+    const r = await fetch('/config');
+    if (!r.ok) return;
+    const doc = await r.json();
+    if (currentRun !== id) return;
+    const checks = ((doc.repos || {})[repo] || {}).checks || {};
+    for (const k in checks) feRepoChecks[k] = checks[k];
+    scheduleFeedRender();
+  } catch (e) { /* command falls back to headerless check blocks */ }
 }
 
 // renderRunHead paints the header card from a /state document. Every
@@ -1816,7 +1911,9 @@ async function loadGraph(id) {
   $('graph').querySelectorAll('g.node').forEach(g => {
     const id = g.querySelector('title')?.textContent;
     if (!id) return;
-    g.addEventListener('click', () => selectNode(id));
+    // A graph-node click both inspects the node (R3) and scopes the feed to it
+    // (R2) — the two surfaces stay in sync on the same gesture.
+    g.addEventListener('click', () => { selectNode(id); setFeedScope(id); });
     if (nodeState[id]) paintNode(id, nodeState[id]);
   });
 }
@@ -1929,7 +2026,9 @@ function attachStream(id) {
   for (const kind of EVENT_KINDS) {
     const fn = HANDLERS[kind];
     const record = !TIMELINE_SKIP.has(kind);
-    on(kind, ev => { if (record) recordTimelineEvent(kind, ev); if (fn) fn(ev); });
+    // feedIngest reshapes the same event into the R2 feed; it shares this one
+    // dispatch (and its replay cursor) so the feed is built exactly once.
+    on(kind, ev => { if (record) recordTimelineEvent(kind, ev); feedIngest(kind, ev); if (fn) fn(ev); });
   }
   es.onerror = () => { /* transient; EventSource retries on its own */ };
 }
@@ -2508,6 +2607,509 @@ async function viewArtifact(path) {
   view.innerHTML = `<h4>${escapeHtml(path)}</h4>${note}${inner}`;
 }
 
+// ---- run feed (ui-run-view-v3 R2) --------------------------------------
+// The feed is the run's main surface: the whole run as a conversation-like
+// stream, built ONCE from the SSE replay history and appended to by live
+// events (hydrate-then-append). Every user-visible fact about node STATE comes
+// from /state (the R1 card, the graph); the feed only reshapes the event
+// transcript — so refreshing mid-run rebuilds the same feed.
+//
+// The model is an ordered array of entry objects; ingest mutates it in place
+// (a prose bubble accumulates tokens, a divider gains its duration on
+// completion) and renderFeed rebuilds #feed from it, debounced so a 1800-event
+// replay is O(entries) per frame, not O(events^2).
+let feed = [];                 // ordered feed model
+let feedScope = '';            // node filter for the breadcrumb ('' = whole run)
+const feedKinds = { prose: true, tools: true, checks: true, lifecycle: true };
+let feedTerminal = false;      // the run reached a terminal event (clears live)
+let feedFollow = true;         // auto-scroll to the newest entry (paused on scroll-up)
+let feedRenderQueued = false;
+// Ingest cursors — the "current" node run whose prose/tools accumulate.
+let feCurNode = null, feCurAttempt = 0, feCurProse = null, feLiveEntry = null;
+let feLastCompleted = null;    // most recent non-gate node to finish (a gate's subject)
+const feStageDivider = {};     // "node#attempt" -> divider entry (for the duration fill)
+const feLastAttempt = {};      // node -> its last started run ordinal (completions carry none)
+const feRunOrdinal = {};       // node -> how many times it has run (divider "attempt n")
+const feGateNodes = {};        // node -> true once it emits an interview (suppresses its check)
+const feProseSeen = {};        // "node#attempt" -> true (a run that made a bubble is not a check)
+const feAnswers = {};          // question_id -> {label, note} captured via the live answer flow
+let fePendingGate = null;      // a gate answered but whose taken edge is not yet known
+const feRepoChecks = {};       // check node -> configured command (hydrated from /config)
+
+// STRUCTURAL_NODES are the graph's plumbing (entry/exit markers): they emit
+// lifecycle events but no work, so they get neither a divider nor a block.
+const STRUCTURAL_NODES = new Set(['start', 'done', 'end']);
+
+// FEED_PROSE_CLAMP is how tall a prose bubble grows before it clamps to a
+// preview with an expand control (collapse-never-truncate); FAILED_TAIL_LINES
+// is how much of a failed check's tail auto-shows.
+const FEED_PROSE_CLAMP_PX = 260;
+const FAILED_TAIL_LINES = 40;
+const CHECK_HEADTAIL_LINES = 200;   // head+tail kept for a huge expanded output
+
+// feedReset clears the model and every ingest cursor for a fresh run.
+function feedReset() {
+  feed = [];
+  feedScope = '';
+  feedKinds.prose = feedKinds.tools = feedKinds.checks = feedKinds.lifecycle = true;
+  feedTerminal = false;
+  feedFollow = true;
+  feCurNode = null; feCurAttempt = 0; feCurProse = null; feLiveEntry = null;
+  feLastCompleted = null; fePendingGate = null;
+  for (const k in feStageDivider) delete feStageDivider[k];
+  for (const k in feLastAttempt) delete feLastAttempt[k];
+  for (const k in feRunOrdinal) delete feRunOrdinal[k];
+  for (const k in feGateNodes) delete feGateNodes[k];
+  for (const k in feProseSeen) delete feProseSeen[k];
+  for (const k in feAnswers) delete feAnswers[k];
+  for (const k in feRepoChecks) delete feRepoChecks[k];
+  renderFeed();
+}
+
+// feedPush appends an entry and schedules a render.
+function feedPush(entry) {
+  feed.push(entry);
+  scheduleFeedRender();
+  return entry;
+}
+
+// feedIngest turns one streamed event into feed entries (or accumulates into
+// the open one). It runs on the SAME dispatch as the timeline/graph, gated by
+// the replay cursor, so a reconnect never double-ingests. Child-run events are
+// the nested pipeline's transcript, not this feed's.
+function feedIngest(kind, ev) {
+  if (isChildEvent(ev)) return;
+  switch (kind) {
+    case 'stage_started': {
+      const node = ev.node_id;
+      // The divider's "attempt n" is the run ordinal — how many times this node
+      // has run (retries and fix-loop re-entries both count), matching the
+      // approved mock ("implement attempt 2"). The engine's ev.attempt is a
+      // retry-within-a-single-run counter and reads 1 on every loop re-entry.
+      feCurNode = node; feCurAttempt = (feRunOrdinal[node] || 0) + 1; feCurProse = null;
+      feRunOrdinal[node] = feCurAttempt;
+      feLastAttempt[node] = feCurAttempt;
+      // A gate answered on the previous events took whichever edge leads to the
+      // node now starting — that reveals the chosen option's label.
+      if (fePendingGate && !fePendingGate.answer) {
+        resolveGateAnswer(fePendingGate, node);
+        fePendingGate = null;
+      }
+      if (STRUCTURAL_NODES.has(node)) break;
+      const d = { t: 'divider', node, attempt: feCurAttempt, startTs: ev.ts };
+      feStageDivider[node + '#' + feCurAttempt] = d;
+      feedPush(d);
+      break;
+    }
+    case 'stage_progress': {
+      const dk = ev.detail && ev.detail.kind;
+      if (dk === 'tool_call') { ensureProse(); if (feCurProse) feCurProse.tools.push(ev.message || ''); scheduleFeedRender(); }
+      else if (ev.message) { ensureProse(); if (feCurProse) feCurProse.text += ev.message; scheduleFeedRender(); }
+      break;
+    }
+    case 'stage_completed':
+    case 'stage_failed': {
+      const node = ev.node_id;
+      const att = feLastAttempt[node] || 1;
+      const failed = kind === 'stage_failed';
+      const d = feStageDivider[node + '#' + att];
+      // stage_failed carries no duration_ns; fall back to the start→end span.
+      if (d) {
+        d.durNs = ev.duration_ns != null ? ev.duration_ns : tsDeltaNs(d.startTs, ev.ts);
+        d.status = failed ? 'failed' : 'completed';
+      }
+      // A run that produced a prose bubble is a codergen node; one that produced
+      // none (and is neither structural nor a gate) is a tool/check → output block.
+      const madeProse = feProseSeen[node + '#' + att];
+      if (!madeProse && !STRUCTURAL_NODES.has(node) && !feGateNodes[node]) {
+        feedPush({
+          t: 'check', node, attempt: att, status: failed ? 'failed' : 'completed',
+          durNs: ev.duration_ns, cmd: feCheckCmd(node),
+          exit: failed ? parseExit(ev.message) : 0,
+          output: null, expanded: false, loading: false,
+        });
+        if (failed) autoLoadCheck(node, att);   // a failed check auto-shows its tail
+      }
+      if (!feGateNodes[node] && !STRUCTURAL_NODES.has(node)) feLastCompleted = node;
+      if (feCurProse && feCurProse.node === node) { feCurProse.live = false; feCurProse = null; }
+      scheduleFeedRender();
+      break;
+    }
+    case 'interview_started': {
+      const node = ev.node_id;
+      feGateNodes[node] = true;
+      // The gate replaces the plumbing divider its stage_started pushed.
+      const att = feLastAttempt[node] || 1;
+      const d = feStageDivider[node + '#' + att];
+      if (d) d.suppressed = true;
+      const gate = {
+        t: 'gate', node, qid: ev.question_id,
+        question: ev.question || { text: ev.message || '' },
+        precedingNode: feLastCompleted, planText: (nodeProse[feLastCompleted] || []).join(''),
+        startTs: ev.ts, answered: false, answer: null,
+      };
+      feedPush(gate);
+      if (feLastCompleted) loadFeedPlan(gate);
+      break;
+    }
+    case 'interview_answered': {
+      const gate = lastGateFor(ev.question_id);
+      if (gate) {
+        gate.answered = true;
+        gate.answeredAfterNs = tsDeltaNs(gate.startTs, ev.ts);
+        if (feAnswers[gate.qid]) gate.answer = feAnswers[gate.qid];
+        else fePendingGate = gate;   // wait for the next stage_started to reveal the edge
+      }
+      scheduleFeedRender();
+      break;
+    }
+    // The parent run's own terminal clears the live indicator; a forwarded child
+    // terminal (guarded above) does not.
+    case 'pipeline_completed':
+    case 'pipeline_failed':
+      feedMarkTerminal();
+      break;
+  }
+}
+
+// ensureProse opens the current node run's message bubble on the first prose or
+// tool_call token, marking it the live bubble (the streaming one) until the run
+// ends or the next node starts.
+function ensureProse() {
+  if (feCurProse) return;
+  if (feLiveEntry) feLiveEntry.live = false;
+  feCurProse = { t: 'prose', node: feCurNode, attempt: feCurAttempt, text: '', tools: [], live: !feedTerminal };
+  feProseSeen[feCurNode + '#' + feCurAttempt] = true;
+  feLiveEntry = feCurProse;
+  feedPush(feCurProse);
+}
+
+// feedMarkTerminal clears the live indicator once the run has ended.
+function feedMarkTerminal() {
+  feedTerminal = true;
+  if (feLiveEntry) { feLiveEntry.live = false; feLiveEntry = null; }
+  feCurProse = null;
+  scheduleFeedRender();
+}
+
+// lastGateFor finds the most recent gate entry for a question id.
+function lastGateFor(qid) {
+  for (let i = feed.length - 1; i >= 0; i--) {
+    if (feed[i].t === 'gate' && feed[i].qid === qid) return feed[i];
+  }
+  return null;
+}
+
+// feCheckCmd returns a check node's command, from the repo's configured checks
+// (the authoritative source, hydrated up front) — else empty (shown headerless).
+function feCheckCmd(node) { return feRepoChecks[node] || ''; }
+
+// parseExit pulls the numeric exit code out of a tool failure message
+// ("tool: exit status 1: …"); defaults to 1 when absent.
+function parseExit(msg) {
+  const m = /exit status (\d+)/.exec(String(msg || ''));
+  return m ? parseInt(m[1], 10) : 1;
+}
+
+// tsDeltaNs is the nanoseconds between two ISO timestamps (for a gate's
+// answered-after duration), or null if either is missing/unparseable.
+function tsDeltaNs(a, b) {
+  const ta = new Date(a).getTime(), tb = new Date(b).getTime();
+  if (isNaN(ta) || isNaN(tb)) return null;
+  return (tb - ta) * 1e6;
+}
+
+// resolveGateAnswer fills a gate's answer bubble. A live answer (captured by
+// the answer flow) wins; otherwise the chosen option is derived from the edge
+// the run took — the gate's outgoing edge to the node that ran next carries the
+// option's label. The note is only known for live answers.
+async function resolveGateAnswer(gate, nextNode) {
+  if (gate.answer) return;
+  if (feAnswers[gate.qid]) { gate.answer = feAnswers[gate.qid]; scheduleFeedRender(); return; }
+  let label = 'answered';
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/nodes/${gate.node}`);
+    if (r.ok) {
+      const d = await r.json();
+      const edge = (d.outgoing || []).find(e => e.to === nextNode && e.label);
+      if (edge) label = edge.label;
+    }
+  } catch (e) { /* keep the generic label */ }
+  gate.answer = { label, note: '' };
+  scheduleFeedRender();
+}
+
+// loadFeedPlan fills a gate's plan snippet with the reviewed node's produced
+// text — its canonical response when the daemon has the stage file, else the
+// prose reconstructed from the stream (VM runs keep stage files on the guest).
+async function loadFeedPlan(gate) {
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/stages/${gate.precedingNode}`);
+    if (r.ok) {
+      const d = await r.json();
+      if (d.response) { gate.planText = d.response; scheduleFeedRender(); }
+    }
+  } catch (e) { /* keep the streamed-prose fallback */ }
+}
+
+// autoLoadCheck / expandCheck fetch a check's captured output on demand. The
+// output is served by the stage tail endpoint (P5d): stderr carries the command
+// echo + summary, stdout the detail — both ANSI-rendered. A failed check loads
+// eagerly (its tail auto-shows); a passing one loads when the operator expands.
+async function fetchStageOutput(run, node) {
+  const grab = async (file) => {
+    try {
+      const r = await fetch(`/pipelines/${run}/stages/${node}/tail?file=${file}&offset=0`);
+      if (r.status === 200) return await r.text();
+    } catch (e) { /* absent file → empty */ }
+    return '';
+  };
+  const [err, out] = await Promise.all([grab('stderr'), grab('stdout')]);
+  return [err, out].filter(Boolean).join('\n');
+}
+
+function findCheck(node, attempt) {
+  return feed.find(e => e.t === 'check' && e.node === node && e.attempt === attempt);
+}
+
+async function autoLoadCheck(node, attempt) {
+  const e = findCheck(node, attempt);
+  if (!e || e.loading || e.output != null) return;
+  e.loading = true; scheduleFeedRender();
+  const run = currentRun;
+  const text = await fetchStageOutput(run, node);
+  if (currentRun !== run) return;
+  e.loading = false; e.output = text; scheduleFeedRender();
+}
+
+// toggleCheck expands/collapses a check's output, loading it lazily the first
+// time an unfetched block is expanded.
+async function toggleCheck(node, attempt, act) {
+  const e = findCheck(node, attempt);
+  if (!e) return;
+  if (act === 'collapse') { e.expanded = false; scheduleFeedRender(); return; }
+  e.expanded = true;
+  if (e.output == null && !e.loading) { await autoLoadCheck(node, attempt); }
+  scheduleFeedRender();
+}
+
+// ---- feed rendering (pure builders) ------------------------------------
+
+// fmtDurNs formats a nanosecond duration like the mock: "3.0s" under ten
+// seconds, then "Mm SSs" and "Hh MMm".
+function fmtDurNs(ns) {
+  if (ns == null || isNaN(ns)) return '';
+  const secs = ns / 1e9;
+  if (secs < 10) return secs.toFixed(1) + 's';
+  const s = Math.round(secs);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m) return `${m}m ${String(r).padStart(2, '0')}s`;
+  return `${r}s`;
+}
+
+// feChip renders a clickable node chip that scopes the feed to that node.
+function feChip(node) {
+  return `<span class="fe-chip" data-node="${escapeHtml(node)}" role="button" tabindex="0">${escapeHtml(node)}</span>`;
+}
+
+// tailLines keeps the last n lines of text; clamped reports whether any were
+// dropped (a failed check shows its tail).
+function tailLines(text, n) {
+  const lines = String(text).replace(/\n$/, '').split('\n');
+  if (lines.length <= n) return { text: lines.join('\n'), clamped: false };
+  return { text: lines.slice(-n).join('\n'), clamped: true };
+}
+
+// headTail keeps the head AND tail of a huge output, eliding the middle
+// (collapse-never-truncate: the full text stays one fetch away).
+function headTail(text, n) {
+  const lines = String(text).replace(/\n$/, '').split('\n');
+  if (lines.length <= 2 * n) return { text: lines.join('\n'), clamped: false };
+  const elided = lines.length - 2 * n;
+  return {
+    text: lines.slice(0, n).join('\n') + `\n… ${elided} lines elided …\n` + lines.slice(-n).join('\n'),
+    clamped: true,
+  };
+}
+
+// feEntryHtml dispatches one model entry to its typed builder, wrapping it as a
+// filterable feed entry (data-kind drives the kind chips; data-node the scope).
+function feEntryHtml(e) {
+  if (e.t === 'divider') return e.suppressed ? '' : feDividerHtml(e);
+  if (e.t === 'prose') return feProseHtml(e);
+  if (e.t === 'check') return feCheckHtml(e);
+  if (e.t === 'gate') return feGateHtml(e);
+  return '';
+}
+
+// feDividerHtml renders a thin lifecycle row: node chip · attempt n · duration.
+function feDividerHtml(e) {
+  const parts = [`attempt ${e.attempt || 1}`];
+  const done = e.status === 'completed' || e.status === 'failed';
+  if (done) parts.push(`<span class="fe-dur">${e.durNs != null ? fmtDurNs(e.durNs) : (e.status === 'failed' ? 'failed' : 'done')}</span>`);
+  else parts.push('running');
+  const cls = e.status === 'failed' ? ' fe-div-fail' : '';
+  return `<div class="fe-entry fe-divider${cls}" data-kind="lifecycle" data-node="${escapeHtml(e.node)}">` +
+    `${feChip(e.node)}<span class="fe-div-meta">${parts.join(' · ')}</span></div>`;
+}
+
+// feProseHtml renders a node run's message bubble: markdown prose, a per-group
+// collapsed "N tool calls", and the live dot while streaming. The prose clamps
+// by height with an expand control (revealed by renderFeed only when it
+// overflows).
+function feProseHtml(e) {
+  const tools = e.tools && e.tools.length
+    ? `<details class="fe-tools"><summary>${e.tools.length} tool call${e.tools.length > 1 ? 's' : ''}</summary>` +
+      e.tools.map(t => `<div class="fe-tool-row">${escapeHtml(t)}</div>`).join('') + `</details>`
+    : '';
+  const live = e.live ? ` <span class="fe-live">● live</span>` : '';
+  return `<div class="fe-entry fe-msg" data-kind="prose" data-node="${escapeHtml(e.node)}">` +
+    `<div class="fe-who">${feChip(e.node)} <span class="muted">agent</span>${live}</div>` +
+    `<div class="fe-prose"><div class="fe-prose-body md">${renderMarkdown(e.text)}</div>` +
+    `<button class="fe-more" hidden data-act="prose-toggle">show more</button></div>${tools}</div>`;
+}
+
+// feCheckHtml renders a tool/check output block: chip · command · exit (colour
+// by outcome) · duration, over the captured output. A failed block shows its
+// tail auto-expanded; expanding a huge output keeps head+tail with "show full"
+// still reachable.
+function feCheckHtml(e) {
+  const failed = e.status === 'failed';
+  const exitTxt = failed ? `exit ${e.exit != null ? e.exit : 1}` : 'exit 0';
+  const dur = e.durNs != null ? ` <span class="fe-dur">${fmtDurNs(e.durNs)}</span>` : '';
+  const cmd = e.cmd ? ` <span class="fe-cmd">${escapeHtml(e.cmd)}</span>` : '';
+  const head = `<div class="fe-check-row">${feChip(e.node)}${cmd} <span class="fe-exit">${exitTxt}</span>${dur}</div>`;
+  const attr = ` data-node="${escapeHtml(e.node)}" data-attempt="${e.attempt}"`;
+  let body;
+  if (e.loading) {
+    body = `<div class="fe-out-note muted">loading output…</div>`;
+  } else if (e.output) {
+    let shown, more;
+    if (e.expanded) {
+      const p = headTail(e.output, CHECK_HEADTAIL_LINES);
+      shown = p.text;
+      more = `<button class="fe-out-toggle"${attr} data-act="collapse">collapse output</button>`;
+    } else {
+      const t = tailLines(e.output, FAILED_TAIL_LINES);
+      shown = t.text;
+      more = t.clamped
+        ? `<button class="fe-out-toggle"${attr} data-act="expand">show full output</button>` : '';
+    }
+    body = `<pre class="fe-out overflow-x-auto">${ansiToHtml(shown)}</pre>${more}`;
+  } else if (e.output === '') {
+    body = `<div class="fe-out-note muted">no output captured</div>`;
+  } else {
+    body = `<button class="fe-out-toggle"${attr} data-act="expand">▸ output</button>`;
+  }
+  return `<div class="fe-entry fe-check${failed ? ' fail' : ''}" data-kind="checks" data-node="${escapeHtml(e.node)}">${head}${body}</div>`;
+}
+
+// feGateHtml renders a human gate as a first-class turn: the question, the
+// reviewed node's plan snippet (markdown, expandable), and — once answered —
+// the answer bubble (chosen option label + any note).
+function feGateHtml(e) {
+  const q = e.question || {};
+  const status = e.answered
+    ? `answered${e.answeredAfterNs != null ? ` after ${fmtDurNs(e.answeredAfterNs)}` : ''}`
+    : 'waiting for you';
+  const plan = e.planText
+    ? `<details class="fe-plan"><summary>Show ${escapeHtml(e.precedingNode || 'plan')} output</summary>` +
+      `<div class="fe-plan-body md">${renderMarkdown(e.planText)}</div></details>`
+    : '';
+  const answer = e.answered ? feAnswerHtml(e.answer) : '';
+  return `<div class="fe-entry fe-gate-wrap" data-kind="gate" data-node="${escapeHtml(e.node)}">` +
+    `<div class="fe-gate">` +
+    `<div class="fe-who">${feChip(e.node)} <span class="fe-gate-tag">⏸ human gate · ${escapeHtml(status)}</span></div>` +
+    `<div class="fe-q">${escapeHtml(q.text || '')}</div>${plan}</div>${answer}</div>`;
+}
+
+// feAnswerHtml renders the human's answer bubble: the chosen option label and,
+// when known (a live answer), the note rendered as markdown.
+function feAnswerHtml(a) {
+  a = a || {};
+  const note = a.note ? `<div class="fe-answer-note md">${renderMarkdown(a.note)}</div>` : '';
+  return `<div class="fe-answer"><div class="fe-who muted">you · ${escapeHtml(a.label || 'answered')}</div>${note}</div>`;
+}
+
+// feedCrumbHtml renders the scope breadcrumb + kind-filter chips (the mock's
+// "feed: whole run · filters: …"). The scope names the filtered node with a
+// "show all" reset; each kind chip reflects its active state.
+function feedCrumbHtml() {
+  const scope = feedScope
+    ? `<b>${escapeHtml(feedScope)}</b> · <a href="#" data-feed-scope="">show all</a>`
+    : '<b>whole run</b>';
+  const chip = (k, label) =>
+    `<span class="fe-filter${feedKinds[k] ? ' active' : ''}" data-feed-kind="${k}" role="button" tabindex="0">${label}</span>`;
+  return `feed: ${scope} · filters: ` +
+    chip('prose', 'prose') + ' ' + chip('tools', 'tools') + ' ' +
+    chip('checks', 'checks') + ' ' + chip('lifecycle', 'lifecycle');
+}
+
+// scheduleFeedRender coalesces a burst of ingests (replay is thousands of
+// events) into a single render on the next tick.
+function scheduleFeedRender() {
+  if (feedRenderQueued) return;
+  feedRenderQueued = true;
+  setTimeout(() => { feedRenderQueued = false; renderFeed(); }, 0);
+}
+
+// renderFeed rebuilds #feed from the model, applies the kind + scope filters
+// (hidden entries are display:none, never re-derived), refreshes the crumb, and
+// follows the tail while live unless the operator scrolled up.
+function renderFeed() {
+  const crumb = $('feed-crumb');
+  if (crumb) crumb.innerHTML = feedCrumbHtml();
+  const el = $('feed');
+  if (!el) return;
+  el.innerHTML = feed.map(feEntryHtml).join('') ||
+    '<p class="state state-empty">Waiting for the run to produce events…</p>';
+  applyFeedKinds();
+  applyFeedScope();
+  // Reveal a prose bubble's "show more" only when it actually overflows the
+  // clamp, so short prose carries no stray control.
+  el.querySelectorAll('.fe-prose').forEach(p => {
+    const body = p.querySelector('.fe-prose-body');
+    const more = p.querySelector('.fe-more');
+    if (!body || !more) return;
+    if (!p.classList.contains('open') && body.scrollHeight > FEED_PROSE_CLAMP_PX + 8) more.hidden = false;
+  });
+  if (feedFollow && window.scrollTo) window.scrollTo(0, (document.body && document.body.scrollHeight) || 0);
+}
+
+// applyFeedKinds toggles the kind classes on #feed so a disabled chip hides
+// that entry type via CSS (no model change).
+function applyFeedKinds() {
+  const el = $('feed');
+  if (!el) return;
+  el.classList.toggle('hide-prose', !feedKinds.prose);
+  el.classList.toggle('hide-tools', !feedKinds.tools);
+  el.classList.toggle('hide-checks', !feedKinds.checks);
+  el.classList.toggle('hide-lifecycle', !feedKinds.lifecycle);
+}
+
+// applyFeedScope hides every entry not belonging to the scoped node.
+function applyFeedScope() {
+  const el = $('feed');
+  if (!el) return;
+  el.querySelectorAll('.fe-entry').forEach(fe => {
+    fe.classList.toggle('scoped-out', !!feedScope && fe.getAttribute('data-node') !== feedScope);
+  });
+}
+
+// setFeedScope filters the feed to one node (or clears it), updating the crumb.
+function setFeedScope(node) {
+  feedScope = node || '';
+  renderFeed();
+}
+
+// toggleFeedKind flips one kind filter chip.
+function toggleFeedKind(kind) {
+  if (!(kind in feedKinds)) return;
+  feedKinds[kind] = !feedKinds[kind];
+  renderFeed();
+}
+
 // ---- config view -------------------------------------------------------
 // The Config view edits the whole daemon-owned config doc (config-screen-
 // spec C4): hand-built panels over GET /config, saved back whole via
@@ -3022,6 +3624,14 @@ function gateAnswer(option, text, note) {
 }
 
 async function answer(qid, body) {
+  // Capture the human's choice for the feed's answer bubble: a chosen option
+  // carries key+label with the note as text; free text carries text only. The
+  // event stream's interview_answered records no answer content, so this live
+  // capture is the only source of the note (a replayed run derives just the
+  // chosen option label from the edge it took).
+  feAnswers[qid] = body.label
+    ? { label: body.label, note: body.text || '' }
+    : { label: body.text || 'answered', note: '' };
   await postJSON(`/pipelines/${currentRun}/questions/${qid}/answer`, body);
   refreshDock();
 }
@@ -3101,6 +3711,31 @@ window.addEventListener('load', () => {
   if (kindSel) for (const k of EVENT_KINDS) kindSel.insertAdjacentHTML('beforeend', `<option value="${k}">${k}</option>`);
   $('tl-kind')?.addEventListener('change', renderTimeline);
   $('tl-text')?.addEventListener('input', renderTimeline);
+  // R2 feed: the crumb toggles kind filters + resets scope; the feed itself
+  // scopes on a node chip, expands checks, and unclamps a prose bubble. All
+  // delegated — the feed is innerHTML, re-rendered on every event.
+  $('feed-crumb')?.addEventListener('click', e => {
+    const kind = e.target.closest('[data-feed-kind]');
+    if (kind) { toggleFeedKind(kind.dataset.feedKind); return; }
+    const scope = e.target.closest('[data-feed-scope]');
+    if (scope) { e.preventDefault(); setFeedScope(''); }
+  });
+  $('feed')?.addEventListener('click', e => {
+    const chip = e.target.closest('.fe-chip[data-node]');
+    if (chip) { setFeedScope(chip.dataset.node); selectNode(chip.dataset.node); return; }
+    const out = e.target.closest('.fe-out-toggle');
+    if (out) { toggleCheck(out.dataset.node, Number(out.dataset.attempt), out.dataset.act); return; }
+    const more = e.target.closest('.fe-more');
+    if (more) {
+      const box = more.closest('.fe-prose');
+      box.classList.toggle('open');
+      more.textContent = box.classList.contains('open') ? 'show less' : 'show more';
+    }
+  });
+  // Follow the newest entry while live, unless the operator scrolled up.
+  window.addEventListener('scroll', () => {
+    feedFollow = window.innerHeight + window.scrollY >= document.body.scrollHeight - 80;
+  }, { passive: true });
   // Delegated run trigger: item rows are innerHTML, so a single listener on
   // the list opens the picker for whichever row's run button was clicked.
   $('items-list')?.addEventListener('click', e => {
