@@ -221,10 +221,10 @@ pending ones.
 
 | ID | Milestone | Status |
 |----|-----------|--------|
-| P1 | /state + /nodes/{node} endpoints, server-derived fail-aware active set, header data included; UI untouched | todo |
-| P2 | diff endpoint works for local/vm runs via the shared jj store; "no commits yet" distinguished from "no diff" | todo |
-| P3 | stage dirs upload at each stage_completed (terminal sweep stays as catch-all); /stages/{node} serves completed stages of LIVE runs under every runner | todo |
-| P4 | runner-parity e2e suite (direct vs local) over /state, /nodes, /stages (incl. tool stdout/stderr), /diff, /questions; red on pre-P1 daemon, green after P1-P3 | todo |
+| P1 | /state + /nodes/{node} endpoints, server-derived fail-aware active set, header data included; UI untouched | done |
+| P2 | diff endpoint works for local/vm runs via the shared jj store; "no commits yet" distinguished from "no diff" | done |
+| P3 | stage dirs upload at each stage_completed (terminal sweep stays as catch-all); /stages/{node} serves completed stages of LIVE runs under every runner | done |
+| P4 | runner-parity e2e suite (direct vs local) over /state, /nodes, /stages (incl. tool stdout/stderr), /diff, /questions; red on pre-P1 daemon, green after P1-P3 | done |
 | P5a | manifest ownership split: engine writes run.json, daemon owns manifest.json; direct-runner clobber window closed; reload tolerant of both layouts | todo |
 | P5b | tool handler streams stdout/stderr to stage files while the command runs | todo |
 | P5c | VM child logs root shared rw into the run dir (single-writer safe post-P5a); 9p write-visibility verified empirically | todo |
