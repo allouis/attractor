@@ -1379,7 +1379,7 @@ function dataTable(headInner, rowsHtml, bodyId) {
 // table at sm.
 function runsTableHtml(runs) {
   const rows = runs.map(runRowHtml).join('');
-  const th = ['run', 'workflow', 'item', 'repo', 'by', 'status', 'started'].map(h => `<th class="${TH_CLASS}">${h}</th>`).join('');
+  const th = ['run', 'workflow', 'item', 'repo', 'by', 'status', 'started', 'elapsed'].map(h => `<th class="${TH_CLASS}">${h}</th>`).join('');
   return dataTable(`<tr>${th}<th></th></tr>`, rows);
 }
 
@@ -1537,6 +1537,7 @@ function runRowHtml(p) {
       ${runDetailCell(runOriginCell(p), true)}
       ${runDetailCell(`${stateBadge(p.status)}${chip}`)}
       ${runDetailCell(fmtDate(p.started_at), true)}
+      ${runDetailCell(runElapsed(p), true)}
       ${runDetailCell(runCancelButton(p))}
     </tr>`;
 }
@@ -1559,13 +1560,22 @@ const runDetailCell = (inner, muted) =>
 function runSummaryCell(p) {
   const id = p.id || '';
   const chip = runNeedsHuman(p) ? '<span class="chip needs-human">needs human</span>' : '';
-  const workflow = escapeHtml(p.workflow_name || p.graph_name || '');
+  const it = summaryItem(p);
+  // Lead with the header-card identity (R4): the item identifier + title when
+  // the run has one, else the short id. The whole cell is one tap-target link
+  // to the run detail, so the tracker link stays out of it here (no nested
+  // anchor) — the identifier is plain text on mobile. The workflow is a quiet
+  // tertiary label.
+  const lead = escapeHtml(it.identifier || id.slice(0, 8) || id);
+  const title = it.title ? `<span class="truncate text-muted text-sm">${escapeHtml(it.title)}</span>`
+    : `<span class="truncate text-muted text-sm">${escapeHtml(p.workflow_name || p.graph_name || '')}</span>`;
   return `<td class="block sm:hidden border-0"><a href="#run/${escapeHtml(id)}" class="flex flex-col gap-1 min-h-10 justify-center">` +
     `<span class="flex min-w-0 items-baseline gap-2">` +
-      `<span class="shrink-0 font-medium text-ink">${escapeHtml(id.slice(0, 8) || id)}</span>` +
-      `<span class="truncate text-muted text-sm">${workflow}</span>` +
+      `<span class="shrink-0 font-medium text-ink">${lead}</span>` +
+      title +
     `</span>` +
-    `<span class="flex items-center gap-2 text-xs text-muted">${stateBadge(p.status)}${chip}<span>${fmtDate(p.started_at)}</span></span>` +
+    `<span class="flex items-center gap-2 text-xs text-muted">${stateBadge(p.status)}${chip}` +
+      `${runRepo(p) ? `<span>${escapeHtml(runRepo(p))}</span>` : ''}<span>${escapeHtml(runElapsed(p))}</span></span>` +
     `</a></td>`;
 }
 
@@ -1580,14 +1590,37 @@ function runWorkflowCell(p) {
   return escapeHtml(p.graph_name || '');
 }
 
-// runItemCell links a run back to its source item. There is no per-item hash
-// route in v1, so the link lands on the Items view (where the item's own row
-// links back to this run — web-ui-spec §Views interlinking); the full ref is
-// the title. A run with no item ref shows nothing.
+// summaryItem pulls the run's header-card identity out of the list summary
+// (ui-run-view-v3 R4): the human identifier/title/url ride in the run's launch
+// vars (mirroring the server's itemState), the same fields the run's own header
+// card shows. A run with no item has an empty identity and the row falls back
+// to its short id.
+function summaryItem(p) {
+  const vars = p.vars || {};
+  return { identifier: vars.identifier || '', title: vars.title || '', url: vars.url || '' };
+}
+
+// runItemCell renders the header-card identity for a run row (R4): the item
+// identifier · title, with the identifier linked to the tracker url when known
+// (rel=noopener, escaped — vars are attacker-controlled). A run with no item
+// falls back to the short run id so every row names itself.
 function runItemCell(p) {
-  const ref = p.item_ref || '';
-  if (!ref) return '';
-  return `<a href="#items" title="${escapeHtml(ref)}">${escapeHtml(ref)}</a>`;
+  const it = summaryItem(p);
+  const id = p.id || '';
+  if (!it.identifier && !it.title) return `<span class="muted">${escapeHtml(id.slice(0, 8) || id)}</span>`;
+  const ident = it.identifier || id.slice(0, 8) || id;
+  const identHtml = it.url
+    ? `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">${escapeHtml(ident)}</a>`
+    : `<b>${escapeHtml(ident)}</b>`;
+  const title = it.title ? ` · <span class="muted">${escapeHtml(it.title)}</span>` : '';
+  return `${identHtml}${title}`;
+}
+
+// runElapsed renders a run's elapsed time for the list row (R4), the same clock
+// the header card shows: completed − started for a terminal run, started − now
+// for a live one (the 2.5s fleet poll refreshes it). No start is the em-dash.
+function runElapsed(p) {
+  return fmtElapsed(p.started_at, p.completed_at || null);
 }
 
 // runOrigin classifies how a run was launched (web-ui-v2-spec U7 provenance,
