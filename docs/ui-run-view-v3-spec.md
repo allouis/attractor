@@ -240,7 +240,7 @@ pending ones.
 | P5d | stages tail endpoint (offset reads, long-poll/SSE); feed check blocks render live | done |
 | R1 | header card from /state | todo |
 | R2 | the feed (prose bubbles, collapsed tool rows, lifecycle dividers, gate turns, scope filter + breadcrumb) replacing the timeline as main surface | todo |
-| R3 | node inspector: prompt up front, response after completion, timing/attempts, per-node feed slice | todo |
+| R3 | node inspector: prompt up front, response after completion, timing/attempts, per-node feed slice | done |
 | R4 | graph height-capped/restyled/state-painted; hydrate-then-append everywhere; legacy timeline + client state accumulators deleted | todo |
 
 Sequencing: P1 → {P2, P3} → P4 gate closes Phase 0. P5a-P5d follow in
