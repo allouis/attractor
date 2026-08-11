@@ -164,7 +164,9 @@ patched — its client-side state accumulators are deleted.
 
 Repo, issue (identifier + title, linked to the tracker url), workflow,
 runner + image, status pill, elapsed time (live), run id. All from
-/state. One glance answers "what is this run".
+/state. One glance answers "what is this run". The card is also the
+template for each row of the runs INDEX view (identifier · title ·
+status · repo · elapsed) — adopted there during R4's cleanup pass.
 
 ### R2 — the feed
 
@@ -191,6 +193,13 @@ auto-scrolling while live (scroll-up pauses following).
 - Gate questions and the human's answers (with notes) → first-class
   turns, visually distinct. (This seam is where steering input lands
   later.)
+- **Markdown**: agent prose renders as markdown (safe subset — headings,
+  emphasis, inline/block code, lists, links; HTML-escape first, no raw
+  HTML pass-through). Same renderer serves the gate plan panel.
+- **Collapse, never truncate**: long content clamps to a preview with an
+  expand control — prose bubbles ~12 lines, check outputs show the tail
+  (head+tail for huge logs), the gate's plan snippet expands to the full
+  plan in place. Full text is always reachable; nothing is cut.
 - Scope: whole-run by default; clicking a node (graph or chip) filters
   the feed to that node, with a visible breadcrumb ("feed: implement ·
   show all") so the scope is never ambiguous.
