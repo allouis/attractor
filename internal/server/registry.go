@@ -50,6 +50,11 @@ type Manifest struct {
 	// human identifier/title/url in /state — a naive reload drops it and /state
 	// falls back to the item_ref external id (the tracker UUID).
 	InitialContext map[string]string `json:"initial_context,omitempty"`
+	// SourceBaseDir is the directory the pipeline was loaded from — the root its
+	// @file prompt refs resolve against. Persisted so a reloaded run (whose graph
+	// is not in memory) re-prepares its source against the right base and serves
+	// resolved prompt text, not the raw @file ref.
+	SourceBaseDir string `json:"source_base_dir,omitempty"`
 	// RevBase/RevTip are the host jj change-ids of the run's cwd at start and
 	// end (T9c): the range `jj diff --from RevBase --to RevTip` renders as the
 	// run's produced change. Empty for VM/non-jj runs.
@@ -116,6 +121,7 @@ func (r *runRegistry) reload() {
 			graphName:      m.GraphName,
 			workflowName:   m.WorkflowName,
 			cwd:            m.Cwd,
+			sourceBaseDir:  m.SourceBaseDir,
 			itemRef:        m.ItemRef,
 			repo:           m.Repo,
 			initialContext: m.InitialContext,
@@ -171,6 +177,7 @@ func (r *runRegistry) NewRun(source string, g *graph.Graph, prepared *engine.Pre
 	if g != nil {
 		run.graphName = g.Name
 		run.cwd = g.Attrs["cwd"]
+		run.sourceBaseDir = g.BaseDir
 	}
 	run.writeSource()
 	run.writeManifest()
@@ -233,7 +240,12 @@ type Run struct {
 	graphName    string
 	workflowName string
 	cwd          string
-	itemRef      string
+	// sourceBaseDir is the directory the pipeline was loaded from — the root its
+	// @file prompt refs resolve against (graph.BaseDir for a live run). Held
+	// separately so a reloaded run, whose graph is not in memory, can still
+	// re-prepare its source against the right base (see baseDir).
+	sourceBaseDir string
+	itemRef       string
 	// repo is the registered `owner/name` this run was dispatched against
 	// (the fleet's repo provenance, web-ui-v2-spec U7); "" for a raw-dot
 	// submission that named no repo.
@@ -315,13 +327,14 @@ func (r *Run) Source() string {
 }
 
 // baseDir returns the directory the run's pipeline was loaded from — where
-// its @file prompt dependencies resolve. "" when the graph carries none
-// (e.g. a reloaded run whose graph was not rebuilt).
+// its @file prompt dependencies resolve. A live run reads it off the in-memory
+// graph; a reloaded run (no graph) reads the value persisted in the manifest,
+// so re-preparing its stored source still resolves @file refs.
 func (r *Run) baseDir() string {
-	if r.graph == nil {
-		return ""
+	if r.graph != nil {
+		return r.graph.BaseDir
 	}
-	return r.graph.BaseDir
+	return r.sourceBaseDir
 }
 
 // Subscribe registers a new SSE consumer and replays the buffered
@@ -995,10 +1008,14 @@ func (r *Run) writeManifest() {
 	m.ItemRef = r.itemRef
 	m.Repo = r.repo
 	m.InitialContext = r.initialContext
+	m.SourceBaseDir = r.sourceBaseDir
 	m.RevBase = r.revBase
 	m.RevTip = r.revTip
 	if r.graph != nil {
 		m.GraphGoal = r.graph.Goal()
+		if m.SourceBaseDir == "" {
+			m.SourceBaseDir = r.graph.BaseDir
+		}
 	}
 	if r.outcome != nil {
 		m.Outcome = r.outcome.Status.String()

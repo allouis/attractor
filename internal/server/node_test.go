@@ -182,6 +182,61 @@ func TestNodeResolvedPromptFromSource(t *testing.T) {
 	}
 }
 
+// TestNodeResolvedPromptOnReloadDistinctBaseDir is the reload regression: a run
+// whose @file prompts live in the workflow base dir — NOT the repo cwd — must
+// still serve resolved prompt text after reload. The daemon holds no in-memory
+// graph then; re-preparing against cwd (the repo, which has no prompts/) fails
+// and the endpoint would serve the raw `@prompts/…` ref. The persisted source
+// base dir is what makes the re-prepare resolve.
+func TestNodeResolvedPromptOnReloadDistinctBaseDir(t *testing.T) {
+	tmp := t.TempDir()
+	wfDir := filepath.Join(tmp, "workflows", "implement")
+	if err := os.MkdirAll(filepath.Join(wfDir, "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "prompts", "plan.md"), []byte("resolved plan body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repoDir := filepath.Join(tmp, "repo") // the run's cwd — has no prompts/
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A daemon logs root the registry reloads from.
+	base := filepath.Join(tmp, "logs")
+	logsRoot := filepath.Join(base, "r1")
+	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := `digraph implement {
+  start [shape=Mdiamond];
+  plan [prompt="@prompts/plan.md"];
+  exit [shape=Msquare];
+  start -> plan -> exit;
+}`
+	if err := os.WriteFile(filepath.Join(logsRoot, "source.dot"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeManifestDir(t, base, "r1", Manifest{
+		ID: "r1", Status: RunCompleted, LogsRoot: logsRoot,
+		Cwd: repoDir, SourceBaseDir: wfDir,
+	})
+
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: base})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	resp, doc := getNode(t, srv, "r1", "plan")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if doc.Prompt != "resolved plan body" {
+		t.Errorf("prompt = %q, want resolved plan body (not the raw @prompts ref)", doc.Prompt)
+	}
+}
+
 func TestNodeUnknownRun404(t *testing.T) {
 	srv, _ := newStageTestServer(t)
 	resp, err := http.Get(srv.URL() + "/pipelines/missing/nodes/plan")
