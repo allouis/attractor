@@ -42,17 +42,47 @@ func TestImplementPipeline_LintsClean(t *testing.T) {
 	}
 }
 
-// TestImplementPipeline_SelfReviewGate pins the RV4 contract: after the
-// agent implements, a `stack.manager_loop` runs the shared review-core
-// sub-pipeline over the agent's own uncommitted work (diff_cmd = `jj
-// diff`); a FAIL verdict routes back to `implement`, a PASS verdict exits.
+// TestImplementPipeline_SelfReviewGate pins the RV4 contract plus the
+// plan-gate and publish extensions: a plan stage is human-approved before
+// implementation; after the agent implements, a `stack.manager_loop` runs
+// the shared review-core sub-pipeline over everything since the plan's
+// review_base (diff_cmd = `jj diff …`); a FAIL verdict routes back to
+// `implement`; a PASS verdict reaches the human ship gate, which publishes
+// via a draft-PR node before exit.
 func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	g := buildImplementGraph(t)
 
-	// start -> implement (the codergen build stage).
-	implementID := g.OutgoingEdges("start")[0].To
-	if impl := g.Nodes[implementID]; impl.Type() != "codergen" {
-		t.Fatalf("first stage %q type=%q, want codergen", implementID, impl.Type())
+	// start -> plan (codergen) -> plan_gate (wait.human): a human approves
+	// the plan before any code is written, and can send it back to plan.
+	planID := g.OutgoingEdges("start")[0].To
+	if p := g.Nodes[planID]; p.Type() != "codergen" {
+		t.Fatalf("first stage %q type=%q, want codergen", planID, p.Type())
+	}
+	var gateID string
+	for _, e := range g.OutgoingEdges(planID) {
+		if g.Nodes[e.To].Type() == "wait.human" {
+			gateID = e.To
+		}
+	}
+	if gateID == "" {
+		t.Fatal("plan should route to a human plan gate")
+	}
+	var implementID string
+	backToPlan := false
+	for _, e := range g.OutgoingEdges(gateID) {
+		if e.To == planID {
+			backToPlan = true
+			continue
+		}
+		if g.Nodes[e.To].Type() == "codergen" {
+			implementID = e.To
+		}
+	}
+	if implementID == "" {
+		t.Fatal("plan gate should approve into a codergen implement stage")
+	}
+	if !backToPlan {
+		t.Error("plan gate should be able to route back to plan for a revise")
 	}
 
 	// Static checks: tool nodes running the repo's configured commands
@@ -114,15 +144,25 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 		t.Fatal("review_loop should route to a human ship gate on outcome=success")
 	}
 
-	// The ship gate reaches exit on approval.
-	toExit := false
+	// The ship gate approves into a publish (draft-PR) codergen node,
+	// which reaches exit.
+	var publishID string
 	for _, e := range g.OutgoingEdges(shipID) {
+		if e.To != implementID && g.Nodes[e.To].Type() == "codergen" {
+			publishID = e.To
+		}
+	}
+	if publishID == "" {
+		t.Fatal("ship gate should route to a publish node on approve")
+	}
+	toExit := false
+	for _, e := range g.OutgoingEdges(publishID) {
 		if g.Nodes[e.To].Type() == "exit" {
 			toExit = true
 		}
 	}
 	if !toExit {
-		t.Error("ship gate should route to exit on approve")
+		t.Error("publish node should route to exit")
 	}
 }
 

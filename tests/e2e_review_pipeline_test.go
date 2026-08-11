@@ -41,11 +41,11 @@ func TestReviewPipeline_LintsClean(t *testing.T) {
 	}
 }
 
-// TestReviewPipeline_CheckoutThenReviewLoop pins the RV3 contract: the
-// first stage is a deterministic tool node running `gh pr checkout`, it
-// gates a `stack.manager_loop` on success, that loop runs the shared
-// review-core sub-pipeline seeding diff_cmd = `gh pr diff …`, and the loop
-// flows to exit. The single-agent review node is gone.
+// TestReviewPipeline_CheckoutThenReviewLoop pins the RV3 contract, post
+// checkout-drop: the review is DIFF-BASED — the first stage IS the
+// `stack.manager_loop` running the shared review-core sub-pipeline with
+// diff_cmd = `gh pr diff …` (no local checkout, works under any runner),
+// and the loop flows to exit. The single-agent review node is gone.
 func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 	g := buildReviewGraph(t)
 
@@ -53,24 +53,7 @@ func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 	if len(out) != 1 {
 		t.Fatalf("start should have exactly one outgoing edge, got %d", len(out))
 	}
-	checkoutID := out[0].To
-	checkout := g.Nodes[checkoutID]
-	if checkout.Type() != "tool" {
-		t.Fatalf("first stage %q type=%q, want tool", checkoutID, checkout.Type())
-	}
-	if !strings.Contains(checkout.Attrs["tool_command"], "gh pr checkout") {
-		t.Fatalf("checkout tool_command=%q, want it to run `gh pr checkout`", checkout.Attrs["tool_command"])
-	}
-
-	// checkout -> review_loop, gated on tool success.
-	co := g.OutgoingEdges(checkoutID)
-	if len(co) != 1 {
-		t.Fatalf("checkout should have exactly one outgoing edge, got %d", len(co))
-	}
-	if cond := co[0].Attrs["condition"]; !strings.Contains(cond, "outcome=success") {
-		t.Fatalf("checkout->review_loop condition=%q, want it gated on outcome=success", cond)
-	}
-	loopID := co[0].To
+	loopID := out[0].To
 	loop := g.Nodes[loopID]
 	if loop.Type() != "stack.manager_loop" {
 		t.Fatalf("review stage %q type=%q, want stack.manager_loop", loopID, loop.Type())
@@ -95,31 +78,34 @@ func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 	}
 
 	// The single-agent review node is gone: no codergen stage remains.
+	// (A checkout tool node is gone too — the review is diff-based.)
 	for id, n := range g.Nodes {
 		if n.Type() == "codergen" {
 			t.Fatalf("node %q is a codergen stage; the single-agent review path should be gone", id)
 		}
+		if n.Type() == "tool" {
+			t.Fatalf("node %q is a tool stage; the checkout node should be gone (diff-based review)", id)
+		}
 	}
 }
 
-// TestReviewPipeline_ExpandsItemVars confirms the checkout command wires
-// the item's `repo`/`pr_number` vars — the exact keys a GitHub PR Item
-// supplies (internal/items/source/github.go) — into a concrete gh invocation.
-// Post-C5 the pipeline uses `$context.` syntax resolved at runtime from
-// the live context (spec §4.5), so this drives the same `Context.Expand`
-// the tool handler calls, not the removed prepare-time transform.
+// TestReviewPipeline_ExpandsItemVars confirms the diff command wires the
+// item's `repo`/`pr_number` vars — the exact keys a GitHub PR Item
+// supplies (internal/items/source/github.go) — into a concrete gh
+// invocation. The pipeline uses `$context.` syntax resolved at runtime
+// from the live context (spec §4.5) when the child review-core is seeded.
 func TestReviewPipeline_ExpandsItemVars(t *testing.T) {
 	g := buildReviewGraph(t)
-	checkout := g.Nodes[g.OutgoingEdges("start")[0].To]
+	loop := g.Nodes[g.OutgoingEdges("start")[0].To]
 
 	ctx := engine.NewContextFrom(map[string]string{
 		"repo":      "owner/repo",
 		"pr_number": "42",
 	})
-	got, err := ctx.Expand(checkout.Attrs["tool_command"])
+	got, err := ctx.Expand(loop.Attrs["stack.child.var.diff_cmd"])
 	must(t, err)
-	if got != "gh pr checkout 42 --repo owner/repo" {
-		t.Fatalf("expanded checkout command=%q", got)
+	if got != "gh pr diff 42 --repo owner/repo" {
+		t.Fatalf("expanded diff command=%q", got)
 	}
 }
 

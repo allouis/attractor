@@ -20,11 +20,14 @@ var shippedPipelineFiles = []string{
 	"../pipelines/review-pr/pipeline.dot",
 	"../pipelines/review-core/pipeline.dot",
 	"../pipelines/implement/pipeline.dot",
+	"../pipelines/implement/prompts/plan.md",
 	"../pipelines/implement/prompts/implement.md",
+	"../pipelines/implement/prompts/open-pr.md",
 	"../pipelines/build/pipeline.dot",
+	"../pipelines/build/review-record.dot",
 	"../pipelines/build/prompts/plan.md",
 	"../pipelines/build/prompts/implement.md",
-	"../pipelines/build/prompts/review.md",
+	"../pipelines/build/prompts/fix.md",
 	"../pipelines/build/prompts/record.md",
 	"../pipelines/bug-fix/pipeline.dot",
 	"../pipelines/bug-fix/prompts/understand.md",
@@ -45,6 +48,18 @@ func TestShippedPipelines_UseContextSyntax(t *testing.T) {
 		b, err := os.ReadFile(f)
 		must(t, err)
 		s := string(b)
+		// Dotfile `//` comments may quote shell usage (`--var x=$BASE`);
+		// only the graph itself is checked.
+		if strings.HasSuffix(f, ".dot") {
+			var kept []string
+			for _, line := range strings.Split(s, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "//") {
+					continue
+				}
+				kept = append(kept, line)
+			}
+			s = strings.Join(kept, "\n")
+		}
 		s = strings.ReplaceAll(s, "$context.", "")
 		s = strings.ReplaceAll(s, "$goal", "")
 		s = strings.ReplaceAll(s, "$$", "")

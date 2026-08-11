@@ -3,6 +3,7 @@ package attractor_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/allouis/attractor/internal/backend/fake"
@@ -11,24 +12,19 @@ import (
 	"github.com/allouis/attractor/internal/setup"
 )
 
-// TestReviewPipeline_DispatchRunsCheckoutInCwd drives the review pipeline
-// through the same path the daemon uses for POST /items/run
-// (setup.Prepare with the Item's vars + a repo cwd), with a stub `gh` on
-// PATH. It proves the checkout stage expands the vars and actually runs
-// the command in the run's cwd — the two things a raw structure test
-// can't observe (items-spec I5).
-func TestReviewPipeline_DispatchRunsCheckoutInCwd(t *testing.T) {
+// TestReviewPipeline_DispatchExpandsDiffCmd drives the review pipeline
+// through the same path the daemon uses for item dispatch (setup.Prepare
+// with the Item's vars + a repo cwd). The review is diff-based — no
+// checkout stage — so the dispatch-observable contract is that the
+// review-core child is seeded with the CONCRETE diff command (the item's
+// repo/pr_number expanded into `gh pr diff …`) and every lens sees it
+// (items-spec I5).
+func TestReviewPipeline_DispatchExpandsDiffCmd(t *testing.T) {
 	cwd := t.TempDir()
-
-	// Stub `gh`: record the args it was invoked with, in the cwd it ran in.
-	binDir := t.TempDir()
-	stub := "#!/bin/sh\nprintf '%s' \"$*\" > \"$PWD/gh-args.txt\"\n"
-	must(t, os.WriteFile(filepath.Join(binDir, "gh"), []byte(stub), 0o755))
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	src, err := os.ReadFile("../pipelines/review-pr/pipeline.dot")
 	must(t, err)
-	baseDir, err := filepath.Abs("../pipelines/review")
+	baseDir, err := filepath.Abs("../pipelines/review-pr")
 	must(t, err)
 
 	prepared, err := setup.Prepare(setup.Options{
@@ -40,7 +36,8 @@ func TestReviewPipeline_DispatchRunsCheckoutInCwd(t *testing.T) {
 
 	// The daemon seeds the Item's vars into the run's initial context; do
 	// the same here so run-start `vars=` validation sees them (C3).
-	out := runPrepared(t, prepared, fake.New(), map[string]string{
+	be := fake.New()
+	out := runPrepared(t, prepared, be, map[string]string{
 		"repo":      "owner/repo",
 		"pr_number": "42",
 		"url":       "https://github.com/owner/repo/pull/42",
@@ -49,10 +46,13 @@ func TestReviewPipeline_DispatchRunsCheckoutInCwd(t *testing.T) {
 	if out.Status != engine.StatusSuccess {
 		t.Fatalf("status=%s reason=%q", out.Status, out.FailureReason)
 	}
-	got, err := os.ReadFile(filepath.Join(cwd, "gh-args.txt"))
-	must(t, err)
-	if string(got) != "pr checkout 42 --repo owner/repo" {
-		t.Fatalf("gh invoked with %q, want `pr checkout 42 --repo owner/repo`", got)
+	for _, lens := range reviewCoreLenses {
+		if be.CallCount(lens) < 1 {
+			t.Fatalf("lens %q never ran, want the review to fan out to it", lens)
+		}
+	}
+	if got := childPrompt(t, be, "correctness"); !strings.Contains(got, "gh pr diff 42 --repo owner/repo") {
+		t.Fatalf("lens prompt = %q, want the expanded `gh pr diff 42 --repo owner/repo`", got)
 	}
 }
 
@@ -67,6 +67,9 @@ func runPrepared(t *testing.T, prepared *engine.PreparedGraph, be *fake.Backend,
 	registry.Register("exit", handler.Exit{})
 	registry.Register("conditional", handler.Conditional{})
 	registry.Register("tool", handler.Tool{})
+	registry.Register("parallel", handler.Parallel{})
+	registry.Register("parallel.fan_in", handler.FanIn{})
+	registry.Register("stack.manager_loop", handler.ManagerLoop{})
 	registry.SetDefault(handler.Codergen{Backend: be})
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: t.TempDir(), RunID: "test", InitialContext: initialContext})
 	done := make(chan struct{})
