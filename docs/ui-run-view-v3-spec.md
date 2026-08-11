@@ -238,10 +238,10 @@ pending ones.
 | P5b | tool handler streams stdout/stderr to stage files while the command runs | done |
 | P5c | VM child logs root shared rw into the run dir (single-writer safe post-P5a); 9p write-visibility verified empirically | done |
 | P5d | stages tail endpoint (offset reads, long-poll/SSE); feed check blocks render live | done |
-| R1 | header card from /state | todo |
-| R2 | the feed (prose bubbles, collapsed tool rows, lifecycle dividers, gate turns, scope filter + breadcrumb) replacing the timeline as main surface | todo |
+| R1 | header card from /state | done |
+| R2 | the feed (prose bubbles, collapsed tool rows, lifecycle dividers, gate turns, scope filter + breadcrumb) replacing the timeline as main surface | done |
 | R3 | node inspector: prompt up front, response after completion, timing/attempts, per-node feed slice | done |
-| R4 | graph height-capped/restyled/state-painted; hydrate-then-append everywhere; legacy timeline + client state accumulators deleted | todo |
+| R4 | graph height-capped/restyled/state-painted; hydrate-then-append everywhere; legacy timeline + client state accumulators deleted; runs index adopts the header-card row treatment | done |
 
 Sequencing: P1 → {P2, P3} → P4 gate closes Phase 0. P5a-P5d follow in
 order (P5a is independently valuable and can land any time; P5c waits
