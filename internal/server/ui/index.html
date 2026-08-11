@@ -212,6 +212,13 @@
   #human-dock { margin-top: var(--space-4); }
   #human-dock .q { border: 1px solid var(--state-needs-human); border-radius: 6px;
                    padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
+  #human-dock .gate-plan { margin: var(--space-2) 0; }
+  #human-dock .gate-plan summary { cursor: pointer; color: var(--muted); font: var(--font-sm)/1.4 inherit; }
+  #human-dock .gate-plan pre { max-height: 260px; overflow: auto; margin-top: var(--space-2);
+                               white-space: pre-wrap; }
+  #human-dock .gate-note { width: 100%; box-sizing: border-box; margin: var(--space-2) 0;
+                           font: inherit; resize: vertical; }
+  #human-dock .q-opts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   /* Event timeline (web-ui-v2-spec U3): the full, filterable run event log —
      a scrollable feed under the graph so the whole history is one glance. */
   #event-timeline { margin-top: var(--space-4); }
@@ -453,6 +460,9 @@ const nodeState = {};          // node id -> status class
 const nodeTiming = {};         // node id -> {start, end} ISO ts from the stream
 const nodeFindings = {};       // node id -> child-pipeline findings that node produced (T9b)
 let activeParentNode = null;   // last non-child stage_started: owns forwarded child findings (T9b)
+let lastCompletedNode = null;  // most recent node to finish — the node a gate follows
+const gatePreceding = {};      // gate node id -> node whose output that gate reviews (U5, plan-at-gate)
+let pinnedNode = false;        // the user clicked a node: stop auto-selecting the active one (U2)
 let dockTimer = null;
 let runsTimer = null;          // fleet-list poll while the Runs view is open
 let configLoaded = null;       // last GET /config doc (redacted) the view rendered
@@ -1612,7 +1622,10 @@ async function openRun(id) {
   for (const k in nodeState) delete nodeState[k];
   for (const k in nodeTiming) delete nodeTiming[k];
   for (const k in nodeFindings) delete nodeFindings[k];
+  for (const k in gatePreceding) delete gatePreceding[k];
   activeParentNode = null;
+  lastCompletedNode = null;
+  pinnedNode = false;
   timeline.length = 0;
   highlightNav('runs');
   showView('run-view');
@@ -1738,8 +1751,17 @@ function attachStream(id) {
       // pipeline (T9b). Child stage_starts belong to the nested run, not here.
       if (!isChildEvent(ev)) activeParentNode = ev.node_id;
       timing(ev.node_id).start = ev.ts; paintNode(ev.node_id, 'running');
+      // Follow the run: surface the active node's live log unless the user
+      // pinned a node by clicking one (U2). Replay re-runs this, so a reload
+      // lands on whatever was last running.
+      if (!isChildEvent(ev) && !pinnedNode) selectNode(ev.node_id, false);
     },
-    stage_completed: ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'completed'); },
+    stage_completed: ev => {
+      timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'completed');
+      // Remember the node that just produced output so a gate firing next can
+      // point back at it (plan_gate reviews plan's output — plan-at-gate, U5).
+      if (!isChildEvent(ev)) lastCompletedNode = ev.node_id;
+    },
     stage_failed:    ev => { timing(ev.node_id).end = ev.ts; paintNode(ev.node_id, 'failed'); },
     stage_retrying:  ev => paintNode(ev.node_id, 'retrying'),
     stage_progress:  ev => appendProgress(ev),
@@ -1763,7 +1785,12 @@ function attachStream(id) {
     // Gate events drive the dock live (U5): a run blocks (interview_started) or
     // resumes (answered/timeout) between polls, so refresh the dock + banner
     // the moment the stream says so rather than waiting for the poll fallback.
-    interview_started:  () => refreshDock(),
+    interview_started:  ev => {
+      // Pin the gate to the node whose output it reviews, so the dock can show
+      // that node's produced text next to the question (plan-at-gate, U5).
+      if (ev.node_id && lastCompletedNode) gatePreceding[ev.node_id] = lastCompletedNode;
+      refreshDock();
+    },
     interview_answered: () => refreshDock(),
     interview_timeout:  () => refreshDock(),
   };
@@ -2037,7 +2064,10 @@ function stageDetailHtml(id, detail, timing, logHtml, findings, resolved) {
 // later click resolves before an earlier one, so a slow fetch never overwrites
 // a newer selection. The live tail keeps flowing into #node-log via
 // appendProgress once the panel is in place.
-async function selectNode(id) {
+async function selectNode(id, manual = true) {
+  // A manual click pins the node so the run's auto-follow (stage_started)
+  // stops hijacking the inspector; auto-selection passes manual=false.
+  if (manual) pinnedNode = true;
   selectedNode = id;
   const pane = $('node-pane');
   if (pane) pane.innerHTML = loadingState();
@@ -2583,13 +2613,25 @@ function renderDock(questions) {
     who.textContent = '(' + (q.node_id || '') + ')';
     label.appendChild(who);
     box.appendChild(label);
+    // Plan-at-gate (U5): a gate reviews the output of the node before it, so
+    // show that node's produced text inline — the user sees what they approve.
+    const preceding = gatePreceding[q.node_id];
+    if (preceding) box.appendChild(gatePlanPanel(preceding));
     if ((q.options || []).length) {
+      // Optional feedback attached to the choice — especially "why" on reject.
+      // Rides the answer as text (server AnswerPayload.Text -> $context.human.note).
+      const note = document.createElement('textarea');
+      note.className = 'gate-note'; note.rows = 2;
+      note.placeholder = 'optional note (e.g. why you’re revising)';
+      const opts = document.createElement('div'); opts.className = 'q-opts';
       q.options.forEach(o => {
         const b = document.createElement('button');
         b.textContent = o.label;
-        b.addEventListener('click', () => answer(q.id, gateAnswer(o)));
-        box.appendChild(b); box.appendChild(document.createTextNode(' '));
+        b.addEventListener('click', () => answer(q.id, gateAnswer(o, null, note.value)));
+        opts.appendChild(b); opts.appendChild(document.createTextNode(' '));
       });
+      box.appendChild(note);
+      box.appendChild(opts);
     } else {
       const input = document.createElement('input'); input.placeholder = 'answer';
       const send = document.createElement('button'); send.textContent = 'send';
@@ -2598,6 +2640,39 @@ function renderDock(questions) {
     }
     dock.appendChild(box);
   });
+}
+
+// gatePlanPanel renders a collapsible showing the output of the node a gate
+// reviews (plan-at-gate, U5). The body is lazy-filled from GET …/stages/{node}
+// so the dock poll doesn't refetch it every tick; the node id names it.
+function gatePlanPanel(nodeId) {
+  const det = document.createElement('details'); det.className = 'gate-plan';
+  const sum = document.createElement('summary');
+  sum.textContent = 'Show ' + nodeId + ' output';
+  const pre = document.createElement('pre');
+  pre.className = 'stage-text overflow-x-auto'; pre.textContent = 'Loading…';
+  det.appendChild(sum); det.appendChild(pre);
+  let loaded = false;
+  det.addEventListener('toggle', () => {
+    if (!det.open || loaded) return;
+    loaded = true;
+    loadGatePlan(nodeId, pre);
+  });
+  return det;
+}
+
+// loadGatePlan fills a plan panel's body with the node's produced text — its
+// response, falling back to its prompt, then a plain note. Every field is
+// attacker-controlled and lands via textContent (inert).
+async function loadGatePlan(nodeId, pre) {
+  try {
+    const r = await fetch(`/pipelines/${currentRun}/stages/${nodeId}`);
+    if (!r.ok) throw new Error(String(r.status));
+    const d = await r.json();
+    pre.textContent = d.response || d.prompt || '(no output captured for this node)';
+  } catch (e) {
+    pre.textContent = 'output unavailable';
+  }
 }
 
 // postJSON POSTs a JSON body and returns the raw Response, leaving status
@@ -2622,8 +2697,14 @@ function putJSON(url, body) {
 // option carries key+label (→ AnswerChoice); free text carries text only
 // (→ AnswerText). Values ride as plain data, never interpolated into markup —
 // the reason renderDock builds the dock via DOM rather than an HTML string.
-function gateAnswer(option, text) {
-  if (option) return { key: option.key, label: option.label };
+function gateAnswer(option, text, note) {
+  if (option) {
+    const payload = { key: option.key, label: option.label };
+    // An optional note rides a choice as text; omitted when blank so a plain
+    // approval stays a bare key+label payload.
+    if (note) payload.text = note;
+    return payload;
+  }
   return { text: text || '' };
 }
 
