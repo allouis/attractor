@@ -125,6 +125,36 @@ fail-and-retry), /nodes/{node} prompts, /stages/{node} after completion,
 /diff after an in-run commit, /questions round-trip. This is the
 regression net that was missing; it must fail on today's daemon.
 
+### P5 — live stage tails
+
+Watch a check's stdout grow while it runs, from the browser, under every
+runner. Four steps, in order — each is independently useful:
+
+1. **Manifest ownership split** (promoted from the codebase-review
+   backlog, persistence design C): the engine's identity record becomes
+   `run.json`; the daemon keeps `manifest.json`; JSON field names
+   unchanged so existing dirs load. After this every run-dir path has
+   exactly ONE writer — the property that makes sharing a run dir safe
+   at all (today the two manifest.json writers clobber each other on the
+   direct runner, and only guest-local disks protect VM runs).
+2. **tool.go streams to disk**: stdout/stderr go through
+   `io.MultiWriter(stage file, buffer)` so the files grow while the
+   command runs. Today they are written only after the command exits, so
+   no transport can tail a live check. Benefits every runner.
+3. **VM transport**: mount the child's logs root into the guest over rw
+   9p, host side under the daemon's run dir. Safe by construction after
+   step 1 (single writer per path); stage files carry no SQLite/mmap
+   load, so the G1 rw-9p pivot does not apply — but write-visibility
+   latency under 9p cache modes must be verified empirically, the same
+   way G1 was. direct/local runs already have host-visible files.
+4. **Tail endpoint**: `GET /pipelines/{id}/stages/{node}/tail?file=stdout&offset=N`
+   (long-poll or SSE) serving incremental reads; the feed's check blocks
+   (R2) upgrade from appears-when-done to live, ANSI-rendered.
+
+Explicitly rejected: streaming output through the event channel —
+multi-MB test logs would bloat events.jsonl and chunk the verbatim
+record; files stay files, the tail reads them.
+
 ## Phase 1 — the run view, rebuilt
 
 Built strictly on Phase 0 data. The existing run view is replaced, not
@@ -195,11 +225,18 @@ pending ones.
 | P2 | diff endpoint works for local/vm runs via the shared jj store; "no commits yet" distinguished from "no diff" | todo |
 | P3 | stage dirs upload at each stage_completed (terminal sweep stays as catch-all); /stages/{node} serves completed stages of LIVE runs under every runner | todo |
 | P4 | runner-parity e2e suite (direct vs local) over /state, /nodes, /stages (incl. tool stdout/stderr), /diff, /questions; red on pre-P1 daemon, green after P1-P3 | todo |
+| P5a | manifest ownership split: engine writes run.json, daemon owns manifest.json; direct-runner clobber window closed; reload tolerant of both layouts | todo |
+| P5b | tool handler streams stdout/stderr to stage files while the command runs | todo |
+| P5c | VM child logs root shared rw into the run dir (single-writer safe post-P5a); 9p write-visibility verified empirically | todo |
+| P5d | stages tail endpoint (offset reads, long-poll/SSE); feed check blocks render live | todo |
 | R1 | header card from /state | todo |
 | R2 | the feed (prose bubbles, collapsed tool rows, lifecycle dividers, gate turns, scope filter + breadcrumb) replacing the timeline as main surface | todo |
 | R3 | node inspector: prompt up front, response after completion, timing/attempts, per-node feed slice | todo |
 | R4 | graph height-capped/restyled/state-painted; hydrate-then-append everywhere; legacy timeline + client state accumulators deleted | todo |
 
-Sequencing: P1 → {P2, P3} → P4 gate closes Phase 0. R1 immediately after
-P1. R2 gets a visual mock approved at a human gate before
-implementation. R3 after P3. R4 last, deleting the old code paths.
+Sequencing: P1 → {P2, P3} → P4 gate closes Phase 0. P5a-P5d follow in
+order (P5a is independently valuable and can land any time; P5c waits
+for P5a; P5d waits for P5b+P5c) — P5 is Phase 0.5, not a Phase 1
+blocker. R1 immediately after P1. R2 gets a visual mock approved at a
+human gate before implementation; its live-tail upgrade arrives with
+P5d. R3 after P3. R4 last, deleting the old code paths.
