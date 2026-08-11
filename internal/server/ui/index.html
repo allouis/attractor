@@ -456,6 +456,9 @@ let es = null;                 // active EventSource
 let currentRun = null;         // run id being viewed
 let selectedNode = null;       // node id in the pane
 const nodeLog = {};            // node id -> accumulated log html chunks
+const nodeProse = {};          // node id -> raw prose chunks (no tool lines) — the
+                               // plan-at-gate fallback when the daemon has no stage
+                               // files (VM runs keep stages on the guest's disk)
 const nodeState = {};          // node id -> status class
 const nodeTiming = {};         // node id -> {start, end} ISO ts from the stream
 const nodeFindings = {};       // node id -> child-pipeline findings that node produced (T9b)
@@ -1619,6 +1622,7 @@ async function openRun(id) {
   currentRun = id;
   selectedNode = null;
   for (const k in nodeLog) delete nodeLog[k];
+  for (const k in nodeProse) delete nodeProse[k];
   for (const k in nodeState) delete nodeState[k];
   for (const k in nodeTiming) delete nodeTiming[k];
   for (const k in nodeFindings) delete nodeFindings[k];
@@ -1816,6 +1820,9 @@ function appendProgress(ev) {
     html = `<span class="tool">[${escapeHtml(name)}] ${escapeHtml(ev.message || '')}</span>\n`;
   } else if (ev.message) html = escapeHtml(ev.message) + '\n';
   if (!html) return;
+  if (kind !== 'tool_call' && ev.message) {
+    (nodeProse[node] = nodeProse[node] || []).push(ev.message);
+  }
   (nodeLog[node] = nodeLog[node] || []).push(html);
   if (node === selectedNode) {
     const log = $('node-log');
@@ -2662,16 +2669,21 @@ function gatePlanPanel(nodeId) {
 }
 
 // loadGatePlan fills a plan panel's body with the node's produced text — its
-// response, falling back to its prompt, then a plain note. Every field is
-// attacker-controlled and lands via textContent (inert).
+// response, falling back to the prose reconstructed from the event stream
+// (VM runs keep stage files on the guest's disk, so the daemon's stages
+// endpoint 404s; the streamed events are the only daemon-side copy), then
+// the prompt, then a plain note. Every field is attacker-controlled and
+// lands via textContent (inert).
 async function loadGatePlan(nodeId, pre) {
+  const streamed = (nodeProse[nodeId] || []).join('');
   try {
     const r = await fetch(`/pipelines/${currentRun}/stages/${nodeId}`);
     if (!r.ok) throw new Error(String(r.status));
     const d = await r.json();
-    pre.textContent = d.response || d.prompt || '(no output captured for this node)';
+    pre.textContent = d.response || streamed || d.prompt ||
+      '(no output captured for this node)';
   } catch (e) {
-    pre.textContent = 'output unavailable';
+    pre.textContent = streamed || 'output unavailable';
   }
 }
 
