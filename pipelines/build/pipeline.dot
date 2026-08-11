@@ -33,7 +33,7 @@ digraph build {
 
     start [shape=Mdiamond]
 
-    plan [type="codergen.acp", llm_model="claude-fable-5",
+    plan [type="codergen.acp", llm_model="claude-fable-5[1m]",
           thread_id="build", fidelity="full",
           timeout="20m", prompt="@prompts/plan.md"]
 
@@ -41,7 +41,7 @@ digraph build {
     // when run from a TTY; auto-approved in non-interactive runs.
     plan_gate [shape=hexagon, label="Does the plan make sense?"]
 
-    implement [type="codergen.acp", llm_model="claude-fable-5",
+    implement [type="codergen.acp", llm_model="claude-fable-5[1m]",
                thread_id="build", fidelity="full",
                timeout="120m", goal_gate=true, retry_target="plan",
                prompt="@prompts/implement.md"]
