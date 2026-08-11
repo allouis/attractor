@@ -10,10 +10,11 @@ import (
 )
 
 // runLoadArtifacts drives the real loadArtifacts from the embedded index.html
-// against a fake fetch where GET /pipelines/run1/diff returns diffBody. It
-// reports the Diff region's HTML and every URL fetched, so a test can assert
-// which diff source won (ui-tailwind-spec T9c).
-func runLoadArtifacts(t *testing.T, diffBody string) (diffHTML string, fetched []string) {
+// against a fake fetch where GET /pipelines/run1/diff returns diffBody with the
+// X-Diff-Status header set to diffStatus (P2). diffOK toggles the /diff response
+// status: when false the loader falls through to the *.diff artifact. It reports
+// the Diff region's HTML and every URL fetched (ui-tailwind-spec T9c / R4).
+func runLoadArtifacts(t *testing.T, diffBody, diffStatus string, diffOK bool) (diffHTML string, fetched []string) {
 	t.Helper()
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available; skipping UI wiring test")
@@ -27,6 +28,10 @@ func runLoadArtifacts(t *testing.T, diffBody string) (diffHTML string, fetched [
 	bodyFile := filepath.Join(t.TempDir(), "diff-body")
 	if err := os.WriteFile(bodyFile, []byte(diffBody), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	diffOKJS := "false"
+	if diffOK {
+		diffOKJS = "true"
 	}
 
 	harness := `
@@ -48,13 +53,16 @@ const list = { entries: [
   { path: 'events.jsonl', size: 12, is_dir: false },
 ] };
 const jjDiff = fs.readFileSync(process.argv[2], 'utf8');
+const diffStatus = process.argv[3];
+const diffOK = process.argv[4] === 'true';
+const headers = { get: (k) => k === 'X-Diff-Status' ? diffStatus : null };
 const fetched = [];
 const fetch = (url) => {
   fetched.push(url);
   if (url === '/pipelines/run1/artifacts')
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(list) });
   if (url === '/pipelines/run1/diff')
-    return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(jjDiff) });
+    return Promise.resolve({ ok: diffOK, status: diffOK ? 200 : 500, headers, text: () => Promise.resolve(jjDiff) });
   if (url === '/pipelines/run1/artifacts/artifacts/changes.diff')
     return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('@@ -1 +1 @@\n-old\n+artifact-fallback\n') });
   return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('') });
@@ -73,7 +81,7 @@ sandbox.loadArtifacts().then(() => {
   }));
 }).catch(e => { console.error(e); process.exit(3); });
 `
-	out, err := exec.Command("node", "-e", harness, uiPath, bodyFile).CombinedOutput()
+	out, err := exec.Command("node", "-e", harness, uiPath, bodyFile, diffStatus, diffOKJS).CombinedOutput()
 	if err != nil {
 		t.Fatalf("node harness failed: %v\n%s", err, out)
 	}
@@ -87,11 +95,11 @@ sandbox.loadArtifacts().then(() => {
 	return got.DiffHTML, got.Fetched
 }
 
-// TestLoadArtifactsPrefersJJDiff: when GET /diff returns a diff, the Diff panel
-// renders it and the *.diff artifact is never fetched — the jj-derived range
-// is the source of truth (T9c).
+// TestLoadArtifactsPrefersJJDiff: an "ok" /diff renders line-by-line and the
+// *.diff artifact is never fetched — the jj-derived range is the source of
+// truth (T9c).
 func TestLoadArtifactsPrefersJJDiff(t *testing.T) {
-	diffHTML, fetched := runLoadArtifacts(t, "diff --git a/foo b/foo\n@@ -1 +1 @@\n-x\n+jj-derived\n")
+	diffHTML, fetched := runLoadArtifacts(t, "diff --git a/foo b/foo\n@@ -1 +1 @@\n-x\n+jj-derived\n", "ok", true)
 
 	for _, want := range []string{"jj-derived", "diff-add", "diff-del"} {
 		if !strings.Contains(diffHTML, want) {
@@ -108,23 +116,43 @@ func TestLoadArtifactsPrefersJJDiff(t *testing.T) {
 	}
 }
 
-// TestLoadArtifactsFallsBackToArtifact: an empty GET /diff (VM / non-jj run)
-// falls back to auto-rendering the first *.diff artifact (T9c).
-func TestLoadArtifactsFallsBackToArtifact(t *testing.T) {
-	diffHTML, _ := runLoadArtifacts(t, "")
+// TestLoadArtifactsHonestEmptyStates: the X-Diff-Status header is authoritative
+// (R4) — an empty diff renders "no commits yet" or "not computable" honestly,
+// never the *.diff artifact fallback that would mask the real state.
+func TestLoadArtifactsHonestEmptyStates(t *testing.T) {
+	noCommits, fetched := runLoadArtifacts(t, "", "no-commits-yet", true)
+	if !strings.Contains(strings.ToLower(noCommits), "no commits yet") {
+		t.Errorf("no-commits-yet should render honestly:\n%s", noCommits)
+	}
+	for _, u := range fetched {
+		if strings.Contains(u, "changes.diff") {
+			t.Errorf("no-commits-yet must not fall back to the artifact: %v", fetched)
+		}
+	}
+
+	notComputable, _ := runLoadArtifacts(t, "", "not-computable", true)
+	if !strings.Contains(strings.ToLower(notComputable), "not computable") {
+		t.Errorf("not-computable should render honestly:\n%s", notComputable)
+	}
+}
+
+// TestLoadArtifactsFallsBackWhenDiffUnavailable: only when the /diff request
+// itself fails does the loader fall through to auto-rendering the first *.diff
+// artifact (T9c).
+func TestLoadArtifactsFallsBackWhenDiffUnavailable(t *testing.T) {
+	diffHTML, _ := runLoadArtifacts(t, "", "", false)
 
 	if !strings.Contains(diffHTML, "artifact-fallback") {
-		t.Errorf("empty jj diff should fall back to the artifact:\n%s", diffHTML)
+		t.Errorf("a failed /diff should fall back to the artifact:\n%s", diffHTML)
 	}
 }
 
 // TestLoadArtifactsCapsJJDiff proves the jj-diff path is size-capped like the
 // artifact path (T9c B3): a body past the render cap shows a "too large" note
-// instead of rendering, so a giant/binary diff can't freeze the tab. Mirrors
-// TestLoadArtifactsSkipsHugeDiff for the /diff source.
+// instead of rendering, so a giant/binary diff can't freeze the tab.
 func TestLoadArtifactsCapsJJDiff(t *testing.T) {
 	huge := "+" + strings.Repeat("x", 600*1024) + "\n"
-	diffHTML, _ := runLoadArtifacts(t, huge)
+	diffHTML, _ := runLoadArtifacts(t, huge, "ok", true)
 
 	if !strings.Contains(diffHTML, "too large") {
 		t.Errorf("oversized jj diff should show a too-large note:\n%.200s", diffHTML)

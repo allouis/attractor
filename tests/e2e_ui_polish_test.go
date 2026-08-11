@@ -59,31 +59,11 @@ func TestServer_UI_Polish(t *testing.T) {
 		t.Errorf("nodeInspectorBody output block not overflow-x-auto (wide output overflows):\n%s", outputBody)
 	}
 
-	// Interactive controls are ≥40px touch targets: the toolbar, config, modal
-	// and button rules each set min-height: 2.5rem.
-	if n := strings.Count(page, "min-height: 2.5rem"); n < 3 {
-		t.Errorf("only %d control rules set a ≥40px touch target (want the toolbar/config/modal/button rules)", n)
+	// Interactive controls are ≥40px touch targets: the toolbar controls and the
+	// button rule each set min-height: 2.5rem (config/modal controls use the
+	// min-h-10 utility). The legacy event-filter row was deleted with the
+	// timeline in R4.
+	if n := strings.Count(page, "min-height: 2.5rem"); n < 2 {
+		t.Errorf("only %d control rules set a ≥40px touch target (want the toolbar + button rules)", n)
 	}
-
-	// The event-filter row wraps instead of overflowing at a narrow width.
-	if rule := styleRule(t, page, ".tl-controls"); !strings.Contains(rule, "flex-wrap: wrap") {
-		t.Errorf(".tl-controls does not wrap (filter row overflows at ≤640px):\n%s", rule)
-	}
-}
-
-// styleRule returns the body of the first CSS rule for the exact selector in the
-// page's <style> block (from `selector {` to the next `}`), so an assertion
-// scopes to one rule instead of matching a declaration page-wide.
-func styleRule(t *testing.T, page, selector string) string {
-	t.Helper()
-	start := strings.Index(page, selector+" {")
-	if start < 0 {
-		t.Fatalf("style rule %q not found in page", selector)
-	}
-	rest := page[start:]
-	end := strings.Index(rest, "}")
-	if end < 0 {
-		return rest
-	}
-	return rest[:end]
 }

@@ -265,22 +265,6 @@
   #human-dock .gate-note { width: 100%; box-sizing: border-box; margin: var(--space-2) 0;
                            font: inherit; resize: vertical; }
   #human-dock .q-opts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-  /* Event timeline (web-ui-v2-spec U3): the full, filterable run event log —
-     a scrollable feed under the graph so the whole history is one glance. */
-  #event-timeline { margin-top: var(--space-4); }
-  #event-timeline h3 { margin: 0 0 var(--space-2); }
-  .tl-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
-  .tl-controls select, .tl-controls input { min-height: 2.5rem; }
-  .tl-controls input { flex: 1; }
-  .timeline { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
-              max-height: 360px; overflow: auto; font: var(--font-sm)/1.45 ui-monospace, monospace; }
-  .tl-row { display: flex; align-items: baseline; gap: var(--space-2);
-            padding: var(--space-1) var(--space-3); border-bottom: 1px solid var(--border); }
-  .tl-row:last-child { border-bottom: 0; }
-  .tl-time { color: var(--text-muted); white-space: nowrap; }
-  .tl-kind { flex: none; }
-  .tl-node { color: var(--text-muted); }
-  .tl-msg { white-space: pre-wrap; word-break: break-word; }
   /* Run diff + artifacts (web-ui-v2-spec U4). The diff renders line-by-line;
      add/del reuse the state tokens so they read in both themes. The artifact
      browser is a list of clickable file rows over GET …/artifacts. */
@@ -564,8 +548,7 @@
     </div>
     <!-- R2 feed (ui-run-view-v3): the run as a conversation-like stream — the
          page's main surface. Built from the SSE replay history, appended to by
-         live events. The legacy Events timeline stays below for now (R4 deletes
-         it once the feed has proven itself). -->
+         live events. It replaced the legacy Events timeline (deleted in R4). -->
     <section id="run-feed">
       <div id="feed-crumb" class="fe-crumb"></div>
       <div id="feed" class="feed"></div>
@@ -578,14 +561,6 @@
       <h3>Artifacts</h3>
       <div id="run-artifacts-list" class="artifacts"></div>
       <div id="run-artifact-view"></div>
-    </section>
-    <section id="event-timeline">
-      <h3>Events</h3>
-      <div class="tl-controls">
-        <select id="tl-kind" aria-label="filter events by kind"><option value="">all kinds</option></select>
-        <input id="tl-text" placeholder="filter events…" aria-label="filter events by text">
-      </div>
-      <div id="tl-rows" class="timeline"></div>
     </section>
   </section>
 </main>
@@ -624,11 +599,10 @@ let configLoaded = null;       // last GET /config doc (redacted) the view rende
 let linearClear = false;       // pending explicit Linear-key clear (Clear button)
 let configDirty = false;       // Config view has unsaved edits (nav/unload guard)
 let activeView = null;         // id of the section route() last showed
-const timeline = [];           // run detail: {kind, ev} per streamed event (U3)
 
 // EVENT_KINDS is every engine event kind the SSE stream carries (engine
 // events.go). attachStream registers one dispatch per kind so the replay
-// cursor stays authoritative for the whole stream and the U3 timeline sees
+// cursor stays authoritative for the whole stream and the R2 feed ingests
 // them all — even kinds with no graph side-effect.
 const EVENT_KINDS = [
   'pipeline_started', 'pipeline_completed', 'pipeline_failed',
@@ -636,18 +610,6 @@ const EVENT_KINDS = [
   'stage_progress', 'checkpoint_saved',
   'interview_started', 'interview_answered', 'interview_timeout', 'usage',
 ];
-
-// TIMELINE_SKIP are kinds the U3 timeline does NOT log. stage_progress is
-// emitted once per assistant token (acp.go / claudecode.go) — thousands per
-// run; it feeds the run feed (R2) and the node's prose accumulator, not a
-// high-level timeline event. It still flows through the dispatch (paint +
-// prose side-effects and the replay cursor), it just never becomes a row.
-const TIMELINE_SKIP = new Set(['stage_progress']);
-
-// TIMELINE_MAX caps the retained event log so a long-running or looping run
-// can't grow the array + DOM without bound. Past the cap the oldest events are
-// dropped — a debugger cares about the recent window, above all the failure.
-const TIMELINE_MAX = 2000;
 
 // STANDARD_CHECKS are the checks the current pipelines reference; the Repos
 // panel surfaces them as fixed columns even when a repo sets none. The
@@ -1666,8 +1628,8 @@ function runOriginCell(p) {
   return `<span class="origin origin-${o}">${o}</span>`;
 }
 
-// runMatchesFilter narrows the polled fleet client-side (web-ui-v2-spec U7),
-// mirroring eventMatchesFilter. status is exact except the needs-human
+// runMatchesFilter narrows the polled fleet client-side (web-ui-v2-spec U7).
+// status is exact except the needs-human
 // pseudo-status, which keys the run's live-blocked flag (needs_human is
 // orthogonal to status — a blocked run is still "running"). workflow / repo /
 // origin are exact; text matches case-insensitively across id, item ref,
@@ -1782,7 +1744,6 @@ async function openRun(id) {
   activeParentNode = null;
   lastCompletedNode = null;
   pinnedNode = false;
-  timeline.length = 0;
   feedReset();
   highlightNav('runs');
   showView('run-view');
@@ -1791,9 +1752,6 @@ async function openRun(id) {
   loadRunState(id);
   $('run-failure').innerHTML = '';
   $('run-blocked').innerHTML = '';
-  if ($('tl-text')) $('tl-text').value = '';
-  if ($('tl-kind')) $('tl-kind').value = '';
-  renderTimeline();
   $('node-pane').innerHTML = '<p class="muted">Click a node to inspect it.</p>';
   $('run-artifact-view').innerHTML = '';
   $('run-actions').innerHTML = '';
@@ -2051,7 +2009,7 @@ function attachStream(id) {
   // Every kind is registered through one table so a single dispatch point
   // handles the run (kinds with no side-effect map to null). Registering all
   // of them keeps the applied/pos replay cursor authoritative for the whole
-  // stream — the U3 timeline recorder hangs off this same dispatch.
+  // stream — the R2 feed's ingest hangs off this same dispatch.
   const HANDLERS = {
     stage_started:   ev => {
       // Track the active parent node so a forwarded child terminal (which
@@ -2103,15 +2061,12 @@ function attachStream(id) {
     interview_answered: () => refreshDock(),
     interview_timeout:  () => refreshDock(),
   };
-  // Every event runs its kind's side-effect (if any) and — unless it is a
-  // high-frequency kind (TIMELINE_SKIP) — lands in the U3 timeline. One
-  // dispatch keeps the applied/pos cursor authoritative for both.
+  // Every event runs its kind's side-effect (if any) and reshapes into the R2
+  // feed through this one dispatch, so the feed is built exactly once and the
+  // applied/pos replay cursor stays authoritative for the whole stream.
   for (const kind of EVENT_KINDS) {
     const fn = HANDLERS[kind];
-    const record = !TIMELINE_SKIP.has(kind);
-    // feedIngest reshapes the same event into the R2 feed; it shares this one
-    // dispatch (and its replay cursor) so the feed is built exactly once.
-    on(kind, ev => { if (record) recordTimelineEvent(kind, ev); feedIngest(kind, ev); if (fn) fn(ev); });
+    on(kind, ev => { feedIngest(kind, ev); if (fn) fn(ev); });
   }
   es.onerror = () => { /* transient; EventSource retries on its own */ };
 }
@@ -2127,68 +2082,6 @@ function appendProgress(ev) {
   if (kind !== 'tool_call' && ev.message) {
     (nodeProse[node] = nodeProse[node] || []).push(ev.message);
   }
-}
-
-// recordTimelineEvent appends one streamed event to the run's event log and
-// its row to the timeline (web-ui-v2-spec U3). Appending a single row keeps a
-// run of N events at O(N) total work — a full renderTimeline() rebuild per
-// event would be O(N^2) and freeze the main thread on any real run.
-function recordTimelineEvent(kind, ev) {
-  timeline.push({ kind, ev });
-  if (timeline.length > TIMELINE_MAX) {
-    // Over the cap: drop the oldest and rebuild the (now bounded) window. This
-    // is the only O(TIMELINE_MAX) path and it fires at most once per event once
-    // capped — still bounded, never the unbounded O(N) of the pre-cap rebuild.
-    timeline.shift();
-    renderTimeline();
-    return;
-  }
-  appendTimelineRow(kind, ev);
-}
-
-// appendTimelineRow adds one event's row to #tl-rows when it passes the active
-// filter, clearing the empty-state placeholder on the first row and following
-// the tail. Full-rebuild paths (filter change, run reset) go through
-// renderTimeline instead.
-function appendTimelineRow(kind, ev) {
-  const rows = $('tl-rows');
-  if (!rows) return;
-  if (!eventMatchesFilter(kind, ev, timelineFilter())) return;
-  if (rows.querySelector('.state')) rows.innerHTML = '';
-  rows.insertAdjacentHTML('beforeend', timelineRowHtml(kind, ev));
-  rows.scrollTop = rows.scrollHeight;
-}
-
-// timelineFilter reads the active kind + text filter from the controls.
-function timelineFilter() {
-  return { kind: $('tl-kind')?.value || '', text: $('tl-text')?.value || '' };
-}
-
-// renderTimeline rebuilds #tl-rows from the recorded timeline through the
-// active filter. Used on a filter change or run reset — a live event appends a
-// single row (appendTimelineRow) instead. An empty result distinguishes "no
-// events yet" from "filtered everything out".
-function renderTimeline() {
-  const rows = $('tl-rows');
-  if (!rows) return;
-  const f = timelineFilter();
-  const html = timeline
-    .filter(e => eventMatchesFilter(e.kind, e.ev, f))
-    .map(e => timelineRowHtml(e.kind, e.ev))
-    .join('');
-  rows.innerHTML = html || emptyState(timeline.length ? 'no events match the filter' : 'no events yet');
-}
-
-// eventMatchesFilter is the U3 timeline filter predicate. An empty kind keeps
-// any kind; a kind keeps only that kind. An empty text keeps any event; text
-// matches case-insensitively against the message and node id. Both conditions
-// must hold, so kind + text narrow together.
-function eventMatchesFilter(kind, ev, filter) {
-  if (filter.kind && kind !== filter.kind) return false;
-  const q = (filter.text || '').toLowerCase();
-  if (!q) return true;
-  const hay = `${ev.message || ''} ${ev.node_id || ''}`.toLowerCase();
-  return hay.includes(q);
 }
 
 // failureBannerHtml renders the run header's failure reason prominently
@@ -2252,19 +2145,6 @@ function blockedBannerHtml(questions) {
   if (!n) return '';
   const noun = n === 1 ? 'answer' : 'answers';
   return `<p class="banner blocked" role="alert">Waiting on you — ${escapeHtml(String(n))} open ${noun}.</p>`;
-}
-
-// timelineRowHtml renders one run event as a timeline row (web-ui-v2-spec U3):
-// relative timestamp (full ISO on hover, via fmtDate), a kind badge, the node
-// id when the event has one, and the message. Every field is attacker-
-// controlled — kind, node and message are all escaped inert.
-function timelineRowHtml(kind, ev) {
-  const node = ev.node_id ? `<span class="tl-node">${escapeHtml(ev.node_id)}</span>` : '';
-  const msg = ev.message ? `<span class="tl-msg">${escapeHtml(ev.message)}</span>` : '';
-  return `<div class="tl-row">` +
-    `<span class="tl-time">${fmtDate(ev.ts)}</span>` +
-    `<span class="badge tl-kind">${escapeHtml(kind)}</span>` +
-    node + msg + `</div>`;
 }
 
 // isDiffPath reports whether an artifact path looks like a produced diff (U4):
@@ -2687,7 +2567,7 @@ async function loadArtifacts() {
   try {
     const r = await fetch(`/pipelines/${run}/diff`);
     if (r.ok) {
-      const status = r.headers.get('X-Diff-Status') || '';
+      const status = r.headers?.get('X-Diff-Status') || '';
       const text = await r.text();
       if (stale()) return;
       // Cap the jj-diff render like the artifact path (T9c B3): a body past the
@@ -2821,7 +2701,7 @@ function feedPush(entry) {
 }
 
 // feedIngest turns one streamed event into feed entries (or accumulates into
-// the open one). It runs on the SAME dispatch as the timeline/graph, gated by
+// the open one). It runs on the SAME dispatch as the graph re-hydrate, gated by
 // the replay cursor, so a reconnect never double-ingests. Child-run events are
 // the nested pipeline's transcript, not this feed's.
 function feedIngest(kind, ev) {
@@ -3859,12 +3739,6 @@ window.addEventListener('load', () => {
   $('workflow-expand')?.addEventListener('change', renderWorkflowGraph);
   // Re-render the current run's graph with the chosen graphviz layout engine.
   $('graph-engine')?.addEventListener('change', () => { if (currentRun) loadGraph(currentRun); });
-  // Event-timeline filters (web-ui-v2-spec U3): seed the kind dropdown from the
-  // known kinds, then re-render on either control changing.
-  const kindSel = $('tl-kind');
-  if (kindSel) for (const k of EVENT_KINDS) kindSel.insertAdjacentHTML('beforeend', `<option value="${k}">${k}</option>`);
-  $('tl-kind')?.addEventListener('change', renderTimeline);
-  $('tl-text')?.addEventListener('input', renderTimeline);
   // R2 feed: the crumb toggles kind filters + resets scope; the feed itself
   // scopes on a node chip, expands checks, and unclamps a prose bubble. All
   // delegated — the feed is innerHTML, re-rendered on every event.
