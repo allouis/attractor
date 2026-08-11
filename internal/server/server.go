@@ -171,6 +171,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/diff", s.getRunDiff)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts", s.listArtifacts)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", s.getArtifact)
+	mux.HandleFunc("GET /pipelines/{id}/state", s.getRunState)
 	mux.HandleFunc("GET /pipelines/{id}/stages/{node}", s.getStage)
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.listQuestions)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
