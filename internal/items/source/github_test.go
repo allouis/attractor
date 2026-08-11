@@ -154,7 +154,7 @@ func TestGitHubListError(t *testing.T) {
 	}
 }
 
-const ghPRJSON = `{"number": 42, "title": "Fix login", "url": "https://github.com/allouis/attractor/pull/42", "repository": {"nameWithOwner": "allouis/attractor"}}`
+const ghPRJSON = `{"number": 42, "title": "Fix login", "url": "https://github.com/allouis/attractor/pull/42", "body": "Fixes SSO login.", "repository": {"nameWithOwner": "allouis/attractor"}}`
 
 func TestGitHubGet(t *testing.T) {
 	fr := &fakeRunner{out: []byte(ghPRJSON)}
@@ -168,12 +168,14 @@ func TestGitHubGet(t *testing.T) {
 	want := Item{
 		Ref:   ref,
 		Title: "Fix login",
+		Body:  "Fixes SSO login.",
 		URL:   "https://github.com/allouis/attractor/pull/42",
 		Vars: map[string]string{
 			"repo":      "allouis/attractor",
 			"pr_number": "42",
 			"url":       "https://github.com/allouis/attractor/pull/42",
 			"title":     "Fix login",
+			"body":      "Fixes SSO login.",
 		},
 	}
 	if !reflect.DeepEqual(item, want) {
@@ -211,6 +213,7 @@ func TestGitHubGetIssue(t *testing.T) {
 			"issue_number": "100",
 			"url":          "https://github.com/allouis/attractor/issues/100",
 			"title":        "Doc bug",
+			"body":         "",
 		},
 	}
 	if !reflect.DeepEqual(item, want) {

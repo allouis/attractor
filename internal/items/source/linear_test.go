@@ -36,7 +36,7 @@ func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
 }
 
 const linearIssuesJSON = `{"data":{"viewer":{"assignedIssues":{"nodes":[
-  {"id":"abc-1","identifier":"ENG-42","title":"Fix login","url":"https://linear.app/acme/issue/ENG-42"},
+  {"id":"abc-1","identifier":"ENG-42","title":"Fix login","url":"https://linear.app/acme/issue/ENG-42","description":"Login breaks on SSO."},
   {"id":"def-2","identifier":"ENG-7","title":"Items view","url":"https://linear.app/acme/issue/ENG-7"}
 ]}}}}`
 
@@ -54,19 +54,29 @@ func TestLinearListParsesIssues(t *testing.T) {
 	want := Item{
 		Ref:   items.ItemRef{Source: "linear", Type: "issue", ExternalID: "abc-1"},
 		Title: "Fix login",
+		Body:  "Login breaks on SSO.",
 		URL:   "https://linear.app/acme/issue/ENG-42",
 		Vars: map[string]string{
 			"url":        "https://linear.app/acme/issue/ENG-42",
 			"title":      "Fix login",
 			"identifier": "ENG-42",
+			"body":       "Login breaks on SSO.",
 		},
 	}
 	if !reflect.DeepEqual(got[0], want) {
 		t.Errorf("item[0] =\n %+v\nwant\n %+v", got[0], want)
 	}
+	// An issue with no description still seeds body (empty) — `vars=` in
+	// consuming pipelines treats it as a required input.
+	if v, ok := got[1].Vars["body"]; !ok || v != "" {
+		t.Errorf("descriptionless issue body var = %q, %v; want present and empty", v, ok)
+	}
+	if fd := src.doer.(*fakeDoer); !strings.Contains(fd.sent, "description") {
+		t.Errorf("query should request description; sent: %s", fd.sent)
+	}
 }
 
-const linearIssueJSON = `{"data":{"issue":{"id":"abc-1","identifier":"ENG-42","title":"Fix login","url":"https://linear.app/acme/issue/ENG-42"}}}`
+const linearIssueJSON = `{"data":{"issue":{"id":"abc-1","identifier":"ENG-42","title":"Fix login","url":"https://linear.app/acme/issue/ENG-42","description":"Login breaks on SSO."}}}`
 
 func TestLinearGet(t *testing.T) {
 	fd := &fakeDoer{body: linearIssueJSON}
@@ -80,11 +90,13 @@ func TestLinearGet(t *testing.T) {
 	want := Item{
 		Ref:   ref,
 		Title: "Fix login",
+		Body:  "Login breaks on SSO.",
 		URL:   "https://linear.app/acme/issue/ENG-42",
 		Vars: map[string]string{
 			"url":        "https://linear.app/acme/issue/ENG-42",
 			"title":      "Fix login",
 			"identifier": "ENG-42",
+			"body":       "Login breaks on SSO.",
 		},
 	}
 	if !reflect.DeepEqual(item, want) {

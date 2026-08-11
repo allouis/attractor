@@ -2,13 +2,19 @@ Plan the change issue $context.identifier — "$context.title" — asks for,
 in $context.repo. Planning only: write no code, make no commits.
 
 The issue is at $context.url. The repo is checked out in your working
-directory.
+directory. The issue body as fetched at dispatch time (may be empty —
+if so, work from the title and say so in the plan):
+
+---
+$context.body
+---
 
 1. Record the review base **before anything else**: run
    `jj log -r @ --no-graph -T change_id` and keep the result — you will
    report it as `review_base`. The final review diffs everything from
    this change id, so it must be captured before any commit exists.
-2. Read the issue carefully. Then read the code it touches: find the
+2. Read the issue body above carefully (do not assume you can reach the
+   issue tracker from this environment). Then read the code it touches: find the
    relevant modules, existing patterns, and existing test coverage.
 3. Write a concise implementation plan:
    - Scope: what the issue asks for, and explicitly what is out of scope.

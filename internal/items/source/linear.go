@@ -20,7 +20,7 @@ const linearEndpoint = "https://api.linear.app/graphql"
 // Duplicate) so the first-N window isn't consumed by closed work — a
 // large done backlog would otherwise crowd out active issues. The
 // client-side resolved() check stays as defence in depth.
-const linearQuery = `{ viewer { assignedIssues(first: 100, filter: { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }) { nodes { id identifier title url state { type name } } } } }`
+const linearQuery = `{ viewer { assignedIssues(first: 100, filter: { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }) { nodes { id identifier title url description state { type name } } } } }`
 
 // httpDoer is the subset of *http.Client the Linear source needs;
 // injectable so tests replay canned GraphQL responses.
@@ -43,11 +43,12 @@ func NewLinear(apiKey string) *Linear {
 // linearIssue is the subset of an issue node mapped into an Item, shared
 // by List and Get.
 type linearIssue struct {
-	ID         string `json:"id"`
-	Identifier string `json:"identifier"`
-	Title      string `json:"title"`
-	URL        string `json:"url"`
-	State      struct {
+	ID          string `json:"id"`
+	Identifier  string `json:"identifier"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	State       struct {
 		Type string `json:"type"`
 		Name string `json:"name"`
 	} `json:"state"`
@@ -68,11 +69,17 @@ func (n linearIssue) item() Item {
 	return Item{
 		Ref:   items.ItemRef{Source: "linear", Type: "issue", ExternalID: n.ID},
 		Title: n.Title,
+		Body:  n.Description,
 		URL:   n.URL,
 		Vars: map[string]string{
 			"url":        n.URL,
 			"title":      n.Title,
 			"identifier": n.Identifier,
+			// Always present (empty when the issue has no description) so
+			// pipelines can declare `body` as a required input and agents in
+			// credential-less environments (VMs) get the issue text without
+			// needing to reach Linear themselves.
+			"body": n.Description,
 		},
 	}
 }
@@ -107,7 +114,7 @@ func (l *Linear) List(ctx context.Context, _ Filter) ([]Item, error) {
 }
 
 // linearIssueQuery fetches a single issue by id (external-id form).
-const linearIssueQuery = `query($id:String!){ issue(id:$id){ id identifier title url } }`
+const linearIssueQuery = `query($id:String!){ issue(id:$id){ id identifier title url description } }`
 
 // Get resolves one issue by its ItemRef external id.
 func (l *Linear) Get(ctx context.Context, ref items.ItemRef) (Item, error) {

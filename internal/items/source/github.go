@@ -44,6 +44,7 @@ type ghSearchResult struct {
 	Number     int    `json:"number"`
 	Title      string `json:"title"`
 	URL        string `json:"url"`
+	Body       string `json:"body"`
 	Repository struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
@@ -90,7 +91,7 @@ func (g *GitHub) List(ctx context.Context, filter Filter) ([]Item, error) {
 // result to an Item of the given type. extra carries query flags such as
 // --author=@me.
 func (g *GitHub) search(ctx context.Context, kind, typ string, extra ...string) ([]Item, error) {
-	args := append([]string{"search", kind, "--state=open", "--json", "number,title,url,repository"}, extra...)
+	args := append([]string{"search", kind, "--state=open", "--json", "number,title,url,body,repository"}, extra...)
 	out, err := g.run(ctx, args...)
 	if err != nil {
 		return nil, err
@@ -126,7 +127,7 @@ func (g *GitHub) Get(ctx context.Context, ref items.ItemRef) (Item, error) {
 	}
 	// `gh pr|issue view` has no `repository` JSON field (unlike `gh
 	// search`); the repo is already known from the ref, so we set it below.
-	out, err := g.run(ctx, sub, "view", num, "--repo", repo, "--json", "number,title,url")
+	out, err := g.run(ctx, sub, "view", num, "--repo", repo, "--json", "number,title,url,body")
 	if err != nil {
 		return Item{}, err
 	}
@@ -158,12 +159,16 @@ func (r ghSearchResult) item(kind string) Item {
 	return Item{
 		Ref:   items.ItemRef{Source: "github", Type: kind, ExternalID: repo + "#" + num},
 		Title: r.Title,
+		Body:  r.Body,
 		URL:   r.URL,
 		Vars: map[string]string{
 			"repo":           repo,
 			kind + "_number": num,
 			"url":            r.URL,
 			"title":          r.Title,
+			// Always present (empty when there is no body) — see the Linear
+			// source's item() for why.
+			"body": r.Body,
 		},
 	}
 }
