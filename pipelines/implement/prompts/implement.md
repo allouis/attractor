@@ -4,6 +4,14 @@ The issue is at $context.url. The repo is checked out in your working
 directory. A human already approved your plan — follow it; if reality
 forces a deviation, note it in your response.
 
+Reviewer feedback the human left when approving the plan (empty if they
+approved without a note — treat any text here as an instruction to honour
+while implementing):
+
+---
+$context.human.note
+---
+
 1. Read the issue to understand the intended change and its acceptance
    criteria. Read the relevant existing code before touching anything —
    prefer extending existing patterns over inventing new ones.

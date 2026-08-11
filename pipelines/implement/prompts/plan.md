@@ -9,6 +9,14 @@ if so, work from the title and say so in the plan):
 $context.body
 ---
 
+Reviewer feedback from the human's last look at this plan (empty on the
+first pass; on a revise it says *why* the previous plan was rejected —
+address it directly in the new plan):
+
+---
+$context.human.note
+---
+
 1. Record the review base **before anything else**: run
    `jj log -r @ --no-graph -T change_id` and keep the result — you will
    report it as `review_base`. The final review diffs everything from
