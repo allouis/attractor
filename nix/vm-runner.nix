@@ -111,6 +111,19 @@ let
             git update-ref HEAD "$base_commit" &&
             git read-tree HEAD
           ) || echo "attractor-vm-run: git metadata setup failed (continuing)" >&2
+          # Submodules: jj tracks only the gitlink, so their CONTENT is absent
+          # from the materialized workspace (Ghost's default themes live in
+          # submodules — the app 500s without them). Add the repo's real
+          # origin so .gitmodules' relative URLs resolve, then fetch over the
+          # network. Non-fatal: tests rarely need submodules, app runs do.
+          if [ -f "$cwd/.gitmodules" ]; then
+            (
+              cd "$cwd" &&
+              origin_url=$(git config --file /mnt/repo/.git/config remote.origin.url 2>/dev/null || true) &&
+              { [ -z "$origin_url" ] || git remote add origin "$origin_url" 2>/dev/null || true; } &&
+              git submodule update --init --recursive --depth 1
+            ) || echo "attractor-vm-run: submodule init failed (continuing)" >&2
+          fi
         fi
       fi
 
