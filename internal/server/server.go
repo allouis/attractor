@@ -62,6 +62,11 @@ type Server struct {
 	workflowsDir   string
 	sched          *scheduler.Scheduler
 
+	// tailWait bounds how long GET /stages/{node}/tail long-polls a live stage
+	// file for growth before returning empty (ui-run-view-v3 P5d). Tests set it
+	// small.
+	tailWait time.Duration
+
 	mu          sync.RWMutex
 	automations []automation.Automation
 }
@@ -150,6 +155,7 @@ func New(cfg Config) *Server {
 	if s.defaultRunner == "" {
 		s.defaultRunner = "direct"
 	}
+	s.tailWait = 25 * time.Second
 	// Stamp the run's host jj change-id range around launch (T9c/P2): the base
 	// at start for every jj runner (a vm run's per-run workspace is based on it),
 	// the tip once a direct/local run's commits have landed. A vm run stamps no
@@ -177,6 +183,7 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /pipelines/{id}/state", s.getRunState)
 	mux.HandleFunc("GET /pipelines/{id}/nodes/{node}", s.getRunNode)
 	mux.HandleFunc("GET /pipelines/{id}/stages/{node}", s.getStage)
+	mux.HandleFunc("GET /pipelines/{id}/stages/{node}/tail", s.getStageTail)
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.listQuestions)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answerQuestion)
 	mux.HandleFunc("GET /pipelines/{id}/checkpoint", s.getCheckpoint)
