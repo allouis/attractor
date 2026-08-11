@@ -216,6 +216,12 @@ client consumers, and the web UI is JS that no Go typing protects.
 6. Per-branch stage dir in parallel.go (the data race)
 7. Untrack `serve.log`; delete `Conn.Done`/`Conn.Err`, dead `resuming`
    variable, dead `Diagnostic.Fix` field
+8. `config.InferProvider` prefix collision: any model starting with "o"
+   (e.g. the `opus[1m]` alias) infers provider "openai" via the
+   o1/o3-series rule and misroutes; pipelines work around it today with
+   explicit `llm_provider="anthropic"`. Tighten the rule (e.g. `o` +
+   digit) and retire the pre-router `acp_command_missing` lint warning
+   while in there
 
 **Next (M)**
 8. Server writes through `runstore.Dir` + extend guard_fswrite_test
