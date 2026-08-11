@@ -167,7 +167,7 @@ done
 
 Features here are built **by attractor**: write a spec under `docs/` with a
 **milestone ledger** (a table with a Status column), then run the
-`build-review` pipeline once per milestone. It does
+`build` pipeline once per milestone. It does
 plan → implement (TDD) → verify (gate) → **review-core 5-lens loop** →
 record (commits atomically via jj, flips the milestone to `done`).
 
@@ -175,7 +175,7 @@ record (commits atomically via jj, flips the milestone to `done`).
 BASE=$(jj log -r @- --no-graph -T change_id | tr -d '[:space:]')
 ./result/bin/attractor run --backend acp --acp-cmd claude-agent-acp \
   --var spec=docs/<spec>.md --var review_base=$BASE \
-  --logs ~/.attractor/runs/<milestone> pipelines/build-review/pipeline.dot
+  --logs ~/.attractor/runs/<milestone> pipelines/build/pipeline.dot
 ```
 
 `review_base` is the change id **before** this run's first milestone commit

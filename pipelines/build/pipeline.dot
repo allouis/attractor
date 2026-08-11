@@ -1,12 +1,13 @@
-// build-review — the generic milestone-build pipeline, but with the
-// review step replaced by the shared multi-lens review-core fanout
-// (five adversarial lenses + a synth verdict), looping implement/fix
-// against review until the verdict passes (no blocking comments left).
+// build — the milestone-build pipeline. Implements the next `todo`
+// milestone from the spec passed as --var spec=<path>, one per run,
+// gated by tests then the shared multi-lens review-core fanout (five
+// adversarial lenses + a synth verdict), looping implement/fix against
+// review until the verdict passes (no blocking comments left).
 //
 //   BASE=$(jj log -r @- --no-graph -T change_id | tr -d '[:space:]')
 //   attractor run --backend acp \
-//     --var spec=docs/web-ui-spec.md --var review_base=$BASE \
-//     --logs ~/.attractor/runs/webui-W1 pipelines/build-review/pipeline.dot
+//     --var spec=docs/<spec>.md --var review_base=$BASE \
+//     --logs ~/.attractor/runs/<milestone> pipelines/build/pipeline.dot
 //
 // review_base is the change id of the commit BEFORE this run's first
 // milestone commit; the review lenses diff `--from $review_base --to @`
@@ -24,7 +25,7 @@
 // failure reason into the parent context) and the change itself from
 // `jj diff --from $context.review_base --to @`.
 
-digraph build_review {
+digraph build {
     goal = "Implement the next todo milestone from $context.spec"
     acp_command = "claude-agent-acp"
     cwd = "/home/agent/attractor"

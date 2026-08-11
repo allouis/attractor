@@ -1,17 +1,17 @@
-// review-record — the tail of build-review, for a milestone whose
+// review-record — the tail of the build pipeline, for a milestone whose
 // implementation is already committed: run the multi-lens review-core
 // fanout on the milestone diff, loop fix<->review until the synth
 // verdict passes (no blocking findings), then record (flip the ledger).
 //
-// Used when implement already ran in a prior (interrupted) build-review
-// run, so re-running plan/implement would only churn. Same review loop
-// and fix/record prompts as build-review.
+// Used when implement already ran in a prior (interrupted) build run,
+// so re-running plan/implement would only churn. Same review loop and
+// fix/record prompts as the build pipeline.
 //
 //   BASE=<change id before the milestone's first commit>
 //   attractor run --backend acp \
 //     --var spec=docs/web-ui-spec.md --var review_base=$BASE \
-//     --logs ~/.attractor/runs/webui-W1r \
-//     pipelines/build-review/review-record.dot
+//     --logs ~/.attractor/runs/<milestone>r \
+//     pipelines/build/review-record.dot
 
 digraph review_record {
     goal = "Review and record the implemented milestone from $context.spec"
