@@ -101,6 +101,81 @@ func TestUploadDirUploadsFilesWithRelPaths(t *testing.T) {
 	}
 }
 
+// UploadStageDir uploads just one stage's directory incrementally (at
+// stage_completed), keying each file by its path relative to the run root —
+// the same key the terminal UploadDir sweep uses — so a completed stage's
+// files reach the daemon while the run is still live. Nested child-pipeline
+// dirs beneath the node are included; files outside the node dir are not.
+func TestUploadStageDirKeysRelativeToRoot(t *testing.T) {
+	var (
+		mu  sync.Mutex
+		got = map[string]string{}
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /pipelines/{id}/artifacts/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got[r.PathValue("path")] = string(body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	root := t.TempDir()
+	must := func(p, c string) {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("implement/response.md", "R")
+	must("implement/status.json", "S")
+	must("implement/child/status.json", "C") // nested manager_loop child
+	must("plan/status.json", "P")            // a different stage
+	must("events.jsonl", "E")                // daemon-owned, run root
+
+	c := New(srv.URL, "run1", "tok")
+	if err := c.UploadStageDir(root, "implement", nil); err != nil {
+		t.Fatalf("UploadStageDir: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := map[string]string{
+		"implement/response.md":       "R",
+		"implement/status.json":       "S",
+		"implement/child/status.json": "C",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("uploaded[%q] = %q, want %q (all: %v)", k, got[k], v, got)
+		}
+	}
+	if _, ok := got["plan/status.json"]; ok {
+		t.Fatalf("uploaded a file outside the requested stage dir")
+	}
+	if _, ok := got["events.jsonl"]; ok {
+		t.Fatalf("uploaded a run-root file outside the stage dir")
+	}
+}
+
+// A stage that completed without writing any files (its dir doesn't exist)
+// is not an error — the terminal sweep still covers it if it appears later.
+func TestUploadStageDirMissingDirIsNoError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "run1", "tok")
+	if err := c.UploadStageDir(t.TempDir(), "never-ran", nil); err != nil {
+		t.Fatalf("UploadStageDir(missing) = %v, want nil", err)
+	}
+}
+
 func TestForwardDrainsChannel(t *testing.T) {
 	var mu sync.Mutex
 	var n int

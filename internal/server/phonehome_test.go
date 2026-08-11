@@ -138,6 +138,35 @@ func TestUploadArtifactWritesUnderLogsRoot(t *testing.T) {
 	}
 }
 
+// A multi-visit node (retry loop revisits `implement`) re-uploads its stage
+// dir at each stage_completed; the daemon overwrites so GET /stages serves
+// the latest visit, not a stale one.
+func TestUploadArtifactOverwritesOnRevisit(t *testing.T) {
+	tmp := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})
+	run := srv.registry.NewRun("digraph{}", nil, nil, tmp, nil, "", "", "", nil)
+
+	put := func(content string) {
+		req := httptest.NewRequest(http.MethodPost, "/pipelines/"+run.ID+"/artifacts/implement/response.md", strings.NewReader(content))
+		req.Header.Set("Authorization", "Bearer "+run.Token())
+		rec := httptest.NewRecorder()
+		srv.httpsrv.Handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	put("attempt 1")
+	put("attempt 2 is longer")
+
+	data, err := os.ReadFile(filepath.Join(run.logsRoot, "implement", "response.md"))
+	if err != nil {
+		t.Fatalf("read uploaded file: %v", err)
+	}
+	if string(data) != "attempt 2 is longer" {
+		t.Fatalf("content = %q, want latest visit to overwrite", data)
+	}
+}
+
 func TestUploadArtifactRejectsTraversal(t *testing.T) {
 	tmp := t.TempDir()
 	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp})

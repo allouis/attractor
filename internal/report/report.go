@@ -8,6 +8,7 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -99,7 +100,28 @@ func (c *Client) UploadArtifact(rel string, data []byte) error {
 // file whose rel path it returns true for — used to omit files the daemon
 // owns itself (events.jsonl, manifest.json, source.dot).
 func (c *Client) UploadDir(root string, skip func(rel string) bool) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	return c.uploadTree(root, root, skip)
+}
+
+// UploadStageDir uploads one stage's directory (root/node and everything
+// beneath it — including nested child-pipeline dirs) incrementally, keying
+// each file by its path relative to root: the same key the terminal
+// UploadDir sweep uses, so a completed stage's files reach the daemon while
+// the run is still live. A stage dir that does not exist yet (a stage that
+// wrote nothing) is not an error — the terminal sweep is the catch-all.
+// skip is applied with the run-root-relative rel path, exactly as UploadDir.
+func (c *Client) UploadStageDir(root, node string, skip func(rel string) bool) error {
+	sub := filepath.Join(root, node)
+	if _, err := os.Stat(sub); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return c.uploadTree(root, sub, skip)
+}
+
+// uploadTree walks from (a directory within root) and uploads every regular
+// file under it, keying each by its path relative to root.
+func (c *Client) uploadTree(root, from string, skip func(rel string) bool) error {
+	return filepath.WalkDir(from, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
