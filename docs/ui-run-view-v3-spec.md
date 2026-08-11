@@ -95,14 +95,24 @@ store** (in-guest commits land there by design — vm-workspace-spec W2).
 every runner. Empty diff means "no commits yet", rendered as that, not
 as "no diff".
 
-### P3 — response phone-home
+### P3 — stage-output phone-home
 
-At `stage_completed`, the child pushes the stage's `response.md` (and
-`status.json`) to the daemon over the existing phone-home artifact
-channel; the daemon stores them under the run's stage dir so
-`GET /stages/{node}` works for every runner. Prompts do NOT phone home —
-they are served up front by P1's node endpoint. The streamed events
-remain the live transcript; response.md is the verbatim final output.
+At `stage_completed`, the child pushes the stage's output files to the
+daemon over the existing phone-home artifact channel; the daemon stores
+them under the run's stage dir so `GET /stages/{node}` works for every
+runner:
+
+- codergen stages: `response.md` + `status.json`.
+- **tool stages: `stdout.txt` + `stderr.txt` + exit code.** The tool
+  handler already writes these to the stage dir (tool.go) — today they
+  are guest-local for VM runs and rendered nowhere for any runner, so
+  the full lint/test output an operator most wants is invisible
+  (`stage_completed` carries only status + duration; a failing check's
+  failure_reason truncates stderr to 200 chars).
+
+Prompts do NOT phone home — they are served up front by P1's node
+endpoint. The streamed events remain the live transcript; the stage
+files are the verbatim record.
 
 ### P4 — runner-parity API tests
 
@@ -136,6 +146,10 @@ auto-scrolling while live (scroll-up pauses following).
   per-group "N tool calls" toggle (prose-forward default).
 - Lifecycle (stage start/finish, retries, checkpoints) → thin divider
   rows.
+- Tool/check stages → an output block: command, exit code, duration
+  visible; full stdout/stderr collapsed behind a toggle. A **failed**
+  check auto-expands its output tail — the thing you need is on screen
+  without a click.
 - Gate questions and the human's answers (with notes) → first-class
   turns, visually distinct. (This seam is where steering input lands
   later.)
@@ -150,8 +164,8 @@ auto-scrolling while live (scroll-up pauses following).
 
 Selecting a node (graph or feed chip) shows: status + attempts + timing
 (from /state), the resolved prompt (from /nodes — including yet-to-run
-nodes), the response (from /stages once completed), and that node's
-feed slice. The "stage detail unavailable" state becomes impossible for
+nodes), the response — or, for tool nodes, the full stdout/stderr and
+exit code — (from /stages once completed), and that node's feed slice. The "stage detail unavailable" state becomes impossible for
 completed nodes and informative ("not started — prompt below") for
 pending ones.
 
@@ -171,8 +185,8 @@ pending ones.
 |----|-----------|--------|
 | P1 | /state + /nodes/{node} endpoints, server-derived fail-aware active set, header data included; UI untouched | todo |
 | P2 | diff endpoint works for local/vm runs via the shared jj store; "no commits yet" distinguished from "no diff" | todo |
-| P3 | response.md + status.json phone home at stage completion; /stages/{node} serves them under every runner | todo |
-| P4 | runner-parity e2e suite (direct vs local) over /state, /nodes, /stages, /diff, /questions; red on pre-P1 daemon, green after P1-P3 | todo |
+| P3 | stage outputs phone home at completion (codergen response.md; tool stdout/stderr + exit code); /stages/{node} serves them under every runner | todo |
+| P4 | runner-parity e2e suite (direct vs local) over /state, /nodes, /stages (incl. tool stdout/stderr), /diff, /questions; red on pre-P1 daemon, green after P1-P3 | todo |
 | R1 | header card from /state | todo |
 | R2 | the feed (prose bubbles, collapsed tool rows, lifecycle dividers, gate turns, scope filter + breadcrumb) replacing the timeline as main surface | todo |
 | R3 | node inspector: prompt up front, response after completion, timing/attempts, per-node feed slice | todo |
