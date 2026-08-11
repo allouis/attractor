@@ -1,0 +1,33 @@
+// checks — run the repo's deterministic checks and exit. No LLM nodes, no
+// gates: the implement pipeline's static-check chain (deps → typecheck →
+// lint → test) lifted out on its own, for proving a repo's configured
+// checks pass in a given execution environment (e.g. a VM runner) without
+// involving an agent.
+//
+// Commands come from the repo's checks config, seeded into the run context
+// as $context.check.<name> by the daemon (a no-op echo when unconfigured).
+// A failing check has no fail edge and no agent to route back to, so the
+// run fails with that check's output — which is the diagnostic signal this
+// pipeline exists to produce.
+//
+//   POST /workflows/checks/run {"repo":"TryGhost/Ghost"}
+digraph checks {
+    goal = "Run the deterministic checks for $context.repo"
+    vars = "repo"
+    max_node_visits = 1
+
+    start [shape=Mdiamond]
+
+    deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
+    typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
+    lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
+    test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+
+    done [shape=Msquare]
+
+    start -> deps
+    deps -> typecheck
+    typecheck -> lint
+    lint -> test
+    test -> done
+}
