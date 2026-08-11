@@ -207,20 +207,24 @@ func copyTree(src, dst string) error {
 }
 
 // vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk and
-// the four 9p share sources the nix module's sharedDirectories expand —
+// the five 9p share sources the nix module's sharedDirectories expand —
 // ATTRACTOR_JOB_DIR (job dir, ro), ATTRACTOR_WORKSPACE (per-run jj workspace,
 // ro transport the guest copies to ext4), ATTRACTOR_REPO (the target repo
-// whose `.jj`/`.git` subtrees are shared for in-guest jj), and
-// ATTRACTOR_CREDS_DIR (staged LLM oauth creds, ro, the guest copies into
-// $HOME). GS drops virtiofs, so there is no QEMU_OPTS: delivery rides the
-// module's blessed 9p shares, not a hand-wired vhost-user-fs device.
-func (l vmLauncher) vmEnv(runDir, jobDir, workspace, repoDir, credsDir string) []string {
+// whose `.jj`/`.git` subtrees are shared for in-guest jj), ATTRACTOR_CREDS_DIR
+// (staged LLM oauth creds, ro, the guest copies into $HOME), and ATTRACTOR_LOGS
+// (the daemon's run dir, shared rw at /mnt/runlogs so the guest writes the
+// child's logs root — run.json, checkpoint.json, stage dirs — straight onto
+// host disk for live tailing; single-writer-safe post-P5a, ui-run-view-v3 P5c).
+// GS drops virtiofs, so there is no QEMU_OPTS: delivery rides the module's
+// blessed 9p shares, not a hand-wired vhost-user-fs device.
+func (l vmLauncher) vmEnv(runDir, jobDir, workspace, repoDir, credsDir, logsDir string) []string {
 	return append(os.Environ(),
 		"NIX_DISK_IMAGE="+filepath.Join(runDir, "vm.qcow2"),
 		"ATTRACTOR_JOB_DIR="+jobDir,
 		"ATTRACTOR_WORKSPACE="+workspace,
 		"ATTRACTOR_REPO="+repoDir,
 		"ATTRACTOR_CREDS_DIR="+credsDir,
+		"ATTRACTOR_LOGS="+logsDir,
 	)
 }
 
@@ -466,8 +470,23 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		return err
 	}
 
+	// Share the daemon's run dir into the guest rw as the child's logs root
+	// (/mnt/runlogs), so the in-guest run writes run.json, checkpoint.json, and
+	// stage stdout/stderr straight onto host disk — the daemon then tails them
+	// live (P5d) instead of waiting for the per-stage phone-home upload. Safe
+	// only because post-P5a every path here has one writer: the daemon owns
+	// manifest.json / source.dot / events.jsonl (the child runs with
+	// --no-event-log), the child owns everything else. The dir already exists
+	// (the daemon stamped manifest.json/source.dot at run creation); create it
+	// defensively so the module's rw share always has a valid source.
+	logsDir := run.logsRoot
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		run.failCrashed("vm launcher: create shared logs dir: " + err.Error())
+		return err
+	}
+
 	cmd := exec.Command(runnerScript)
-	cmd.Env = l.vmEnv(runDir, jobDir, work, run.cwd, credsDir)
+	cmd.Env = l.vmEnv(runDir, jobDir, work, run.cwd, credsDir, logsDir)
 	console, err := os.Create(filepath.Join(runDir, "vm-console.log"))
 	if err != nil {
 		run.failCrashed("vm launcher: console: " + err.Error())

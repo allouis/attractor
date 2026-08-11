@@ -7,9 +7,12 @@
 # their sources per-run shell variables the launcher sets (decision D6):
 # ATTRACTOR_JOB_DIR (job.json + source.dot, ro), ATTRACTOR_WORKSPACE (the
 # per-run host jj workspace, ro at /mnt/workspace), ATTRACTOR_REPO (the
-# target repo, whose `.jj`/`.git` subtrees are shared for in-guest jj), and
+# target repo, whose `.jj`/`.git` subtrees are shared for in-guest jj),
 # ATTRACTOR_CREDS_DIR (staged LLM oauth creds, ro at /mnt/creds, copied into
-# $HOME so the bundled acp adapters authenticate in-guest — docs/vm-creds-spec.md).
+# $HOME so the bundled acp adapters authenticate in-guest — docs/vm-creds-spec.md),
+# and ATTRACTOR_LOGS (the daemon's run dir, shared RW at /mnt/runlogs as the
+# child's `--logs` root so its stage files land on host disk for live tailing —
+# ui-run-view-v3 P5c).
 #
 # The workspace is a READ-ONLY TRANSPORT: a shared mount can't host the SQLite
 # DBs real tools open (pnpm store index, Nx task DB → `disk I/O error`), so the
@@ -161,8 +164,14 @@ let
       # provider lenses in review-core (anthropic + codex); the default routing
       # is what the daemon uses too. (Missing config → routing falls back to
       # simulation, so the config delivery must succeed for real agent nodes.)
+      # --logs points at the rw /mnt/runlogs 9p share = the daemon's run dir on
+      # the host, so the child's logs root (run.json, checkpoint.json, stage
+      # stdout/stderr) lands straight on host disk and the daemon tails it live
+      # (ui-run-view-v3 P5c/P5d). --no-event-log leaves events.jsonl to the
+      # daemon (built from the events we phone home), so that one shared file
+      # keeps a single writer.
       args=(run --report-to "$url" --run-id "$run_id" --report-token "$token"
-            --cwd "$cwd" --base-dir "$base_dir" --logs /tmp/attractor-run)
+            --cwd "$cwd" --base-dir "$base_dir" --logs /mnt/runlogs --no-event-log)
       while IFS= read -r kv; do args+=(-var "$kv"); done \
         < <(jq -r '.vars // {} | to_entries[] | "\(.key)=\(.value)"' "$job")
       args+=(/mnt/job/source.dot)
@@ -239,6 +248,22 @@ in
       creds = {
         source = ''"$ATTRACTOR_CREDS_DIR"'';
         target = "/mnt/creds";
+        securityModel = "none";
+      };
+      # runlogs  the daemon's per-run dir, shared READ-WRITE at /mnt/runlogs.
+      #          The child's `--logs` points here, so run.json, checkpoint.json,
+      #          and stage stdout/stderr are written straight onto host disk and
+      #          the daemon tails them live (ui-run-view-v3 P5c). Single-writer
+      #          safe post-P5a: the daemon owns manifest.json/source.dot/
+      #          events.jsonl (the child runs --no-event-log), the child owns
+      #          everything else. Unlike workspace/creds this is NOT copied to
+      #          ext4 — the stage files carry no SQLite/mmap load, so the G1
+      #          rw-9p pivot does not apply. NOTE: write-visibility latency
+      #          under 9p cache modes must be verified on a real VM run (same as
+      #          G1 was) — it cannot be exercised here without booting a guest.
+      runlogs = {
+        source = ''"$ATTRACTOR_LOGS"'';
+        target = "/mnt/runlogs";
         securityModel = "none";
       };
     };
@@ -357,8 +382,8 @@ in
 
   systemd.services.attractor-runner = {
     description = "Run this VM's attractor pipeline job";
-    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "mnt-creds.mount" "docker.service" ];
-    requires = [ "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "mnt-creds.mount" ];
+    after = [ "network-online.target" "mnt-job.mount" "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "mnt-creds.mount" "mnt-runlogs.mount" "docker.service" ];
+    requires = [ "mnt-workspace.mount" "mnt-repo-.jj.mount" "mnt-repo-.git.mount" "mnt-creds.mount" "mnt-runlogs.mount" ];
     wants = [ "network-online.target" "docker.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {

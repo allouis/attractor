@@ -40,6 +40,7 @@ type Engine struct {
 	usageTotal      Usage
 	seq             atomic.Int64
 	initialContext  map[string]string
+	skipEventLog    bool
 }
 
 // Config configures a new Engine.
@@ -54,6 +55,13 @@ type Config struct {
 	// vars + `item.*` metadata to the run's conditional edges
 	// (router-spec deviation B). Nil for runs with no seed.
 	InitialContext map[string]string
+	// SkipEventLog disables the engine's own events.jsonl persistence. Set by a
+	// reporting child whose logs root is SHARED with the daemon (the vm rw-9p
+	// transport, ui-run-view-v3 P5c): the daemon is then the single writer of
+	// events.jsonl (built from the events the child forwards over phone-home),
+	// keeping every path in the shared run dir single-writer. The child still
+	// streams every event home; only the local duplicate is suppressed.
+	SkipEventLog bool
 }
 
 // New constructs an Engine with the supplied config.
@@ -80,6 +88,7 @@ func New(cfg Config) *Engine {
 		rng:             mrand.New(mrand.NewSource(time.Now().UnixNano())),
 		now:             cfg.Now,
 		initialContext:  cfg.InitialContext,
+		skipEventLog:    cfg.SkipEventLog,
 	}
 }
 
@@ -687,7 +696,7 @@ func (e *Engine) loadCheckpoint() (*Checkpoint, error) {
 // A failure to open is non-fatal: the run proceeds without persistence.
 func (e *Engine) openEventsFile() {
 	e.closeEventsFile()
-	if e.store == nil {
+	if e.store == nil || e.skipEventLog {
 		return
 	}
 	f, err := e.store.OpenAppend("events.jsonl")

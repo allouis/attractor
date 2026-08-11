@@ -107,6 +107,7 @@ func Run(args []string) error {
 	reportToken := fs.String("report-token", "", "phone-home auth token for the run (report mode)")
 	baseDir := fs.String("base-dir", "", "directory @file prompts and child pipelines resolve against (default: the .dot file's directory)")
 	cwd := fs.String("cwd", "", "working tree the pipeline operates in (graph-level cwd default; report mode)")
+	noEventLog := fs.Bool("no-event-log", false, "do not write this run's own events.jsonl; the daemon persists events instead (report mode, used when the daemon shares this run's logs dir over rw 9p — ui-run-view-v3 P5c)")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	positional, err := parseFlexible(fs, args)
@@ -185,7 +186,7 @@ func Run(args []string) error {
 			iv = interviewer.AutoApprove{}
 		}
 		rep := &reportSink{client: client, runID: *runID}
-		return runEngineReporting(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars, rep)
+		return runEngineReporting(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars, rep, *noEventLog)
 	}
 
 	iv := resolveInterviewer(*humanFlag)
@@ -213,7 +214,7 @@ func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
 // `automations run`. initialContext seeds the run's context with the
 // `-var`/automation vars so `$context.<var>` resolves at runtime (C3).
 func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string) error {
-	return runEngineReporting(prepared, cb, iv, logsRoot, jsonOut, initialContext, nil)
+	return runEngineReporting(prepared, cb, iv, logsRoot, jsonOut, initialContext, nil, false)
 }
 
 // reportSink phones a run's activity home to a daemon (phone-home mode).
@@ -226,9 +227,11 @@ type reportSink struct {
 // runEngineReporting is runEngine plus optional phone-home reporting: when
 // rep is non-nil it stamps the daemon's run id on the engine, forwards
 // every event to the daemon as it happens, and uploads the run's stage
-// artifacts on completion (skipping files the daemon owns itself).
-func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, rep *reportSink) error {
-	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext}
+// artifacts on completion (skipping files the daemon owns itself). skipEventLog
+// suppresses the engine's own events.jsonl for a run whose logs dir the daemon
+// shares over rw 9p (P5c), keeping the daemon the single writer of that file.
+func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, rep *reportSink, skipEventLog bool) error {
+	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext, SkipEventLog: skipEventLog}
 	if rep != nil {
 		cfg.RunID = rep.runID
 	}

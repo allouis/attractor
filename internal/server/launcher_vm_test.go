@@ -284,7 +284,7 @@ func TestWorkspaceStoreReachableInGuest(t *testing.T) {
 // device. Guards against reintroducing QEMU_OPTS/virtiofs delivery.
 func TestVMEnvUsesWorkspaceAndRepo(t *testing.T) {
 	l := vmLauncher{}
-	env := l.vmEnv("/vm/abc", "/vm/abc/job", "/vm/abc/work", "/repo", "/vm/abc/creds")
+	env := l.vmEnv("/vm/abc", "/vm/abc/job", "/vm/abc/work", "/repo", "/vm/abc/creds", "/runs/abc")
 	find := func(key string) string {
 		for _, e := range env {
 			if strings.HasPrefix(e, key+"=") {
@@ -309,6 +309,9 @@ func TestVMEnvUsesWorkspaceAndRepo(t *testing.T) {
 	}
 	if got := find("ATTRACTOR_CREDS_DIR"); got != "/vm/abc/creds" {
 		t.Errorf("ATTRACTOR_CREDS_DIR = %q, want the staged-creds dir", got)
+	}
+	if got := find("ATTRACTOR_LOGS"); got != "/runs/abc" {
+		t.Errorf("ATTRACTOR_LOGS = %q, want the daemon run dir shared rw as the child logs root", got)
 	}
 }
 

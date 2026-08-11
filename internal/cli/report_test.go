@@ -44,7 +44,7 @@ func TestRunEngineReportingForwardsEventsAndArtifacts(t *testing.T) {
 
 	rep := &reportSink{client: report.New(srv.URL, "run-xyz", "tok"), runID: "run-xyz"}
 	err := runEngineReporting(prepareToolGraph(t), fake.New(), nil, t.TempDir(), false,
-		map[string]string{"k": "v"}, rep)
+		map[string]string{"k": "v"}, rep, false)
 	if err != nil {
 		t.Fatalf("reporting run: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestRunEngineReportingUploadsStageOnCompletion(t *testing.T) {
 	defer srv.Close()
 
 	rep := &reportSink{client: report.New(srv.URL, "run-2s", "tok"), runID: "run-2s"}
-	if err := runEngineReporting(prepared, fake.New(), nil, t.TempDir(), false, nil, rep); err != nil {
+	if err := runEngineReporting(prepared, fake.New(), nil, t.TempDir(), false, nil, rep, false); err != nil {
 		t.Fatalf("reporting run: %v", err)
 	}
 
