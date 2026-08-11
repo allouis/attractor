@@ -191,6 +191,33 @@
 .workflow-expand { display: inline-block; margin: 0 0 var(--space-3); color: var(--text-muted); font-size: .9em; cursor: pointer; }
   .graph-pane svg { max-width: 100%; height: auto; }
   #graph g.node { cursor: pointer; }
+  /* Graph as map (ui-run-view-v3 R4): the run graph is a capped, scrollable
+     map — it no longer sprawls over the page. ~40vh with its own scroll keeps
+     the feed (the page's main surface) above the fold; the workflow-graph is
+     uncapped (its own full-page view). */
+  #graph { max-height: 40vh; overflow: auto; }
+  /* Node status tint, painted from /state (paintNode toggles these classes):
+     a subtle fill wash over the surface so completed/failed/active read at a
+     glance in both themes without drowning the label. The stroke is set inline
+     by paintNode (beats the .graph-pane stylesheet). */
+  .graph-pane svg g.node-completed polygon,
+  .graph-pane svg g.node-completed ellipse,
+  .graph-pane svg g.node-completed path {
+    fill: color-mix(in srgb, var(--state-success) 16%, var(--surface-1)); }
+  .graph-pane svg g.node-failed polygon,
+  .graph-pane svg g.node-failed ellipse,
+  .graph-pane svg g.node-failed path {
+    fill: color-mix(in srgb, var(--state-failed) 16%, var(--surface-1)); }
+  .graph-pane svg g.node-active polygon,
+  .graph-pane svg g.node-active ellipse,
+  .graph-pane svg g.node-active path {
+    fill: color-mix(in srgb, var(--state-running) 18%, var(--surface-1)); }
+  /* A subtle pulse marks the active node; disabled under reduced-motion. */
+  .graph-pane svg g.node-active { animation: node-pulse 1.6s ease-in-out infinite; }
+  @keyframes node-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
+  @media (prefers-reduced-motion: reduce) {
+    .graph-pane svg g.node-active { animation: none; }
+  }
   /* Card primitive (web-ui-v2-spec U1): a bordered, padded surface for a
      grouped chunk of content — the node inspector and each config panel. */
   .card { border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3);
