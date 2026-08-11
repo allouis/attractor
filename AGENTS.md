@@ -136,15 +136,22 @@ Name resolution (`resolvePipelinePath`, `internal/cli/cli.go`):
 A path with `/` or a `.dot` suffix bypasses the lookup. So from the repo
 you can `attractor run implement`; elsewhere you need the catalog (§5).
 
-Backends (`--backend`): `simulation` (default, no agent — good for smoke
-tests), `acp` (real agent — needs `--acp-cmd claude-agent-acp` unless the
-graph sets `acp_command`), `claude`. Vars: `--var key=value` per the
-graph's `vars=` declaration. Logs: `--logs <dir>`.
+Backend selection: with no `--backend` flag, each codergen node is
+**routed by provider config** (§3) — the node's `llm_provider` /
+`llm_model` attrs pick a provider from `~/.attractor/config.json`
+(falling back to `default_provider`), and the model is injected via the
+provider's `model_env`. This is the normal path; pipelines pin models
+this way. Caution: with **no** config.json the router silently falls
+back to simulation. `--backend simulation|acp|claude` (+ `--acp-cmd`)
+are run-wide debugging overrides that **bypass routing** — every node
+runs on the one command, ignoring `llm_*` pins. Vars: `--var key=value`
+per the graph's `vars=` declaration. Logs: `--logs <dir>`.
 
 ```bash
 # real agent run of the implement pipeline against a registered repo
+# (provider-routed; needs §3 config.json)
 source ~/.secrets.env
-./result/bin/attractor run --backend acp --acp-cmd claude-agent-acp \
+./result/bin/attractor run \
   --var repo=allouis/attractor --var identifier=... --var title=... \
   --logs ~/.attractor/runs/demo pipelines/implement/pipeline.dot
 ```
@@ -173,7 +180,7 @@ record (commits atomically via jj, flips the milestone to `done`).
 
 ```bash
 BASE=$(jj log -r @- --no-graph -T change_id | tr -d '[:space:]')
-./result/bin/attractor run --backend acp --acp-cmd claude-agent-acp \
+./result/bin/attractor run \
   --var spec=docs/<spec>.md --var review_base=$BASE \
   --logs ~/.attractor/runs/<milestone> pipelines/build/pipeline.dot
 ```
@@ -213,9 +220,10 @@ box); `-machine accel=kvm:tcg` auto-selects KVM when `/dev/kvm` exists.
   `nix build` output.
 - **`serve` needs secrets in its env** — launch after `source ~/.secrets.env`
   or GitHub/Linear return 401 and agent runs have no API key.
-- **`--acp-cmd claude-agent-acp`** is needed for the review-core child when
-  running standalone `--backend acp` (the child graph sets no `acp_command`;
-  the parent's is inherited, but pass it to be safe).
+- **Don't pass `--backend`/`--acp-cmd` for normal runs** — they bypass
+  provider routing, so per-node `llm_model`/`llm_provider` pins (build's
+  Fable plan/implement, review-core's Opus lenses + codex correctness
+  lens) are ignored and every node runs on the one command.
 - **`nix build .#vm-runner` repoints `./result`** — use a separate
   `--out-link` if you need the daemon binary too.
 - **Killing processes:** `pkill -f <pattern>` can match the killing shell

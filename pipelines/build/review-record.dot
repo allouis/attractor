@@ -15,7 +15,6 @@
 
 digraph review_record {
     goal = "Review and record the implemented milestone from $context.spec"
-    acp_command = "claude-agent-acp"
     cwd = "/home/agent/attractor"
     vars = "spec,review_base"
     max_node_visits = 10

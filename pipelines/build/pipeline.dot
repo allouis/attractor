@@ -27,21 +27,22 @@
 
 digraph build {
     goal = "Implement the next todo milestone from $context.spec"
-    acp_command = "claude-agent-acp"
     cwd = "/home/agent/attractor"
     vars = "spec,review_base"
     max_node_visits = 10
 
     start [shape=Mdiamond]
 
-    plan [type="codergen.acp", thread_id="build", fidelity="full",
+    plan [type="codergen.acp", llm_model="claude-fable-5",
+          thread_id="build", fidelity="full",
           timeout="20m", prompt="@prompts/plan.md"]
 
     // Human check-in on the plan before any code gets written. Console
     // when run from a TTY; auto-approved in non-interactive runs.
     plan_gate [shape=hexagon, label="Does the plan make sense?"]
 
-    implement [type="codergen.acp", thread_id="build", fidelity="full",
+    implement [type="codergen.acp", llm_model="claude-fable-5",
+               thread_id="build", fidelity="full",
                timeout="120m", goal_gate=true, retry_target="plan",
                prompt="@prompts/implement.md"]
 
