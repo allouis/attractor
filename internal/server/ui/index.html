@@ -2237,6 +2237,20 @@ function diffHtml(text) {
   }).join('');
 }
 
+// diffBodyHtml renders the Diff section honestly from the daemon's X-Diff-Status
+// header (P2, ui-run-view-v3 R4): "no-commits-yet" (a live run before its first
+// commit, or one that changed nothing) and "not-computable" (no jj range /
+// workspace gone) are distinct states with plain messages — not the old single
+// misleading "produced no diff". Any other status ("ok" or a legacy absent
+// header) renders the body as a coloured diff, empty falling back to a neutral
+// note. The body is attacker-controlled source; diffHtml escapes every line.
+function diffBodyHtml(status, text) {
+  if (status === 'not-computable') return emptyState('Diff not computable for this run.');
+  if (status === 'no-commits-yet') return emptyState('No commits yet.');
+  const html = diffHtml(text);
+  return html || emptyState('This run produced no diff.');
+}
+
 // ---- markdown (safe subset) --------------------------------------------
 // renderMarkdown turns agent prose into HTML from a deliberately small, safe
 // Markdown subset (ui-run-view-v3 R2): ATX headings, bold, italic, inline +
@@ -2580,13 +2594,15 @@ async function loadArtifacts() {
     };
   }
   if (!diffEl) return;
-  // Prefer the run's jj-derived diff (T9c): the daemon serves the real produced
-  // change (jj diff over the run's rev range) at /diff. A non-empty body wins;
-  // an empty body — a VM/non-jj run with no recorded range — falls through to
-  // the first *.diff artifact below.
+  // The daemon serves the run's jj-derived diff (T9c/P2) at /diff for every
+  // runner, classified by the X-Diff-Status header: "ok" is a real change,
+  // "no-commits-yet" and "not-computable" are distinct empty states the Diff
+  // section renders honestly (R4). The header is authoritative — no *.diff
+  // artifact fallback masks it; only a failed /diff request falls through.
   try {
     const r = await fetch(`/pipelines/${run}/diff`);
     if (r.ok) {
+      const status = r.headers.get('X-Diff-Status') || '';
       const text = await r.text();
       if (stale()) return;
       // Cap the jj-diff render like the artifact path (T9c B3): a body past the
@@ -2597,7 +2613,8 @@ async function loadArtifacts() {
           `Open it from Artifacts below.`);
         return;
       }
-      if (text.trim()) { diffEl.innerHTML = diffHtml(text); return; }
+      diffEl.innerHTML = diffBodyHtml(status, text);
+      return;
     }
   } catch (e) { /* fall back to a *.diff artifact */ }
   if (stale()) return;
