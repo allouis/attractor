@@ -104,6 +104,39 @@ func TestWaitHumanRecordsNote(t *testing.T) {
 	}
 }
 
+// The InterviewAnswered event carries the human's choice — the chosen option
+// label and the note — on the event detail, so a replayed/reloaded run can
+// show what was decided at the gate (R2 found the answered event was the one
+// lossy point: it recorded no answer content). Additive: existing consumers
+// that ignore detail are unaffected.
+func TestWaitHumanAnsweredEventCarriesChoice(t *testing.T) {
+	g := buildGate(t, ``)
+	var events []engine.Event
+	env := engine.HandlerEnv{Node: g.Nodes["gate"], Graph: g, RunID: "r", Context: engine.NewContext(),
+		Emit: func(ev engine.Event) { events = append(events, ev) }}
+	iv := noteInterviewer{key: "F", label: "[F] Fix", note: "tighten the error path"}
+	out := WaitHuman{Interviewer: iv}.Execute(env)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("outcome = %v, want success", out.Status)
+	}
+
+	var answered *engine.Event
+	for i := range events {
+		if events[i].Kind == engine.EventInterviewAnswered {
+			answered = &events[i]
+		}
+	}
+	if answered == nil {
+		t.Fatal("no interview_answered event emitted")
+	}
+	if answered.Detail["label"] != "[F] Fix" {
+		t.Errorf("answered detail label = %q, want [F] Fix", answered.Detail["label"])
+	}
+	if answered.Detail["note"] != "tighten the error path" {
+		t.Errorf("answered detail note = %q, want the answer note", answered.Detail["note"])
+	}
+}
+
 // A choice answer without a note records an empty human.note (the seeded
 // default is preserved, not corrupted).
 func TestWaitHumanNoteAbsent(t *testing.T) {

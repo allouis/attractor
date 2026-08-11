@@ -303,12 +303,24 @@ func (h WaitHuman) Execute(env engine.HandlerEnv) engine.Outcome {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: "wait.human: " + err.Error()}
 	}
 	if env.Emit != nil {
-		env.Emit(engine.Event{
+		ev := engine.Event{
 			Kind:       engine.EventInterviewAnswered,
 			NodeID:     env.Node.ID,
 			QuestionID: question.ID,
 			Message:    answer.Text,
-		})
+		}
+		// Record the human's choice on the event so a replayed/reloaded run can
+		// show the chosen option label and note without a live-capture side
+		// channel (R2 gate turns): the answered event was the one lossy point.
+		// Only a genuine choice carries a label; a timeout/skip keeps the bare
+		// event. Additive — consumers that ignore detail are unaffected.
+		if answer.SelectedOption != nil {
+			ev.Detail = map[string]string{
+				"label": selectChoice(answer, options).Label,
+				"note":  answer.Text,
+			}
+		}
+		env.Emit(ev)
 	}
 	switch answer.Value {
 	case interviewer.AnswerTimeout:
