@@ -303,6 +303,11 @@ func isStageDoneEvent(k engine.EventKind) bool {
 // writes itself and must not be overwritten by a phone-home upload: the
 // daemon builds events.jsonl from ingested events, and stamps
 // manifest.json / source.dot at run creation.
+//
+// run.json is deliberately NOT here: post-P5a it is the CHILD's identity
+// record (engine.writeManifest), disjoint from the daemon's manifest.json, so
+// uploading it is harmless and keeps the daemon's run dir a faithful copy of
+// the child's — consistent with every other child-owned artifact.
 func daemonOwnedArtifact(rel string) bool {
 	switch rel {
 	case "events.jsonl", "manifest.json", "source.dot":

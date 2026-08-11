@@ -47,8 +47,8 @@ func TestEngine_LinearPipelineWithFakeBackend(t *testing.T) {
 	if !fileExists(t, filepath.Join(logs, "checkpoint.json")) {
 		t.Fatal("checkpoint.json missing")
 	}
-	if !fileExists(t, filepath.Join(logs, "manifest.json")) {
-		t.Fatal("manifest.json missing")
+	if !fileExists(t, filepath.Join(logs, "run.json")) {
+		t.Fatal("run.json missing")
 	}
 	// pipeline_started and pipeline_completed events fired.
 	gotStart, gotEnd := false, false

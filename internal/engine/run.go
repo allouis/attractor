@@ -592,6 +592,12 @@ func firstResolvedTarget(g *graph.Graph, node *graph.Node, keys ...string) strin
 	return ""
 }
 
+// writeManifest persists the engine's run identity record to run.json. It is
+// deliberately NOT manifest.json: on the direct runner the daemon owns
+// manifest.json (the fleet record, carrying the run id) in the same logs root,
+// and a shared filename made the two writers clobber each other for the whole
+// run window (ui-run-view-v3 P5a). Separate filenames give every run-dir path a
+// single writer. The JSON field names are unchanged, so old dirs still load.
 func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
 	m := Manifest{
 		RunID:     e.RunID,
@@ -606,7 +612,7 @@ func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
 	if e.store == nil {
 		return nil
 	}
-	return e.store.Write("manifest.json", data)
+	return e.store.Write("run.json", data)
 }
 
 func (e *Engine) writeStatus(nodeID string, outcome Outcome) error {

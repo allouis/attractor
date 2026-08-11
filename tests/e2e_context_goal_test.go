@@ -16,7 +16,7 @@ import (
 
 // TestEngine_GoalResolvedAtRunStart proves the graph `goal` is expanded
 // once at run-start from the seeded context (spec decision 7): the run
-// summary (manifest.json) and every node's `$goal` see the resolved text,
+// summary (run.json) and every node's `$goal` see the resolved text,
 // never the raw `$context.*` placeholder.
 func TestEngine_GoalResolvedAtRunStart(t *testing.T) {
 	src := `digraph goalres {
@@ -31,7 +31,7 @@ func TestEngine_GoalResolvedAtRunStart(t *testing.T) {
 	logs := runSeeded(t, src, map[string]string{"pr_number": "42"})
 
 	// Run summary reflects the resolved goal.
-	data, err := os.ReadFile(filepath.Join(logs, "manifest.json"))
+	data, err := os.ReadFile(filepath.Join(logs, "run.json"))
 	must(t, err)
 	var m engine.Manifest
 	must(t, json.Unmarshal(data, &m))
