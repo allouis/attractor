@@ -184,6 +184,25 @@ func TestStateIdentifierPrefersVarOnReload(t *testing.T) {
 	}
 }
 
+// TestStatePlacementSurvivesReload: a reloaded run reports the runner + image it
+// actually ran under, not the direct-launcher default. Without persistence the
+// R1 header card mislabels every reloaded vm/local run as "direct".
+func TestStatePlacementSurvivesReload(t *testing.T) {
+	base := t.TempDir()
+	writeManifestDir(t, base, "run1", Manifest{
+		ID: "run1", Status: RunCompleted, Placement: "vm", Image: "default",
+	})
+	reg := newRunRegistry(base)
+	run, ok := reg.Get("run1")
+	if !ok {
+		t.Fatal("run not reloaded")
+	}
+	st := run.State()
+	if st.Placement.Runner != "vm" || st.Placement.Image != "default" {
+		t.Errorf("placement = %+v, want vm/default", st.Placement)
+	}
+}
+
 func TestStateDirectRunnerReportsDirect(t *testing.T) {
 	srv, _ := newStageTestServer(t)
 	run := &Run{

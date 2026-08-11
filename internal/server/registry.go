@@ -55,6 +55,11 @@ type Manifest struct {
 	// is not in memory) re-prepares its source against the right base and serves
 	// resolved prompt text, not the raw @file ref.
 	SourceBaseDir string `json:"source_base_dir,omitempty"`
+	// Placement/Image name where the run executed (the requested launcher and VM
+	// boot image). Persisted so a reloaded run reports its real runner instead of
+	// the direct-launcher default the empty placement decodes to.
+	Placement string `json:"placement,omitempty"`
+	Image     string `json:"image,omitempty"`
 	// RevBase/RevTip are the host jj change-ids of the run's cwd at start and
 	// end (T9c): the range `jj diff --from RevBase --to RevTip` renders as the
 	// run's produced change. Empty for VM/non-jj runs.
@@ -124,6 +129,8 @@ func (r *runRegistry) reload() {
 			sourceBaseDir:  m.SourceBaseDir,
 			itemRef:        m.ItemRef,
 			repo:           m.Repo,
+			placement:      m.Placement,
+			image:          m.Image,
 			initialContext: m.InitialContext,
 			revBase:        m.RevBase,
 			revTip:         m.RevTip,
@@ -1009,6 +1016,8 @@ func (r *Run) writeManifest() {
 	m.Repo = r.repo
 	m.InitialContext = r.initialContext
 	m.SourceBaseDir = r.sourceBaseDir
+	m.Placement = r.placement
+	m.Image = r.image
 	m.RevBase = r.revBase
 	m.RevTip = r.revTip
 	if r.graph != nil {
