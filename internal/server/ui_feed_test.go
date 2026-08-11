@@ -332,6 +332,28 @@ process.stdout.write(JSON.stringify({
 	}
 }
 
+// TestFeedGateAnswerFromEventDetail: a replayed/reloaded run has no live
+// answer capture, so the gate's answer bubble is filled from the answer content
+// the daemon now records on the interview_answered event (chosen label + note).
+func TestFeedGateAnswerFromEventDetail(t *testing.T) {
+	out := runFeedHarness(t, `
+fire('stage_started',   { node_id: 'plan', attempt: 1, ts: 't0' });
+fire('stage_completed', { node_id: 'plan', status: 'success', duration_ns: 400, ts: 't1' });
+fire('interview_started',  { node_id: 'plan_gate', question_id: 'g1', message: 'OK?', question: { text: 'OK?', options: [] }, ts: 't1' });
+fire('interview_answered', { node_id: 'plan_gate', question_id: 'g1', detail: { label: '[R] Revise plan', note: 'prefer a smaller first commit' }, ts: 't2' });
+process.stdout.write(JSON.stringify({
+  answered: read('(feed.find(e => e.t==="gate")||{}).answered'),
+  label: read('((feed.find(e => e.t==="gate")||{}).answer||{}).label'),
+  note: read('((feed.find(e => e.t==="gate")||{}).answer||{}).note'),
+}));
+`)
+	for _, want := range []string{`"answered":true`, `"label":"[R] Revise plan"`, `"note":"prefer a smaller first commit"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("gate answer not taken from event detail, missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestFeedIdempotentReplay: a mid-run SSE reconnect replays the whole history
 // again; the shared replay cursor must keep the feed identical, not double it.
 func TestFeedIdempotentReplay(t *testing.T) {

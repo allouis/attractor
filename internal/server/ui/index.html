@@ -2757,7 +2757,14 @@ function feedIngest(kind, ev) {
       if (gate) {
         gate.answered = true;
         gate.answeredAfterNs = tsDeltaNs(gate.startTs, ev.ts);
+        const d = ev.detail || {};
+        // A live answer (captured by this session's answer flow) wins — it has
+        // the note exactly as typed. Otherwise the answer content the daemon
+        // now records on the event (chosen label + note) fills the bubble on a
+        // replayed/reloaded run. Only a legacy event with neither falls back to
+        // deriving the label from the edge the run then took.
         if (feAnswers[gate.qid]) gate.answer = feAnswers[gate.qid];
+        else if (d.label != null) gate.answer = { label: d.label, note: d.note || '' };
         else fePendingGate = gate;   // wait for the next stage_started to reveal the edge
       }
       scheduleFeedRender();
