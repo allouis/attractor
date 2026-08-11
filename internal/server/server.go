@@ -149,9 +149,11 @@ func New(cfg Config) *Server {
 	if s.defaultRunner == "" {
 		s.defaultRunner = "direct"
 	}
-	// Stamp the run's host jj change-id range around launch (T9c): the base at
-	// start and the tip once the run's commits have landed, so GET /diff can
-	// serve `jj diff --from base --to tip`. Both probes skip VM/non-jj runs.
+	// Stamp the run's host jj change-id range around launch (T9c/P2): the base
+	// at start for every jj runner (a vm run's per-run workspace is based on it),
+	// the tip once a direct/local run's commits have landed. A vm run stamps no
+	// tip — getRunDiff resolves it live from the run workspace in the shared
+	// store — so GET /diff serves `jj diff --from base --to tip` for every runner.
 	s.dispatcher.launch = func(r *Run) {
 		r.recordRevBase()
 		_ = s.launcherFor(r.placement).Launch(r, s.reportURL())

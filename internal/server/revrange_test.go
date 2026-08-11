@@ -57,10 +57,12 @@ func TestRevRangePersistsAcrossReload(t *testing.T) {
 	}
 }
 
-// TestRecordRevRangeSkipsVM proves a VM-placed run records no host jj range:
-// the run executes in the guest, so the daemon's view of run.cwd is meaningless
-// and must stay empty (spec: VM runs stay "no diff" until results-export).
-func TestRecordRevRangeSkipsVM(t *testing.T) {
+// TestRecordRevRangeVM proves P2's stamping split for a VM run: it stamps a
+// diff BASE at launch (the host @ its per-run workspace is based on) but NOT a
+// tip. The run's commits land in the guest workspace, not run.cwd's default
+// working copy, so the host @ here is meaningless as a tip — getRunDiff resolves
+// the tip live from the workspace instead (spec W2).
+func TestRecordRevRangeVM(t *testing.T) {
 	if _, err := exec.LookPath("jj"); err != nil {
 		t.Skip("jj not on PATH")
 	}
@@ -68,8 +70,11 @@ func TestRecordRevRangeSkipsVM(t *testing.T) {
 	run := &Run{ID: "vm1", cwd: repo, placement: "vm", logsRoot: os.DevNull}
 	run.recordRevBase()
 	run.recordRevTip()
-	if run.RevBase() != "" || run.RevTip() != "" {
-		t.Errorf("vm run recorded a rev range: base=%q tip=%q", run.RevBase(), run.RevTip())
+	if run.RevBase() == "" {
+		t.Error("vm run must stamp a diff base at launch (P2) so /diff is computable")
+	}
+	if run.RevTip() != "" {
+		t.Errorf("vm run must not stamp a tip (resolved live from the workspace), got %q", run.RevTip())
 	}
 }
 

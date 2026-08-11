@@ -484,17 +484,28 @@ func (r *Run) RevTip() string {
 }
 
 // recordRevBase stamps the run's cwd `@` commit as the diff base, called just
-// before launch; recordRevTip stamps the post-run `@` as the tip. Both snapshot
-// the working copy so an in-place edit is captured (T9c). Best-effort: they
-// skip VM runs (the range is a guest concern) and non-jj cwds — a probe failure
-// leaves the range empty, so the Diff panel falls back to a `*.diff` artifact.
+// before launch. It fires for EVERY runner with a jj cwd — direct, local, and
+// vm — because a vm run's per-run workspace is based on this same `@` (spec W2),
+// so the base is the shared anchor its guest commits diff against (P2).
 func (r *Run) recordRevBase() { r.stampRev(func(id string) { r.revBase = id }) }
-func (r *Run) recordRevTip()  { r.stampRev(func(id string) { r.revTip = id }) }
+
+// recordRevTip stamps the post-run `@` as the tip, called at terminal. It skips
+// vm runs: a vm run's commits land in its per-run workspace in the shared store,
+// not run.cwd's default working copy, so the host `@` here is not the run's tip.
+// getRunDiff resolves a vm run's tip live from that workspace instead (P2).
+func (r *Run) recordRevTip() {
+	if r.placement == "vm" {
+		return
+	}
+	r.stampRev(func(id string) { r.revTip = id })
+}
 
 // stampRev probes the current `@` commit and hands it to set under the lock,
-// then persists. It is the shared body of recordRevBase/recordRevTip.
+// then persists. It is the shared body of recordRevBase/recordRevTip. A non-jj
+// cwd (jjHeadCommit errors) leaves the range empty — the Diff panel then falls
+// back to a `*.diff` artifact.
 func (r *Run) stampRev(set func(id string)) {
-	if r.placement == "vm" || r.cwd == "" {
+	if r.cwd == "" {
 		return
 	}
 	id, err := jjHeadCommit(r.cwd)
