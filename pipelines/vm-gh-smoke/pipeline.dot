@@ -1,0 +1,24 @@
+// Proof that `gh` is installed AND authenticated INSIDE a VM (the launcher
+// stages the host gh token onto /mnt/creds; the guest copies it into $HOME and
+// runs `gh auth setup-git` — docs/vm-creds-spec.md). Run via a daemon against a
+// jj-colocated repo whose runner is vm (e.g. TryGhost/Ghost):
+//
+//   POST /workflows/vm-gh-smoke/run {"repo":"TryGhost/Ghost"}
+//
+// `gh auth status` exits non-zero if unauthenticated; `gh api user` also
+// requires network + a valid token — so `check` completing proves gh works
+// in-guest WITHOUT creating anything (read-only; no push, no PR).
+digraph vm_gh_smoke {
+    goal = "Prove gh is installed and authenticated inside the VM"
+    max_node_visits = 1
+
+    start [shape=Mdiamond]
+
+    check [type="tool", timeout="3m",
+           tool_command="gh auth status && gh api user --jq .login"]
+
+    done [shape=Msquare]
+
+    start -> check
+    check -> done
+}

@@ -85,6 +85,19 @@ let
         cp -a /mnt/creds/. "$HOME"/ 2>/dev/null || true
       fi
 
+      # The staged gh token (~/.config/gh/hosts.yml, copied above) authenticates
+      # `gh`. Route git pushes to github.com over HTTPS with that token so an
+      # in-workflow `gh pr create` / push works for BOTH remote styles: the
+      # insteadOf rewrites ssh remotes (attractor is git@github.com:…, which a
+      # token cannot push over ssh) to https, where gh's credential helper
+      # supplies the token. (jj's own push uses gitoxide and may not honor these;
+      # the in-workflow publish path is `gh`/plain git, which does.)
+      if command -v gh >/dev/null 2>&1 && [ -f "$HOME/.config/gh/hosts.yml" ]; then
+        gh auth setup-git 2>/dev/null || true
+        git config --global url."https://github.com/".insteadOf "git@github.com:" || true
+        git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" || true
+      fi
+
       # --backend acp: `attractor run` DEFAULTS to the simulation backend, which
       # executes every codergen.acp node as an instant no-op. A VM run is always
       # a real run, so force the real ACP backend; the specific adapter
@@ -208,6 +221,7 @@ in
   environment.systemPackages = [
     attractorPkg
     pkgs.git
+    pkgs.gh # in-workflow `gh pr create`/push (authed via the staged gh token)
     pkgs.jujutsu # in-guest jj: pipelines run jj against the host store (W2)
     pkgs.jq
     pkgs.coreutils

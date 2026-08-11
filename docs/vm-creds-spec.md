@@ -14,9 +14,19 @@ Deliver **those files** into the guest:
 
 - **Launcher** (`stageAgentCreds`, `internal/server/launcher_vm.go`): copies only
   the credential files into a per-run `<runDir>/creds` dir, preserving their
-  path relative to `~` (`.claude/.credentials.json`, `.codex/auth.json`). The
-  dir is always created — empty if the host isn't logged in — so the module's
-  static share always has a valid source. Passed as `ATTRACTOR_CREDS_DIR`.
+  path relative to `~` (`.claude/.credentials.json`, `.codex/auth.json`, and the
+  `gh` token `.config/gh/hosts.yml`). The dir is always created — empty if the
+  host isn't logged in — so the module's static share always has a valid source.
+  Passed as `ATTRACTOR_CREDS_DIR`.
+
+  The `gh` token enables an **in-workflow** `gh pr create` / push node so a
+  workflow that produces a PR keeps that logic in its graph. The image ships
+  `gh`, and the runner runs `gh auth setup-git` + an `insteadOf` rewrite so
+  github pushes go over HTTPS with the token (covers ssh-remote repos too).
+  **Trust note:** the `gh` token has `repo` (read+WRITE) scope and lives in the
+  guest, so in-guest generated code can read it (`gh auth token`) — the same
+  trust level as the LLM token already there. Scoping push creds away from the
+  agent is future work (per-node host placement).
 - **Module** (`nix/vm-runner.nix`): a ro 9p share `creds → /mnt/creds`. The
   runner script exports `HOME=/root` and `cp -a /mnt/creds/. $HOME/`, so the
   adapter (spawned by `attractor`) finds `~/.claude` / `~/.codex` in-guest.

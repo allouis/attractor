@@ -274,10 +274,13 @@ func TestVMEnvUsesWorkspaceAndRepo(t *testing.T) {
 func TestStageAgentCredsCopiesOnlyCredentials(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	// Host ~/.claude with a credential file AND sensitive non-cred files.
+	// Host ~/.claude with a credential file AND sensitive non-cred files, plus
+	// the gh token (in-workflow push/PR) and a non-cred gh config file.
 	mustWrite(t, filepath.Join(home, ".claude", ".credentials.json"), `{"token":"x"}`)
 	mustWrite(t, filepath.Join(home, ".claude", "history.jsonl"), "secret history")
 	mustWrite(t, filepath.Join(home, ".claude", "projects", "p.json"), "secret project")
+	mustWrite(t, filepath.Join(home, ".config", "gh", "hosts.yml"), "github.com:\n  oauth_token: gho_x")
+	mustWrite(t, filepath.Join(home, ".config", "gh", "config.yml"), "editor: vim")
 
 	dest := filepath.Join(t.TempDir(), "creds")
 	if err := stageAgentCreds(dest); err != nil {
@@ -285,6 +288,13 @@ func TestStageAgentCredsCopiesOnlyCredentials(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(dest, ".claude", ".credentials.json")); err != nil || string(got) != `{"token":"x"}` {
 		t.Fatalf("credentials not staged: %q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dest, ".config", "gh", "hosts.yml")); err != nil || string(got) == "" {
+		t.Fatalf("gh token not staged: %q err=%v", got, err)
+	}
+	// Only hosts.yml crosses from ~/.config/gh — not config.yml or anything else.
+	if _, err := os.Stat(filepath.Join(dest, ".config", "gh", "config.yml")); !os.IsNotExist(err) {
+		t.Errorf(".config/gh/config.yml leaked into the guest (err=%v); only hosts.yml may cross", err)
 	}
 	// Non-credential files must NOT be copied.
 	for _, leaked := range []string{".claude/history.jsonl", ".claude/projects/p.json"} {

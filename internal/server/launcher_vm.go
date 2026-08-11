@@ -207,17 +207,22 @@ func (l vmLauncher) vmEnv(runDir, jobDir, workspace, repoDir, credsDir string) [
 	)
 }
 
-// stageAgentCreds copies the daemon user's LLM oauth CREDENTIALS — and nothing
-// else — into dest, a per-run dir the guest gets over ro 9p, so the image's
-// bundled acp adapters (claude-agent-acp/codex-acp) can authenticate INSIDE
-// the VM (without this, an agent node in a VM fails at session/new with no
-// credentials). Only the credential files are staged, never the whole
-// ~/.claude (history, memory, projects), so untrusted in-guest code sees the
-// oauth token and nothing more. dest is always created — empty when the host
-// has no creds — so the module's static /mnt/creds share always has a valid
-// source; the guest then relies on env-based auth. Paths are the same relative
-// to the host ~ and the guest $HOME, so the guest copies them straight in
-// (docs/vm-creds-spec.md).
+// stageAgentCreds copies the daemon user's credential files — and nothing else
+// — into dest, a per-run dir the guest gets over ro 9p, so in-guest tools can
+// authenticate INSIDE the VM. Two classes: LLM oauth (`.claude`/`.codex`) so
+// the bundled acp adapters reach session/new; and the `gh` token
+// (`.config/gh/hosts.yml`) so an in-workflow `gh pr create`/push node can
+// publish results. Only these files are staged — never the whole ~/.claude
+// (history, memory, projects) or ~/.config/gh beyond hosts.yml — so untrusted
+// in-guest code sees the tokens and nothing more. dest is always created —
+// empty when the host isn't logged in — so the module's static /mnt/creds
+// share always has a valid source. Paths are the same relative to the host ~
+// and the guest $HOME, so the guest copies them straight in.
+//
+// NOTE (trust boundary): the gh token carries `repo` (read+WRITE) scope, so
+// staging it lets untrusted in-guest code push to / open PRs in any repo the
+// host user can write. That is the deliberate tradeoff for in-workflow PRs;
+// per-node host placement (docs/vm-creds-spec.md) would scope it later.
 func stageAgentCreds(dest string) error {
 	if err := os.MkdirAll(dest, 0o700); err != nil {
 		return err
@@ -226,7 +231,7 @@ func stageAgentCreds(dest string) error {
 	if err != nil {
 		return err
 	}
-	for _, rel := range []string{".claude/.credentials.json", ".codex/auth.json"} {
+	for _, rel := range []string{".claude/.credentials.json", ".codex/auth.json", ".config/gh/hosts.yml"} {
 		data, err := os.ReadFile(filepath.Join(home, rel))
 		if err != nil {
 			continue // that provider isn't logged in on the host — skip it
