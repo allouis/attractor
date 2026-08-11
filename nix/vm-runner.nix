@@ -29,6 +29,19 @@ let
       # attractor runs via `sh -c` inheriting this PATH.
       export PATH="/run/current-system/sw/bin:$PATH"
 
+      # CI-parity environment for the repo's own toolchain (decision GL —
+      # "the guest is generic Linux; the repo brings its own versions"):
+      #  - corepack fetches the repo's pinned package manager without prompting
+      #  - playwright's ldd-based host check can't see nix-ld's loader, so it
+      #    reports every library missing; the libraries ARE there (see
+      #    programs.nix-ld.libraries below), so skip the check
+      #  - CI=true + TZ=UTC match what repo test suites are tuned for on
+      #    hosted CI (retry policies, reporter choice, TZ-sensitive tests)
+      export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+      export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+      export CI=true
+      export TZ=UTC
+
       # Power off so the launcher's process-exit path fires and marks the run
       # failed. Without this a guest-side failure leaves qemu idling at the
       # getty autologin, never phoning home, so the launcher's job-wait loop
@@ -78,6 +91,28 @@ let
       # through poweroff_run so a copy failure fails the run instead.
       mkdir -p "$cwd" || poweroff_run "mkdir $cwd failed"
       cp -a /mnt/workspace/. "$cwd"/ || poweroff_run "workspace copy to $cwd failed"
+
+      # Give the copied workspace real git metadata: jj materializes tracked
+      # files only, but repo test suites run `git` against their own checkout
+      # (e.g. Ghost's scripts/test/git.test.js does `git show HEAD:…`). Build
+      # an ISOLATED .git — a depth-1 fetch of the workspace's commit from the
+      # shared host git dir — rather than pointing at /mnt/repo/.git, so guest
+      # git ops never contend with the host's git state. The commit id comes
+      # from in-guest jj (@- = the workspace's base; @ is jj's fresh empty wc
+      # commit). Failure is non-fatal: a repo without git-dependent tests
+      # shouldn't die here.
+      if [ -d "$cwd/.jj" ] && [ ! -e "$cwd/.git" ]; then
+        base_commit=$(cd "$cwd" && jj log --no-graph -r @- -T commit_id 2>/dev/null || true)
+        if [ -n "''${base_commit:-}" ]; then
+          (
+            cd "$cwd" &&
+            git init -q . &&
+            git fetch -q --depth 1 /mnt/repo/.git "$base_commit" &&
+            git update-ref HEAD "$base_commit" &&
+            git read-tree HEAD
+          ) || echo "attractor-vm-run: git metadata setup failed (continuing)" >&2
+        fi
+      fi
 
       # Deliver the LLM oauth creds the launcher staged (claude/codex) so the
       # image's bundled acp adapters authenticate INSIDE the guest. /mnt/creds
@@ -212,15 +247,69 @@ in
   networking.useDHCP = lib.mkForce true;
   networking.firewall.enable = false;
 
-  # Target codebases run prebuilt, dynamically-linked node/npm helper binaries
-  # during install (e.g. Ghost's preinstall execs a generic `node`) that
-  # NixOS's stub-ld refuses. nix-ld provides a generic loader + base libs so
-  # those run inside the guest — matching the host (hosts/dimsum.nix).
+  # Target codebases run prebuilt, dynamically-linked generic-Linux binaries:
+  # node/npm helpers during install (e.g. Ghost's preinstall execs a generic
+  # `node`), pnpm's devEngines-downloaded node, and playwright's downloaded
+  # browsers (chromium + firefox, incl. dlopen'd media codecs). NixOS's
+  # stub-ld refuses all of these; nix-ld provides a generic loader + the
+  # library set they need. The browser list is the expensive part — keep it
+  # fat so ANY playwright version a repo pins just runs (decision GL: repos
+  # bring their own toolchain versions; the image only has to make generic
+  # Linux binaries work).
   programs.nix-ld.enable = true;
-  programs.nix-ld.libraries = with pkgs; [
-    stdenv.cc.cc.lib
+  programs.nix-ld.libraries = with pkgs; map lib.getLib [
+    stdenv.cc.cc
     zlib
     openssl
+    # browser runtime (chromium headless shell, full chromium, firefox)
+    alsa-lib
+    at-spi2-atk
+    at-spi2-core
+    atk
+    cairo
+    cups
+    dbus
+    expat
+    fontconfig
+    freetype
+    gdk-pixbuf
+    glib
+    gtk3
+    libdrm
+    libGL
+    libxkbcommon
+    mesa
+    nspr
+    nss
+    pango
+    systemd # libudev
+    libgbm
+    ffmpeg # firefox H.264 decode (dlopen'd libavcodec)
+    xorg.libX11
+    xorg.libXcomposite
+    xorg.libXcursor
+    xorg.libXdamage
+    xorg.libXext
+    xorg.libXfixes
+    xorg.libXi
+    xorg.libXrandr
+    xorg.libXrender
+    xorg.libXtst
+    xorg.libxcb
+    xorg.libxshmfence
+  ];
+
+  # Real fonts for browser tests. Ghost's koenig CI installs MS core fonts
+  # because caret-position assertions depend on Arial's metrics; corefonts is
+  # the same thing (and needs allowUnfree). The rest give sane fallbacks +
+  # emoji so headless rendering matches a normal Linux desktop.
+  nixpkgs.config.allowUnfree = true;
+  fonts.fontconfig.enable = true;
+  fonts.packages = with pkgs; [
+    corefonts
+    dejavu_fonts
+    liberation_ttf
+    noto-fonts-color-emoji
   ];
 
   # Base tooling + app runtimes. Runtimes are baked into the image
@@ -234,8 +323,20 @@ in
     pkgs.jq
     pkgs.coreutils
     runnerScript
-    pkgs.nodejs_22 # node + npm + corepack
-    pkgs.pnpm # pnpm workspaces (Ghost and other monorepos)
+    # BOOTSTRAP node only (any maintained LTS works): repos pin their real
+    # toolchain in-repo — packageManager pins pnpm (fetched by corepack) and
+    # devEngines.runtime pins node (downloaded by pnpm, onFail=download) — so
+    # a repo-side node/pnpm bump needs NO image rebuild. This node exists to
+    # run corepack and as a fallback for repos that pin nothing.
+    pkgs.nodejs_24 # most recent LTS: node + npm + corepack
+    # `pnpm`/`pnpx` on PATH must resolve the REPO'S pinned pnpm, not a fixed
+    # nix one: package scripts re-invoke bare `pnpm` (e.g. Ghost's
+    # `pnpm run '/^test:/'`), and a version-mismatched pnpm both violates
+    # devEngines checks and has produced real breakage (pnpm 10 vs 11 layout
+    # differences). Shim through corepack, which reads packageManager from the
+    # nearest package.json.
+    (pkgs.writeShellScriptBin "pnpm" ''exec corepack pnpm "$@"'')
+    (pkgs.writeShellScriptBin "pnpx" ''exec corepack pnpx "$@"'')
     pkgs.typescript # tsc
     pkgs.python3 # python + stdlib (unittest, venv)
     pkgs.docker-compose # `docker compose` for containerized test stacks
