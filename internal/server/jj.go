@@ -30,6 +30,26 @@ func jjHeadCommit(dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// jjWorkspaceHead reads the immutable commit_id of workspace ws's working-copy
+// commit (`<ws>@`) in dir's store, WITHOUT snapshotting (--ignore-working-copy,
+// a pure read). A launcher-backed run's in-guest commits land in this workspace
+// in the shared host store (spec W2), so this is the run's diff tip resolved
+// LIVE — it advances as the run commits and reads back "so far" mid-run. Errors
+// when dir is not a jj repo or ws is unknown (the reaper forgot it on GC), which
+// the caller treats as "not computable".
+func jjWorkspaceHead(dir, ws string) (string, error) {
+	cmd := exec.Command("jj", "-R", dir, "log", "--no-graph", "--ignore-working-copy", "-r", ws+"@", "-T", "commit_id")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("jj workspace head %s@ in %q: %w", ws, dir, err)
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		return "", fmt.Errorf("jj workspace head %s@ in %q: empty", ws, dir)
+	}
+	return id, nil
+}
+
 // jjDiff renders `jj diff --from from --to to` of dir as a git-format unified
 // diff (the format the UI's diffHtml parses). from/to are daemon-recorded
 // commit_ids, not user input, and are passed as argv (no shell).

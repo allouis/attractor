@@ -483,6 +483,24 @@ func (r *Run) RevTip() string {
 	return r.revTip
 }
 
+// resolveTip returns the run's diff tip commit and whether it is resolvable. A
+// vm run's produced change lives in its per-run jj workspace in the shared host
+// store, so the tip is that workspace's working-copy commit — resolved LIVE (a
+// pure read) so the diff reflects work so far, and naturally "not computable"
+// once the reaper forgets the workspace. direct and local runs stamp their tip
+// at terminal into revTip, so their behavior is unchanged.
+func (r *Run) resolveTip() (string, bool) {
+	if r.Placement() == "vm" {
+		id, err := jjWorkspaceHead(r.Cwd(), runWorkspaceName(r.ID))
+		if err != nil {
+			return "", false
+		}
+		return id, true
+	}
+	tip := r.RevTip()
+	return tip, tip != ""
+}
+
 // recordRevBase stamps the run's cwd `@` commit as the diff base, called just
 // before launch. It fires for EVERY runner with a jj cwd — direct, local, and
 // vm — because a vm run's per-run workspace is based on this same `@` (spec W2),

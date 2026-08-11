@@ -57,6 +57,153 @@ func TestRunDiffFromJJRange(t *testing.T) {
 			t.Errorf("diff missing %q:\n%s", want, body)
 		}
 	}
+	if got := resp.Header.Get("X-Diff-Status"); got != "ok" {
+		t.Errorf("X-Diff-Status = %q, want ok (direct run behavior unchanged)", got)
+	}
+}
+
+// addWorkspaceRun registers a vm-placed run whose per-run jj workspace of repo
+// is materialized in the shared host store, with the diff base stamped at the
+// host @ the workspace is based on — the P2 shape getRunDiff resolves the tip
+// from. Returns the run and the workspace path so a test can drive commits into
+// it (simulating in-guest jj, which lands in the shared store).
+func addWorkspaceRun(t *testing.T, srv *Server, repo, id string) (*Run, string) {
+	t.Helper()
+	base, err := jjHeadCommit(repo) // snapshots host @, the workspace's base
+	if err != nil {
+		t.Fatalf("base commit: %v", err)
+	}
+	work := filepath.Join(t.TempDir(), "work")
+	if err := materializeWorkspace(repo, work, runWorkspaceName(id)); err != nil {
+		t.Fatalf("materialize workspace: %v", err)
+	}
+	addRun(srv, id, t.TempDir())
+	srv.registry.mu.Lock()
+	run := srv.registry.runs[id]
+	run.cwd = repo
+	run.placement = "vm"
+	run.revBase = base
+	srv.registry.mu.Unlock()
+	return run, work
+}
+
+// commitInWorkspace writes a file in the per-run workspace and snapshots it
+// (any non-ignore-working-copy jj command does), so the workspace's `@` in the
+// shared host store advances — exactly what an in-guest commit does (spec W2).
+func commitInWorkspace(t *testing.T, work, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(work, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("jj", "-R", work, "log", "--no-graph", "-r", "@", "-T", "commit_id").CombinedOutput(); err != nil {
+		t.Fatalf("snapshot workspace: %v\n%s", err, out)
+	}
+}
+
+func getDiff(t *testing.T, srv *Server, id string) (status string, body string) {
+	t.Helper()
+	resp, err := http.Get(srv.URL() + "/pipelines/" + id + "/diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, b)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	return resp.Header.Get("X-Diff-Status"), string(b)
+}
+
+// TestRunDiffWorkspaceWithCommits: a vm run whose workspace carries in-guest
+// commits serves those changes as its diff — the whole point of P2 (VM runs no
+// longer stay "no diff"). Resolved LIVE (no terminal state set).
+func TestRunDiffWorkspaceWithCommits(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	srv, _ := newStageTestServer(t)
+	repo := jjInitRepo(t)
+	_, work := addWorkspaceRun(t, srv, repo, "vm1")
+	commitInWorkspace(t, work, "feature.txt", "produced-in-guest\n")
+
+	status, body := getDiff(t, srv, "vm1")
+	if status != "ok" {
+		t.Errorf("X-Diff-Status = %q, want ok", status)
+	}
+	for _, want := range []string{"feature.txt", "produced-in-guest"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("diff missing %q:\n%s", want, body)
+		}
+	}
+}
+
+// TestRunDiffWorkspaceNoCommitsYet: a live vm run whose workspace has no changes
+// yet is computable-but-empty — "no commits yet", distinct from "not computable"
+// (P2: distinguished by a typed field, not by sniffing an empty body).
+func TestRunDiffWorkspaceNoCommitsYet(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	srv, _ := newStageTestServer(t)
+	repo := jjInitRepo(t)
+	addWorkspaceRun(t, srv, repo, "vm1")
+
+	status, body := getDiff(t, srv, "vm1")
+	if status != "no-commits-yet" {
+		t.Errorf("X-Diff-Status = %q, want no-commits-yet", status)
+	}
+	if strings.TrimSpace(body) != "" {
+		t.Errorf("no-commits-yet run should serve empty body, got:\n%s", body)
+	}
+}
+
+// TestRunDiffWorkspaceCancelledStillServes: the diff is independent of the run's
+// terminal outcome — a cancelled/crashed vm run whose workspace still exists
+// serves whatever commits it produced before dying (P2 requirement).
+func TestRunDiffWorkspaceCancelledStillServes(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	srv, _ := newStageTestServer(t)
+	repo := jjInitRepo(t)
+	run, work := addWorkspaceRun(t, srv, repo, "vm1")
+	commitInWorkspace(t, work, "partial.txt", "work-before-crash\n")
+	run.mu.Lock()
+	run.status = RunFailed
+	run.mu.Unlock()
+
+	status, body := getDiff(t, srv, "vm1")
+	if status != "ok" {
+		t.Errorf("X-Diff-Status = %q, want ok (crashed run still serves its diff)", status)
+	}
+	if !strings.Contains(body, "work-before-crash") {
+		t.Errorf("diff missing the pre-crash change:\n%s", body)
+	}
+}
+
+// TestRunDiffWorkspaceForgotten: once the reaper GCs a run it forgets the
+// workspace, so its tip is no longer resolvable — the diff degrades cleanly to
+// "not computable" rather than erroring (P2 cleanup interaction).
+func TestRunDiffWorkspaceForgotten(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	srv, _ := newStageTestServer(t)
+	repo := jjInitRepo(t)
+	_, work := addWorkspaceRun(t, srv, repo, "vm1")
+	commitInWorkspace(t, work, "partial.txt", "produced\n") // real work, then GC forgets it
+	if err := forgetWorkspace(repo, runWorkspaceName("vm1")); err != nil {
+		t.Fatalf("forget workspace (reaper GC): %v", err)
+	}
+
+	status, body := getDiff(t, srv, "vm1")
+	if status != "not-computable" {
+		t.Errorf("X-Diff-Status = %q, want not-computable (workspace GC'd)", status)
+	}
+	if strings.TrimSpace(body) != "" {
+		t.Errorf("GC'd run should serve empty body, got:\n%s", body)
+	}
 }
 
 // TestRunDiffDoesNotSnapshot proves GET /diff is a pure read (T9c B2): serving
@@ -127,6 +274,9 @@ func TestRunDiffEmptyWithoutRange(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-Diff-Status"); got != "not-computable" {
+		t.Errorf("X-Diff-Status = %q, want not-computable (non-jj / no range)", got)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if strings.TrimSpace(string(body)) != "" {

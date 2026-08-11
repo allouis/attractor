@@ -5,6 +5,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -584,10 +585,23 @@ func (s *Server) getGraph(w http.ResponseWriter, r *http.Request) {
 	w.Write(svg)
 }
 
+// diffStatus classifies a /diff response via the X-Diff-Status header so a
+// consumer can distinguish an empty-but-computable diff ("no commits yet", a
+// live run before its first commit) from an uncomputable one WITHOUT sniffing
+// the body. The body stays the raw jj diff (text/plain) for backward
+// compatibility with the existing UI, which reads it as text and renders it.
+type diffStatus string
+
+const (
+	diffStatusOK            diffStatus = "ok"             // a real produced change
+	diffStatusNoCommitsYet  diffStatus = "no-commits-yet" // computable, empty
+	diffStatusNotComputable diffStatus = "not-computable" // no jj range / workspace gone
+)
+
 // getRunDiff serves GET /pipelines/{id}/diff: the run's produced change as a
-// unified diff, derived from the jj change-id range stamped around launch
-// (ui-tailwind-spec T9c). A run with no recorded range (VM / non-jj cwd)
-// serves an empty 200 body so the frontend falls back to a *.diff artifact.
+// unified diff, computed host-side from the jj change-id range (T9c/P2). Works
+// for every runner — direct, local, and vm — and while the run is LIVE. The
+// X-Diff-Status header carries the typed classification (see diffStatus).
 func (s *Server) getRunDiff(w http.ResponseWriter, r *http.Request) {
 	run, ok := s.registry.Get(r.PathValue("id"))
 	if !ok {
@@ -595,19 +609,38 @@ func (s *Server) getRunDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	base, tip := run.RevBase(), run.RevTip()
-	if base == "" || tip == "" {
-		// No range recorded (VM / non-jj cwd — the stamp requires a jj cwd, so a
-		// recorded range implies one): empty body, frontend falls back to the
-		// artifact.
-		return
-	}
-	out, err := jjDiff(run.Cwd(), base, tip)
+	out, status, err := runDiff(run)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("X-Diff-Status", string(status))
 	w.Write(out)
+}
+
+// runDiff computes a run's produced change: base is the change stamped at launch
+// (the anchor a vm run's per-run workspace is based on); the tip is resolved per
+// runner (a vm run's workspace in the shared store, resolved live; a direct/local
+// run's terminal-stamped tip). An empty range or an unresolvable tip — a non-jj
+// cwd, or a workspace the reaper forgot on GC — is "not computable"; a
+// computable-but-empty diff is "no commits yet".
+func runDiff(run *Run) ([]byte, diffStatus, error) {
+	base := run.RevBase()
+	if base == "" {
+		return nil, diffStatusNotComputable, nil
+	}
+	tip, ok := run.resolveTip()
+	if !ok {
+		return nil, diffStatusNotComputable, nil
+	}
+	out, err := jjDiff(run.Cwd(), base, tip)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(bytes.TrimSpace(out)) == 0 {
+		return nil, diffStatusNoCommitsYet, nil
+	}
+	return out, diffStatusOK, nil
 }
 
 // graphEngine screens an untrusted `?engine=` against the render allowlist,
