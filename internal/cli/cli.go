@@ -248,6 +248,15 @@ func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBacke
 				_ = rep.client.UploadDir(logsRoot, daemonOwnedArtifact)
 				uploaded = true
 			}
+			// Per-stage sync: when a stage ends, upload just that node's dir
+			// (logsRoot/<node>/, nested child dirs included) before forwarding
+			// the event, so GET /stages/{node} serves the completed stage of a
+			// still-live run under every runner. Same goroutine as the event
+			// forward → race-free; best-effort since the terminal sweep above
+			// is the catch-all if a per-stage upload fails.
+			if rep != nil && isStageDoneEvent(ev.Kind) && ev.NodeID != "" {
+				_ = rep.client.UploadStageDir(logsRoot, ev.NodeID, daemonOwnedArtifact)
+			}
 			if rep != nil {
 				_ = rep.client.Event(ev)
 			}
@@ -281,6 +290,13 @@ func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBacke
 // flips the daemon's run to a terminal state (registry.finishFromEvent).
 func isTerminalEvent(k engine.EventKind) bool {
 	return k == engine.EventPipelineCompleted || k == engine.EventPipelineFailed
+}
+
+// isStageDoneEvent reports whether ev ends a single stage — the point at
+// which that node's dir is final enough to phone home incrementally. A
+// failed stage still has files worth serving, so it uploads too.
+func isStageDoneEvent(k engine.EventKind) bool {
+	return k == engine.EventStageCompleted || k == engine.EventStageFailed
 }
 
 // daemonOwnedArtifact reports whether a run-dir file is one the daemon
