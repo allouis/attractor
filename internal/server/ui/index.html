@@ -280,6 +280,35 @@
   .pulse { animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
   .muted { color: var(--text-muted); }
+  /* Shared markdown (ui-run-view-v3 R2): agent prose renders as a safe subset,
+     so the emitted tags get light styling that tracks the tokens. */
+  .md { overflow-wrap: anywhere; }
+  .md > :first-child { margin-top: 0; }
+  .md > :last-child { margin-bottom: 0; }
+  .md p { margin: var(--space-2) 0; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: var(--space-3) 0 var(--space-1); font-size: var(--font-base); font-weight: 650; }
+  .md ul, .md ol { margin: var(--space-2) 0; padding-left: var(--space-4); }
+  .md li { margin: 2px 0; }
+  .md a { color: var(--accent); }
+  .md code.md-inline-code { font-family: ui-monospace, monospace; font-size: .92em;
+    background: var(--surface-2); border-radius: 4px; padding: 0 4px; }
+  .md pre.md-code { background: var(--surface-2); border-radius: 6px; padding: var(--space-2);
+    font: var(--font-sm)/1.45 ui-monospace, monospace; overflow: auto; margin: var(--space-2) 0; }
+  .md pre.md-code code { background: none; padding: 0; }
+  /* ANSI (SGR subset) → theme-aware colours (ui-run-view-v3 R2). The 16 named
+     colours map to state/text tokens so both palettes track; 256/truecolour
+     ride inline rgb. */
+  .ansi-bold { font-weight: 700; }
+  .ansi-dim { opacity: .6; }
+  .ansi-red, .ansi-red-b { color: var(--state-failed); }
+  .ansi-grn, .ansi-grn-b { color: var(--state-success); }
+  .ansi-yel, .ansi-yel-b { color: var(--state-needs-human); }
+  .ansi-blu, .ansi-blu-b { color: var(--state-running); }
+  .ansi-cyn, .ansi-cyn-b { color: var(--accent); }
+  .ansi-mag, .ansi-mag-b { color: var(--state-retrying); }
+  .ansi-blk, .ansi-blk-b { color: var(--text-muted); }
+  .ansi-wht, .ansi-wht-b { color: var(--text); }
   /* Shared empty/loading/error placeholder (web-ui-v2-spec U1). Centred,
      padded, and colour-coded so a failure never reads like an empty list. */
   .state { color: var(--text-muted); text-align: center; padding: var(--space-5) 0; }
@@ -2137,6 +2166,175 @@ function diffHtml(text) {
   }).join('');
 }
 
+// ---- markdown (safe subset) --------------------------------------------
+// renderMarkdown turns agent prose into HTML from a deliberately small, safe
+// Markdown subset (ui-run-view-v3 R2): ATX headings, bold, italic, inline +
+// fenced code, unordered/ordered lists, and links. The source is
+// attacker-controlled, so it is HTML-escaped FIRST and never passed through
+// raw — the only tags in the output are the ones this function emits. Reused
+// everywhere prose renders (feed bubbles, the gate plan snippet, the inspector
+// response).
+function renderMarkdown(src) {
+  const lines = String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let para = [];
+  const flushPara = () => {
+    if (!para.length) return;
+    out.push(`<p>${mdInline(escapeHtml(para.join('\n')))}</p>`);
+    para = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Fenced code block: raw text, escaped, never inline-processed.
+    if (/^\s*```/.test(line)) {
+      flushPara();
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) { buf.push(lines[i]); i++; }
+      out.push(`<pre class="md-code overflow-x-auto"><code>${escapeHtml(buf.join('\n'))}</code></pre>`);
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      flushPara();
+      const level = Math.min(6, h[1].length);
+      out.push(`<h${level} class="md-h">${mdInline(escapeHtml(h[2].trim()))}</h${level}>`);
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      flushPara();
+      const items = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        items.push(`<li>${mdInline(escapeHtml(lines[i].replace(/^\s*[-*+]\s+/, '')))}</li>`);
+        i++;
+      }
+      i--;
+      out.push(`<ul class="md-list">${items.join('')}</ul>`);
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      flushPara();
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(`<li>${mdInline(escapeHtml(lines[i].replace(/^\s*\d+\.\s+/, '')))}</li>`);
+        i++;
+      }
+      i--;
+      out.push(`<ol class="md-list">${items.join('')}</ol>`);
+      continue;
+    }
+    if (/^\s*$/.test(line)) { flushPara(); continue; }
+    para.push(line);
+  }
+  flushPara();
+  return out.join('');
+}
+
+// mdInline applies inline Markdown to an ALREADY-HTML-ESCAPED string: inline
+// code first (so emphasis markers inside code stay literal), then links, then
+// bold/italic. A link's url is validated by safeUrl (http/https only, else #);
+// because the whole string is pre-escaped no quote can break out of the href
+// attribute, so a "javascript:" or attribute-breakout url renders inert.
+function mdInline(s) {
+  const code = [];
+  s = s.replace(/`([^`]+)`/g, (_, c) => { code.push(c); return '\x00' + (code.length - 1) + '\x00'; });
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, url) =>
+    `<a href="${safeUrl(url)}" target="_blank" rel="noopener">${text}</a>`);
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g, '$1<em>$2</em>');
+  s = s.replace(/\x00(\d+)\x00/g, (_, n) => `<code class="md-inline-code">${code[+n]}</code>`);
+  return s;
+}
+
+// ---- ANSI (SGR subset) -------------------------------------------------
+// ANSI_FG maps the SGR foreground codes this UI honours to theme-aware classes
+// (30-37 normal, 90-97 bright). Colours resolve to CSS tokens so both palettes
+// track; backgrounds, cursor moves and OSC are stripped, never rendered.
+const ANSI_FG = {
+  30: 'blk', 31: 'red', 32: 'grn', 33: 'yel', 34: 'blu', 35: 'mag', 36: 'cyn', 37: 'wht',
+  90: 'blk-b', 91: 'red-b', 92: 'grn-b', 93: 'yel-b', 94: 'blu-b', 95: 'mag-b', 96: 'cyn-b', 97: 'wht-b',
+};
+
+// ansiToHtml renders captured command output (nix, pnpm, Nx colorize) for the
+// browser (ui-run-view-v3 R2): the raw bytes are attacker-controlled, so the
+// text is HTML-escaped FIRST, then the common SGR subset (16/256 fg colours,
+// bold, dim, reset) becomes theme-aware spans and every other escape (CSI
+// cursor moves, OSC titles, lone escapes) is stripped — no raw \x1b reaches the
+// operator.
+function ansiToHtml(raw) {
+  const esc = escapeHtml(raw == null ? '' : String(raw));
+  const state = { fg: null, rgb: null, bold: false, dim: false };
+  let out = '', open = false, i = 0;
+  const spanTag = () => {
+    const cls = [];
+    if (state.bold) cls.push('ansi-bold');
+    if (state.dim) cls.push('ansi-dim');
+    if (state.fg) cls.push('ansi-' + state.fg);
+    const style = state.rgb ? ` style="color:${state.rgb}"` : '';
+    if (!cls.length && !style) return '';
+    return `<span class="${cls.join(' ')}"${style}>`;
+  };
+  const reopen = () => {
+    if (open) { out += '</span>'; open = false; }
+    const t = spanTag();
+    if (t) { out += t; open = true; }
+  };
+  while (i < esc.length) {
+    if (esc[i] === '\x1b') {
+      const csi = /^\x1b\[([0-9;?]*)([ -\/]*[@-~])/.exec(esc.slice(i));
+      if (csi) {
+        if (csi[2].slice(-1) === 'm') { applySGR(csi[1], state); reopen(); }
+        i += csi[0].length;
+        continue;
+      }
+      const osc = /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/.exec(esc.slice(i));
+      if (osc) { i += osc[0].length; continue; }
+      i += 2;   // drop a lone escape + its next byte
+      continue;
+    }
+    out += esc[i];
+    i++;
+  }
+  if (open) out += '</span>';
+  return out;
+}
+
+// applySGR folds one SGR sequence's parameters into the running colour state.
+function applySGR(params, state) {
+  const codes = params === '' ? [0] : params.split(';').map(n => parseInt(n, 10) || 0);
+  for (let k = 0; k < codes.length; k++) {
+    const n = codes[k];
+    if (n === 0) { state.fg = null; state.rgb = null; state.bold = false; state.dim = false; }
+    else if (n === 1) state.bold = true;
+    else if (n === 2) state.dim = true;
+    else if (n === 22) { state.bold = false; state.dim = false; }
+    else if (n === 39) { state.fg = null; state.rgb = null; }
+    else if (ANSI_FG[n]) { state.fg = ANSI_FG[n]; state.rgb = null; }
+    else if (n === 38) {
+      if (codes[k + 1] === 5) { state.rgb = ansi256(codes[k + 2]); state.fg = null; k += 2; }
+      else if (codes[k + 1] === 2) { state.rgb = `rgb(${codes[k + 2] || 0},${codes[k + 3] || 0},${codes[k + 4] || 0})`; state.fg = null; k += 4; }
+    }
+    // background (40-49, 100-107) and unrecognised codes are ignored.
+  }
+}
+
+// ansi256 maps a 256-colour index to an absolute rgb() (ANSI colours are
+// absolute by definition): the 6x6x6 cube, the greyscale ramp, and the 16
+// standard colours as concrete values.
+function ansi256(n) {
+  n = n | 0;
+  if (n >= 16 && n <= 231) {
+    n -= 16;
+    const cv = v => v === 0 ? 0 : 55 + v * 40;
+    return `rgb(${cv(Math.floor(n / 36))},${cv(Math.floor((n % 36) / 6))},${cv(n % 6)})`;
+  }
+  if (n >= 232) { const v = 8 + (n - 232) * 10; return `rgb(${v},${v},${v})`; }
+  const std = ['0,0,0', '205,0,0', '0,205,0', '205,205,0', '0,0,238', '205,0,205', '0,205,205', '229,229,229',
+    '127,127,127', '255,0,0', '0,255,0', '255,255,0', '92,92,255', '255,0,255', '0,255,255', '255,255,255'];
+  return `rgb(${std[n] || '0,0,0'})`;
+}
+
 // stageDetailHtml builds the U2 inspector panel from a stage's detail
 // (GET …/stages/{node}) and its timing (start/end from the event stream).
 // It surfaces status, elapsed time, prompt, response and each tool call, then
@@ -2148,6 +2346,10 @@ function stageDetailHtml(id, detail, timing, logHtml, findings, resolved) {
   const calls = (detail.tool_calls || []).map(toolCallHtml).join('');
   const section = (title, body) => body
     ? `<h4>${title}</h4><pre class="stage-text overflow-x-auto">${escapeHtml(body)}</pre>` : '';
+  // The response is agent prose — render it as markdown (the shared safe
+  // subset), not raw monospace, so it reads the same as the feed bubbles.
+  const response = detail.response
+    ? `<h4>Response</h4><div class="stage-md md">${renderMarkdown(detail.response)}</div>` : '';
   return `
     <h3>${escapeHtml(id)}</h3>
     <div class="stage-meta">
@@ -2156,7 +2358,7 @@ function stageDetailHtml(id, detail, timing, logHtml, findings, resolved) {
     </div>
     <div id="node-findings">${nodeFindingsHtml(findings, resolved)}</div>
     ${section('Prompt', detail.prompt)}
-    ${section('Response', detail.response)}
+    ${response}
     ${calls ? `<h4>Tool calls</h4>${calls}` : ''}
     <h4>Output</h4>
     <div id="node-log" class="overflow-x-auto">${logHtml || ''}</div>`;
@@ -2297,9 +2499,12 @@ async function viewArtifact(path) {
       `${fmtBytes(body.length)} — truncated.</p>`;
     body = body.slice(0, ARTIFACT_RENDER_CAP);
   }
+  // A diff renders coloured line-by-line; any other file (a stdout/stderr
+  // capture carries SGR escapes) renders through the shared ANSI converter so
+  // colours read and no raw \x1b garbage reaches the operator.
   const inner = isDiffPath(path)
     ? `<div class="diff min-w-0">${diffHtml(body)}</div>`
-    : `<pre class="stage-text overflow-x-auto">${escapeHtml(body)}</pre>`;
+    : `<pre class="stage-text overflow-x-auto">${ansiToHtml(body)}</pre>`;
   view.innerHTML = `<h4>${escapeHtml(path)}</h4>${note}${inner}`;
 }
 
