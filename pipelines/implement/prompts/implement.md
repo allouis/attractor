@@ -1,6 +1,8 @@
 Implement the change issue $context.identifier — "$context.title" — asks for, in $context.repo.
 
-The issue is at $context.url. The repo is checked out in your working directory.
+The issue is at $context.url. The repo is checked out in your working
+directory. A human already approved your plan — follow it; if reality
+forces a deviation, note it in your response.
 
 1. Read the issue to understand the intended change and its acceptance
    criteria. Read the relevant existing code before touching anything —
@@ -8,7 +10,10 @@ The issue is at $context.url. The repo is checked out in your working directory.
 2. Make the change test-first where practical: add or adjust tests that
    pin the behaviour, then make them pass. Keep the change scoped to
    what the issue asks — nothing missing, nothing beyond.
-3. Run the project's tests and formatter before you finish.
+3. **Commit as you go with `jj`** (never `git` directly): small, atomic,
+   reviewable commits, each message following the repo's conventions.
+   Do not push — publishing happens after the ship gate.
+4. Run the project's tests and formatter before you finish.
 
 After you finish, deterministic checks run — dependency install,
 typecheck, lint, and the test suite — followed by an adversarial
