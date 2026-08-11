@@ -9,7 +9,11 @@
 //   attractor run implement -var repo=owner/name -var identifier=ENG-42 \
 //     -var url=… -var title=…
 //
-// Flow: `plan` reads the issue and produces a plan — no code — and
+// Flow: a `baseline_*` chain runs the repo's deterministic checks FIRST,
+// proving the starting point is green — a baseline failure fails the run
+// (there is no agent yet to route to, and implementing on a broken base
+// makes every later check failure ambiguous: ours or pre-existing?).
+// `plan` then reads the issue and produces a plan — no code — and
 // self-reports `review_base` (the change id before any work) via its
 // status.json context_updates. A human approves the plan at `plan_gate`
 // (browser /questions surface under the daemon, console from a TTY).
@@ -26,6 +30,15 @@ digraph implement {
     max_node_visits = 10
 
     start [shape=Mdiamond]
+
+    // Baseline: the same deterministic checks as the post-implement gate,
+    // run BEFORE any work. Distinct nodes (not the gating ones below) so a
+    // baseline failure terminates the run with the check's output instead
+    // of routing to `implement`, and so gate-node visit counts stay clean.
+    baseline_deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
+    baseline_typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
+    baseline_lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
+    baseline_test      [type="tool", timeout="40m", tool_command="$context.check.test"]
 
     plan [llm_model="claude-fable-5[1m]", thread_id="implement",
           fidelity="full", timeout="30m", prompt="@prompts/plan.md"]
@@ -59,7 +72,11 @@ digraph implement {
 
     done [shape=Msquare]
 
-    start -> plan
+    start -> baseline_deps
+    baseline_deps      -> baseline_typecheck
+    baseline_typecheck -> baseline_lint
+    baseline_lint      -> baseline_test
+    baseline_test      -> plan
     plan -> plan_gate
     plan_gate -> implement [label="[A] Approve plan"]
     plan_gate -> plan      [label="[R] Revise plan"]
