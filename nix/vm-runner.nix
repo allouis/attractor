@@ -106,6 +106,20 @@ let
       mkdir -p "$cwd" || poweroff_run "mkdir $cwd failed"
       cp -a /mnt/workspace/. "$cwd"/ || poweroff_run "workspace copy to $cwd failed"
 
+      # On a RESUME (the launcher reused an existing run's workspace), the copy
+      # above is STALE: the previous attempt committed into the shared store
+      # from the guest, advancing this workspace's @, but the HOST workspace dir
+      # was never updated (that guest ran on its own ext4 copy). The copied
+      # .jj/repo points at the store mount (/mnt/repo/.jj/repo, set by the
+      # launcher), so `jj workspace update-stale` checks out the workspace's
+      # current @ from the store here — restoring the committed attempt work into
+      # /work so the resume continues from where it crashed, not the launch-time
+      # tree. On a FRESH run the working copy already matches @, so this is a
+      # no-op. Non-fatal: a repo without a jj workspace just skips it.
+      if [ -d "$cwd/.jj" ]; then
+        (cd "$cwd" && jj workspace update-stale) >/dev/null 2>&1 || true
+      fi
+
       # Give the copied workspace real git metadata: jj materializes tracked
       # files only, but repo test suites run `git` against their own checkout
       # (e.g. Ghost's scripts/test/git.test.js does `git show HEAD:…`). Build

@@ -500,9 +500,19 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	// runs there — the shared mount is transport only (spec G1/GS).
 	work := filepath.Join(runDir, "work")
 	wsName := runWorkspaceName(run.ID)
-	if err := materializeWorkspace(run.cwd, work, wsName); err != nil {
-		run.failCrashed("vm launcher: materialize workspace: " + err.Error())
-		return err
+	// A restart re-enters Launch with the previous attempt's workspace still on
+	// disk and registered in the store (the reaper hasn't run). REUSE it: the
+	// attempt committed its work into the shared store from that workspace, and
+	// re-materializing would reset the workspace to run.cwd@ current, dropping
+	// every commit the attempt made. The guest restores the working tree to the
+	// workspace's @ (jj workspace update-stale, vm-runner.nix) so the resume sees
+	// that committed work. A fresh run — or a restart after the reaper forgot the
+	// workspace — materializes anew.
+	if !(dirExists(work) && workspaceKnown(run.cwd, wsName)) {
+		if err := materializeWorkspace(run.cwd, work, wsName); err != nil {
+			run.failCrashed("vm launcher: materialize workspace: " + err.Error())
+			return err
+		}
 	}
 	// jj materialized only tracked files, so submodule CONTENT is absent (only
 	// the gitlink is tracked). Copy it from the host checkout so the guest boots
@@ -564,6 +574,13 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		return err
 	}
 
+	// Boot a FRESH disk: on a restart a crashed guest's qcow2 may hold a
+	// half-written filesystem that would poison the resume, and run-nixos-vm
+	// reuses NIX_DISK_IMAGE if it exists — so delete any stale one first. The
+	// workspace (reused above) carries the run's committed work; the qcow2 is
+	// throwaway per-boot scratch, safe to discard.
+	_ = os.Remove(filepath.Join(runDir, "vm.qcow2"))
+
 	cmd := exec.Command(runnerScript)
 	cmd.Env = l.vmEnv(runDir, jobDir, work, run.cwd, credsDir, logsDir)
 	console, err := os.Create(filepath.Join(runDir, "vm-console.log"))
@@ -606,6 +623,29 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 			}
 		}
 	}
+}
+
+// dirExists reports whether path is an existing directory.
+func dirExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+// workspaceKnown reports whether repoDir's jj store still registers a workspace
+// named name. `jj workspace list` prints one "<name>: <commit>" line per known
+// workspace; a restart reuses the workspace only while it is still registered
+// (the reaper `jj workspace forget`s it on retention).
+func workspaceKnown(repoDir, name string) bool {
+	out, err := exec.Command("jj", "-R", repoDir, "workspace", "list").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), name+":") {
+			return true
+		}
+	}
+	return false
 }
 
 // forgetWorkspace deregisters a per-run jj workspace from repoDir's op-log
