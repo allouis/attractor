@@ -37,6 +37,13 @@ func TestReviewPipeline_DispatchExpandsDiffCmd(t *testing.T) {
 	// The daemon seeds the Item's vars into the run's initial context; do
 	// the same here so run-start `vars=` validation sees them (C3).
 	be := fake.New()
+	// synth is a require_status node now: without an explicit self-reported
+	// outcome the child review fails (by design — lost verdicts must not
+	// default to success).
+	be.SetSequence("synth", fake.Step{Outcome: &engine.Outcome{
+		Status:         engine.StatusSuccess,
+		ContextUpdates: map[string]string{"review.verdict": "pass"},
+	}})
 	out := runPrepared(t, prepared, be, map[string]string{
 		"repo":      "owner/repo",
 		"pr_number": "42",

@@ -42,7 +42,7 @@ digraph review_core {
     // Convergence node: merges the five findings and self-reports the
     // verdict via the status-file contract (spec §4.5). Its outcome IS
     // review-core's terminal outcome, so a parent can branch on it.
-    synth [llm_provider="anthropic", llm_model="opus[1m]", timeout="15m", prompt="Five reviewers each reviewed the same change through a different lens. Their findings are in $context.parallel.results (JSON — each branch's context_updates holds one review.<lens> entry). Merge them into a single review, deduping overlapping points. Then self-report the verdict via your status.json: outcome SUCCESS with context_updates {review.summary, review.verdict=pass} when nothing blocks a merge, otherwise outcome FAIL with the blocking issues in failure_reason and context_updates {review.verdict=fail}."]
+    synth [llm_provider="anthropic", llm_model="opus[1m]", require_status="true", timeout="15m", prompt="Five reviewers each reviewed the same change through a different lens. Their findings are in $context.parallel.results (JSON — each branch's context_updates holds one review.<lens> entry). Merge them into a single review, deduping overlapping points. Then self-report the verdict by writing `{stage_dir}/status.json` (that exact path): outcome SUCCESS with context_updates {review.summary, review.verdict=pass} when nothing blocks a merge, otherwise outcome FAIL with the blocking issues in failure_reason and context_updates {review.verdict=fail}."]
 
     done [shape=Msquare]
 

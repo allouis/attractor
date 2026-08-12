@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/allouis/attractor/internal/backend"
@@ -86,6 +87,12 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	if err := stage.MkdirAll(); err != nil {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: fmt.Sprintf("mkdir stage dir: %v", err)}
 	}
+	// Resolve the status-file contract's {stage_dir} placeholder to the real
+	// path before the prompt reaches the agent. Agents must never guess it:
+	// the review-core synth guessed `/status.json`, its FAIL verdict was
+	// never read, and the run shipped a failed review as a pass (2026-08-12,
+	// run a9dd311b).
+	prompt = strings.ReplaceAll(prompt, "{stage_dir}", stage.Root())
 	// Wipe any status.json left behind by a previous attempt so the
 	// self-report check below only fires for the agent's own writes.
 	_ = stage.Remove("status.json")
@@ -132,6 +139,17 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 		// and last_response in context.
 		oc.ContextUpdates = applyDefaults(oc.ContextUpdates, env.Node, response)
 		return oc
+	}
+
+	// A verdict node (require_status=true) whose status never arrived must
+	// fail loud, not default to success — defaulting is how a lost FAIL
+	// verdict passes a review gate.
+	if env.Node.Bool("require_status") {
+		return engine.Outcome{
+			Status:         engine.StatusFail,
+			FailureReason:  "agent wrote no " + filepath.Join(stage.Root(), "status.json") + " (require_status node)",
+			ContextUpdates: applyDefaults(nil, env.Node, response),
+		}
 	}
 
 	return engine.Outcome{
