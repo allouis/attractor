@@ -136,8 +136,11 @@ let
         # invoke — dies with "dubious ownership" (2026-08-12: the submodule
         # init silently failed at boot and Ghost's baseline check went green
         # on a degraded cache build because of it). Single-purpose throwaway
-        # guest: allow everything.
-        git config --global --add safe.directory '*' 2>/dev/null || true
+        # guest: allow everything. --system (/etc/gitconfig), not --global:
+        # HOME is not reliably set this early in the unit, so a --global write
+        # can land nowhere and git ops keep failing (2026-08-12, run a8f68cae
+        # hit dubious-ownership again despite the earlier --global fix).
+        git config --system --add safe.directory '*' 2>/dev/null || true
         base_commit=$(cd "$cwd" && jj log --no-graph -r @- -T commit_id 2>/dev/null || true)
         if [ -n "''${base_commit:-}" ]; then
           (
@@ -217,8 +220,13 @@ let
       # keeps a single writer.
       args=(run --report-to "$url" --run-id "$run_id" --report-token "$token"
             --cwd "$cwd" --base-dir "$base_dir" --logs /mnt/runlogs --no-event-log)
-      while IFS= read -r kv; do args+=(-var "$kv"); done \
-        < <(jq -r '.vars // {} | to_entries[] | "\(.key)=\(.value)"' "$job")
+      # NUL-delimited: var VALUES may contain newlines (e.g. the seeded issue
+      # `body` is a whole markdown document) — a line-based read splits them
+      # into broken -var tokens and attractor dies on `-var expects name=value`
+      # (2026-08-12, run a8f68cae). argv entries hold newlines fine; only the
+      # delimiter must be unambiguous.
+      while IFS= read -r -d ''' kv; do args+=(-var "$kv"); done \
+        < <(jq -j '.vars // {} | to_entries[] | "\(.key)=\(.value)\u0000"' "$job")
       args+=(/mnt/job/source.dot)
 
       echo "attractor-vm-run: attractor ''${args[*]}" >&2
