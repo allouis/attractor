@@ -20,6 +20,10 @@ func (s *Server) restartPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "run cannot be resumed from failure", http.StatusConflict)
 		return
 	}
+	// Re-derive the static checks from LIVE config before re-launch: checks are
+	// operator policy, not run identity, so a revived run must run the operator's
+	// current check commands even if they changed since the run was submitted.
+	s.reseedChecks(run)
 	s.dispatcher.enqueue(run)
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": run.ID, "restarted": true})
 }

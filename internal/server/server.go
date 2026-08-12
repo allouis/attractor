@@ -487,6 +487,16 @@ func seedChecks(seed map[string]string, repo, cwd string) map[string]string {
 	return seed
 }
 
+// reseedChecks re-derives the static check.* commands from LIVE config and
+// overlays them onto a restarting run (config-screen-spec C3), so a revived run
+// runs the operator's CURRENT check commands rather than the ones frozen into
+// its context at submit. The overlay reaches the on-disk checkpoint the resume
+// reads (see Run.overlayCheckContext). seedChecks with an empty seed returns
+// only the check.* keys, keyed by the run's repo/cwd.
+func (s *Server) reseedChecks(run *Run) {
+	run.overlayCheckContext(seedChecks(map[string]string{}, run.repo, run.cwd))
+}
+
 func seedContext(vars map[string]string, itemRef string) map[string]string {
 	if len(vars) == 0 && itemRef == "" {
 		return nil

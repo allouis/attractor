@@ -774,6 +774,63 @@ func (r *Run) rotateEventLog() {
 	}
 }
 
+// overlayCheckContext merges the given check.* commands into the run's seeded
+// context AND into the on-disk checkpoint the resume reads. Checks are operator
+// policy, not run identity (config-screen-spec C3): a revived run must run the
+// CURRENT check commands, not the ones frozen at submit. The engine restores a
+// resumed run's context solely from checkpoint.ContextValues (initialContext is
+// NOT re-applied on resume — engine.loadOrInitState), so the overlay has to
+// reach the checkpoint; initialContext is updated too so a direct fresh-start
+// fallback and the run summary agree.
+func (r *Run) overlayCheckContext(checks map[string]string) {
+	if len(checks) == 0 {
+		return
+	}
+	r.mu.Lock()
+	if r.initialContext == nil {
+		r.initialContext = map[string]string{}
+	}
+	for k, v := range checks {
+		r.initialContext[k] = v
+	}
+	r.mu.Unlock()
+	r.overlayCheckpointContext(checks)
+	r.writeManifest()
+}
+
+// overlayCheckpointContext merges checks into the on-disk checkpoint's stored
+// `context`, preserving every other checkpoint field (decoded as raw JSON so
+// nothing else is rewritten). A missing or unreadable checkpoint is a no-op —
+// the initialContext overlay covers a run that never checkpointed.
+func (r *Run) overlayCheckpointContext(checks map[string]string) {
+	path := filepath.Join(r.logsRoot, "checkpoint.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	ctx := map[string]string{}
+	if b, ok := raw["context"]; ok {
+		_ = json.Unmarshal(b, &ctx)
+	}
+	for k, v := range checks {
+		ctx[k] = v
+	}
+	b, err := json.Marshal(ctx)
+	if err != nil {
+		return
+	}
+	raw["context"] = b
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, out, 0o644)
+}
+
 // Checkpoint returns the run's checkpoint.json bytes if any.
 func (r *Run) Checkpoint() ([]byte, bool) {
 	data, err := os.ReadFile(filepath.Join(r.logsRoot, "checkpoint.json"))
