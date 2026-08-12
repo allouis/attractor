@@ -681,32 +681,54 @@ func (r *Run) SubmitAnswer(qid string, payload AnswerPayload) error {
 	}
 }
 
-// resumable reports whether a failed run can be re-run from its checkpoint.
-// Two conditions must hold: the run's engine deps are still in memory (a run
-// reloaded from disk after a daemon restart is a view-only shell — prepared /
-// factory are nil, so relaunching it would nil-func panic in execute), and it
-// ran on the direct launcher (checkpoint.json lives under logsRoot on the
-// daemon FS; a local/vm run checkpoints inside the now-gone child, so a resume
-// would silently fresh-start and re-run every completed, side-effecting node).
-// The empty placement is the direct default (server New). web-ui-v2-spec U6.
+// resumable reports whether a failed (or cancelled-mid-flight) run can be
+// re-run from its checkpoint. The gate differs by how the run executes:
+//
+//   - direct (empty placement is the default): resume rebuilds the engine
+//     in-process via execute(), so the prepared graph + handler factory must
+//     still be in memory. A run reloaded from disk after a daemon restart is a
+//     view-only shell (nil deps) and would nil-func panic — not resumable.
+//
+//   - local/vm (launcher-backed): resume does NOT call execute(); the
+//     dispatcher re-calls Launch, which needs only reloadable launch inputs —
+//     cwd, image, Source() (from source.dot), initialContext — and the engine
+//     resumes from the on-disk checkpoint.json at logsRoot (host-side since
+//     P5c: the child's logs root is the daemon run dir). So the gate is: a
+//     checkpoint exists AND the required fields are present. The phone-home
+//     token is NOT persisted in the manifest (it is a per-run secret), so a run
+//     reloaded from disk has an empty token and cannot authenticate a
+//     relaunched child — gate on it. A still-in-memory failed/cancelled run
+//     keeps its token and resumes fine; a reloaded one does not (documented gap).
+//
+// web-ui-v2-spec U6.
 func (r *Run) resumable() bool {
-	if r.prepared == nil || r.factory == nil {
-		return false
+	switch r.placement {
+	case "", "direct":
+		return r.prepared != nil && r.factory != nil
+	default:
+		if r.cwd == "" || r.token == "" {
+			return false
+		}
+		_, ok := r.Checkpoint()
+		return ok
 	}
-	return r.placement == "" || r.placement == "direct"
 }
 
-// prepareRestart resets a resumable failed run's terminal state so the
-// dispatcher can re-launch it (web-ui-v2-spec U6, re-run-from-failure). The
-// engine resumes from the on-disk checkpoint at logsRoot — the already-
-// completed nodes are skipped and the failed node re-executes — so only the
-// terminal bookkeeping is cleared here; the seeded context and checkpoint stay
-// put. Reports false (a no-op) when the run is not a resumable failure, so the
+// prepareRestart resets a resumable failed (or cancelled-mid-flight) run's
+// terminal state so the dispatcher can re-launch it (web-ui-v2-spec U6,
+// re-run-from-failure). The engine resumes from the on-disk checkpoint at
+// logsRoot — the already-completed nodes are skipped and the failed node
+// re-executes — so only the terminal bookkeeping is cleared here; the seeded
+// context and checkpoint stay put. Reports false (a no-op) when the run is not a
+// resumable failure/cancellation, so the
 // handler can 409 rather than enqueue a run that would crash or silently
 // re-run everything.
 func (r *Run) prepareRestart() bool {
 	r.mu.Lock()
-	if r.status != RunFailed || !r.resumable() {
+	// A run cancelled while wedged mid-flight (an operator killing a hung run
+	// with a host-side checkpoint) is as revivable as a failed one — accept both
+	// terminal states; a completed run has nothing to resume.
+	if (r.status != RunFailed && r.status != RunCancelled) || !r.resumable() {
 		r.mu.Unlock()
 		return false
 	}

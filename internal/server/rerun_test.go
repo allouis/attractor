@@ -144,11 +144,11 @@ func registerRun(t *testing.T, srv *Server, run *Run) {
 	srv.registry.mu.Unlock()
 }
 
-// TestRunSummary_ResumableBit proves the summary flags whether a failed run can
-// resume from its checkpoint (web-ui-v2-spec U6): only a direct-launcher run
-// with its engine deps still in memory (never a reloaded shell, never a
-// local/vm run whose checkpoint died with the child). The UI gates the
-// re-run-from-failure button on this bit.
+// TestRunSummary_ResumableBit proves the summary flags whether a run can resume
+// from its checkpoint (web-ui-v2-spec U6). A direct run needs its engine deps in
+// memory (never a reloaded shell); a launcher-backed run needs a host-side
+// checkpoint + launch inputs (covered by TestResumable_GatingMatrix — here the
+// vm case has none, so it is false). The UI gates the re-run button on this bit.
 func TestRunSummary_ResumableBit(t *testing.T) {
 	stub := HandlerFactory(func(interviewer.Interviewer) *engine.Registry { return nil })
 	cases := []struct {
