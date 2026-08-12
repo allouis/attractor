@@ -172,11 +172,22 @@ func (l vmLauncher) writeJob(run *Run, reportURL string) (jobDir string, err err
 // (which must already exist). Symlinks are skipped so a pipeline dir cannot
 // smuggle a link that escapes the job share into the guest.
 func copyTree(src, dst string) error {
+	return copyTreeFiltered(src, dst, nil)
+}
+
+// copyTreeFiltered is copyTree with an optional per-entry skip predicate: when
+// skip returns true for an entry's base name, that file or subtree is not
+// copied. Symlinks are always skipped (as copyTree documents). Used to omit a
+// submodule's own `.git` when copying its content into the workspace.
+func copyTreeFiltered(src, dst string, skip func(name string) bool) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
 	for _, ent := range entries {
+		if skip != nil && skip(ent.Name()) {
+			continue
+		}
 		sp := filepath.Join(src, ent.Name())
 		dp := filepath.Join(dst, ent.Name())
 		info, err := ent.Info()
@@ -190,7 +201,7 @@ func copyTree(src, dst string) error {
 			if err := os.MkdirAll(dp, 0o755); err != nil {
 				return err
 			}
-			if err := copyTree(sp, dp); err != nil {
+			if err := copyTreeFiltered(sp, dp, skip); err != nil {
 				return err
 			}
 		default:
