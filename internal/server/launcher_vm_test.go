@@ -631,3 +631,122 @@ func TestVMLauncherRequiresCwd(t *testing.T) {
 		t.Fatalf("status = %v, want failed", run.Status())
 	}
 }
+
+// jjBranchedRepo makes a colocated jj repo with two sibling changes off a
+// common base: a `feature` bookmark whose commit carries feature.txt, and a
+// working copy (@) that carries at.txt instead — neither branch's distinctive
+// file appears on the other. It lets a test prove a workspace is materialized
+// at the requested revision rather than at @.
+func jjBranchedRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	jj := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("jj", append([]string{"-R", repo}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("jj %v: %v\n%s", args, err, out)
+		}
+	}
+	if out, err := exec.Command("jj", "git", "init", repo).CombinedOutput(); err != nil {
+		t.Fatalf("jj git init: %v\n%s", err, out)
+	}
+	mustWrite(t, filepath.Join(repo, "base.txt"), "base")
+	jj("describe", "-m", "base")
+	jj("bookmark", "create", "base", "-r", "@")
+	// feature branch: a child of base carrying feature.txt.
+	jj("new", "-m", "feature")
+	mustWrite(t, filepath.Join(repo, "feature.txt"), "on-feature")
+	jj("bookmark", "create", "feature", "-r", "@")
+	// working copy: a sibling child of base carrying at.txt (NOT feature.txt).
+	jj("new", "base", "-m", "at-work")
+	mustWrite(t, filepath.Join(repo, "at.txt"), "on-at")
+	return repo
+}
+
+// materializeWorkspace bases the workspace on the revision it is given, so a
+// run pointed at an existing branch (revise-pr seeds workspace_revision =
+// the PR bookmark) sees that branch's file state — not the host repo's @.
+func TestMaterializeWorkspaceAtRevision(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjBranchedRepo(t)
+
+	feat := filepath.Join(t.TempDir(), "work")
+	if err := materializeWorkspace(repo, feat, "run-feat", "feature"); err != nil {
+		t.Fatalf("materializeWorkspace at feature: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(feat, "feature.txt")); err != nil || string(got) != "on-feature" {
+		t.Fatalf("feature.txt = %q (err %v); workspace not at the feature bookmark", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(feat, "at.txt")); !os.IsNotExist(err) {
+		t.Fatalf("at.txt present in feature workspace (err %v); it materialized @'s state, not the bookmark's", err)
+	}
+
+	// @ (the default) still materializes the host working copy — at.txt, no
+	// feature.txt — proving the param selects, not overrides unconditionally.
+	atWork := filepath.Join(t.TempDir(), "work")
+	if err := materializeWorkspace(repo, atWork, "run-at", "@"); err != nil {
+		t.Fatalf("materializeWorkspace at @: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(atWork, "at.txt")); err != nil || string(got) != "on-at" {
+		t.Fatalf("at.txt = %q (err %v); @ workspace missing the working-copy file", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(atWork, "feature.txt")); !os.IsNotExist(err) {
+		t.Fatalf("feature.txt present in @ workspace (err %v)", err)
+	}
+}
+
+// workspaceRevision reads the run's workspace_revision var (the bookmark/rev a
+// revise-pr dispatch seeds); an empty or absent var keeps today's @.
+func TestWorkspaceRevision(t *testing.T) {
+	cases := []struct {
+		name string
+		ctx  map[string]string
+		want string
+	}{
+		{"absent", nil, "@"},
+		{"empty", map[string]string{"workspace_revision": ""}, "@"},
+		{"bookmark", map[string]string{"workspace_revision": "hkg-1914"}, "hkg-1914"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			run := &Run{initialContext: c.ctx}
+			if got := workspaceRevision(run); got != c.want {
+				t.Fatalf("workspaceRevision = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// A run seeding a workspace_revision that does not resolve in the repo fails
+// the launch fast with a diagnosable error naming the revision — before any
+// run/job dir is created — rather than dying in a cryptic `jj workspace add`
+// stderr dump or booting a VM that can only hang.
+func TestVMLauncherWorkspaceRevisionUnknownFails(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not on PATH")
+	}
+	repo := jjInitRepo(t)
+	vmDir := t.TempDir()
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: t.TempDir()})
+	run := srv.registry.NewRun("digraph{}", nil, nil, repo, nil, "", "", "",
+		map[string]string{"workspace_revision": "no-such-bookmark-xyz"})
+	run.cwd = repo
+	l := vmLauncher{images: map[string]string{"default": "/nonexistent"}, defaultImage: "default", vmDir: vmDir, guestHost: "10.0.2.2", pollInterval: time.Millisecond}
+	err := l.Launch(run, "http://127.0.0.1:0")
+	if err == nil {
+		t.Fatal("expected error for an unresolvable workspace_revision")
+	}
+	if !strings.Contains(err.Error(), "no-such-bookmark-xyz") {
+		t.Fatalf("error %q should name the bad revision", err)
+	}
+	if run.Status() != RunFailed {
+		t.Fatalf("status = %v, want failed", run.Status())
+	}
+	// Fail fast: the precheck fires before any run dir / job dir is created.
+	if entries, _ := os.ReadDir(vmDir); len(entries) != 0 {
+		t.Fatalf("precheck left side effects in vmDir: %v", entries)
+	}
+}

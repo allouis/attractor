@@ -400,6 +400,31 @@ func ensureJJRepo(dir string) error {
 // (`<name>@`). Shared so the two sides can never drift.
 func runWorkspaceName(runID string) string { return "run-" + runID }
 
+// workspaceRevision returns the jj revision the run's per-run workspace @ is
+// based on: the run's `workspace_revision` var (a bookmark/rev like
+// "hkg-1914") when set, else "@" (the host repo's current working state). A
+// run pointed at an existing PR branch (revise-pr) seeds workspace_revision =
+// that branch's bookmark so the workspace materializes the branch's file
+// state, not the host's @. An empty or absent var keeps today's behavior.
+func workspaceRevision(run *Run) string {
+	if rev := run.initialContext["workspace_revision"]; rev != "" {
+		return rev
+	}
+	return "@"
+}
+
+// ensureRevisionResolves verifies rev names a revision that exists in
+// repoDir's jj log, so a bad workspace_revision (a typo'd bookmark, a rev not
+// in this repo) fails the launch with a diagnosable error naming it, rather
+// than a cryptic `jj workspace add` stderr dump halfway through setup.
+func ensureRevisionResolves(repoDir, rev string) error {
+	cmd := exec.Command("jj", "-R", repoDir, "log", "-r", rev, "--no-graph", "--ignore-working-copy", "-T", "change_id")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("vm launcher: workspace_revision %q does not resolve in %s (a bookmark/rev on the target branch is required): %s", rev, repoDir, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // materializeWorkspace adds an isolated jj workspace of repoDir at dest,
 // named name, based on revision (spec W1). jj workspaces materialise only
 // TRACKED files, so a gitignored node_modules never appears — the run
@@ -493,6 +518,17 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 		run.failCrashed(err.Error())
 		return err
 	}
+	// The workspace @ is based on workspace_revision when a run targets an
+	// existing branch (revise-pr), else the host @. Validate an explicit
+	// revision resolves BEFORE creating any run/job dir, so a typo'd bookmark
+	// fails fast and diagnosably rather than hanging a booted VM.
+	wsRevision := workspaceRevision(run)
+	if wsRevision != "@" {
+		if err := ensureRevisionResolves(run.cwd, wsRevision); err != nil {
+			run.failCrashed(err.Error())
+			return err
+		}
+	}
 	runDir := filepath.Join(l.vmDir, run.ID)
 	jobDir, err := l.writeJob(run, reportURL)
 	if err != nil {
@@ -516,7 +552,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	// that committed work. A fresh run — or a restart after the reaper forgot the
 	// workspace — materializes anew.
 	if !(dirExists(work) && workspaceKnown(run.cwd, wsName)) {
-		if err := materializeWorkspace(run.cwd, work, wsName, "@"); err != nil {
+		if err := materializeWorkspace(run.cwd, work, wsName, wsRevision); err != nil {
 			run.failCrashed("vm launcher: materialize workspace: " + err.Error())
 			return err
 		}
