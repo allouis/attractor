@@ -51,6 +51,21 @@ func TestResumable_GatingMatrix(t *testing.T) {
 	}
 }
 
+// The run summary surfaces resumable=true for a failed VM run with a host-side
+// checkpoint, so the UI's re-run-from-failure button lights up for it (the
+// button is gated on this bit; no new UI needed for launcher-backed revive).
+func TestSummary_ResumableForFailedVMRun(t *testing.T) {
+	ckpt := writeCheckpoint(t, `{"context":{}}`)
+	run := &Run{
+		placement: "vm", cwd: "/repo", token: "t", logsRoot: ckpt,
+		status:    RunFailed,
+		questions: map[string]*pendingQuestion{},
+	}
+	if got, _ := run.Summary()["resumable"].(bool); !got {
+		t.Fatal("summary resumable = false for a failed vm run with a checkpoint; re-run button would stay dark")
+	}
+}
+
 // A run cancelled while wedged mid-flight — with a host-side checkpoint and the
 // launch inputs still present — is exactly what an operator revives, so
 // prepareRestart must accept status cancelled, not only failed.
