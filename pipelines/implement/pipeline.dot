@@ -40,13 +40,19 @@ digraph implement {
     baseline_lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
     baseline_test      [type="tool", timeout="40m", tool_command="$context.check.test"]
 
-    plan [llm_model="claude-fable-5[1m]", thread_id="implement",
+    // Each codergen stage gets its OWN thread: sharing one thread meant
+    // implement resumed plan's session and replayed its full transcript,
+    // which Fable 5's safeguards false-positive flagged as reverse
+    // engineering and refused (2026-08-12, run 4f0a9ed2). The plan travels
+    // as context (plan_markdown from plan's status.json), not as session
+    // history.
+    plan [llm_model="claude-fable-5[1m]", thread_id="plan",
           fidelity="full", timeout="30m", prompt="@prompts/plan.md"]
 
     // Human check-in on the plan before any code gets written.
     plan_gate [shape=hexagon, label="Does the plan make sense?"]
 
-    implement [llm_model="claude-fable-5[1m]", thread_id="implement",
+    implement [llm_model="claude-fable-5[1m]", thread_id="build",
                fidelity="full", timeout="120m",
                prompt="@prompts/implement.md"]
 
@@ -67,7 +73,7 @@ digraph implement {
     ship [shape=hexagon, label="Ship these changes? (checks + self-review passed)"]
 
     // Publish: push the committed work and open a draft PR for human review.
-    open_pr [llm_model="claude-fable-5[1m]", thread_id="implement",
+    open_pr [llm_model="claude-fable-5[1m]", thread_id="publish",
              fidelity="full", timeout="15m", prompt="@prompts/open-pr.md"]
 
     done [shape=Msquare]

@@ -36,6 +36,10 @@ them, and put the full plan in your response so it is readable from the
 run view.
 
 Report via `{stage_dir}/status.json`: outcome `success` with
-`context_updates` `{"review_base": "<the change id from step 1>"}`;
-outcome `fail` with a `failure_reason` if the issue is incomprehensible
+`context_updates` carrying BOTH keys — `"review_base"` (the change id
+from step 1) and `"plan_markdown"` (the COMPLETE plan text, verbatim
+markdown). plan_markdown is how the implementation stage receives your
+plan — it runs in a fresh session and sees nothing else of this
+conversation — so omitting it or abbreviating it breaks the pipeline.
+Outcome `fail` with a `failure_reason` if the issue is incomprehensible
 or the repo state blocks planning.

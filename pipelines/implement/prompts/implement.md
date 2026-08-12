@@ -1,8 +1,19 @@
 Implement the change issue $context.identifier — "$context.title" — asks for, in $context.repo.
 
 The issue is at $context.url. The repo is checked out in your working
-directory. A human already approved your plan — follow it; if reality
-forces a deviation, note it in your response.
+directory. The issue body:
+
+---
+$context.body
+---
+
+A planning stage already ran and a human approved its plan — follow it;
+if reality forces a deviation, note it in your response. The approved
+plan:
+
+---
+$context.plan_markdown
+---
 
 Reviewer feedback the human left when approving the plan (empty if they
 approved without a note — treat any text here as an instruction to honour
