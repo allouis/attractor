@@ -10,8 +10,100 @@ import (
 
 	"github.com/allouis/attractor/internal/backend"
 	"github.com/allouis/attractor/internal/backend/fake"
+	"github.com/allouis/attractor/internal/dot"
 	"github.com/allouis/attractor/internal/engine"
+	graphpkg "github.com/allouis/attractor/internal/graph"
+	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/runstore"
 )
+
+// TestManagerLoop_RevisitRerunsChildFresh pins the per-invocation freshness
+// contract: a revisited manager_loop node (a review fix round re-entering the
+// review child) must RE-RUN the child from scratch against the changed
+// context, not resume the prior round's checkpoint and replay its cached
+// output. Regression guard for run a5ac1389, where the review loop could never
+// converge because the child kept replaying round 1's lens verdicts.
+func TestManagerLoop_RevisitRerunsChildFresh(t *testing.T) {
+	dir := t.TempDir()
+	childPath := filepath.Join(dir, "child.dot")
+	must(t, os.WriteFile(childPath, []byte(`digraph child {
+		start [shape=Mdiamond]
+		childwork [prompt="review diff=$context.diff"]
+		done [shape=Msquare]
+		start -> childwork -> done
+	}`), 0o644))
+
+	parentSrc := fmt.Sprintf(`digraph parent {
+		start [shape=Mdiamond]
+		boss [
+			type="stack.manager_loop",
+			stack.child_dotfile="%s",
+			manager.poll_interval="5ms",
+			manager.max_cycles=200
+		]
+		done [shape=Msquare]
+		start -> boss -> done
+	}`, childPath)
+
+	file, err := dot.Parse(parentSrc)
+	must(t, err)
+	g, err := graphpkg.Build(file)
+	must(t, err)
+	prepared, err := engine.Prepare(g)
+	must(t, err)
+	bossNode := prepared.Graph.Nodes["boss"]
+	if bossNode == nil {
+		t.Fatal("boss node missing from prepared graph")
+	}
+
+	be := fake.New()
+	registry := engine.NewRegistry()
+	registry.Register("start", handler.Start{})
+	registry.Register("exit", handler.Exit{})
+	registry.Register("codergen", handler.Codergen{Backend: be})
+	registry.SetDefault(handler.Codergen{Backend: be})
+
+	// A single Context and Stage shared across both Execute calls — exactly
+	// what the engine hands a revisited node (store.Sub(nodeID) is stable, and
+	// the run context persists across revisits).
+	ctx := engine.NewContext()
+	stage := runstore.New(t.TempDir())
+
+	env := engine.HandlerEnv{
+		Node:     bossNode,
+		Graph:    prepared.Graph,
+		Context:  ctx,
+		Stage:    stage,
+		Registry: registry,
+		RunID:    "test",
+	}
+
+	// Round 1: diff="v1".
+	ctx.Set("diff", "v1")
+	out := handler.ManagerLoop{}.Execute(env)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("round 1 status=%s reason=%q", out.Status, out.FailureReason)
+	}
+	if got := be.CallCount("childwork"); got != 1 {
+		t.Fatalf("round 1: childwork ran %d times, want 1", got)
+	}
+
+	// Round 2: the diff changed. A revisit must re-run the child, not resume.
+	ctx.Set("diff", "v2")
+	out = handler.ManagerLoop{}.Execute(env)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("round 2 status=%s reason=%q", out.Status, out.FailureReason)
+	}
+	if got := be.CallCount("childwork"); got != 2 {
+		t.Fatalf("round 2: childwork ran %d times total, want 2 — child resumed a stale checkpoint instead of re-running", got)
+	}
+	// The re-run must have read the CHANGED diff, not the cached round-1 value.
+	calls := be.Calls()
+	last := calls[len(calls)-1]
+	if last.NodeID != "childwork" || !strings.Contains(last.Prompt, "diff=v2") {
+		t.Fatalf("round 2 child prompt = %q, want it to contain %q (re-read changed diff)", last.Prompt, "diff=v2")
+	}
+}
 
 // TestManagerLoop_ChildInheritsParentAcpCommand verifies a child pipeline
 // with no acp_command inherits the parent's, so a reusable sub-pipeline

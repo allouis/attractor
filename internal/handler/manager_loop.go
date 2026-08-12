@@ -10,6 +10,7 @@ import (
 
 	"github.com/allouis/attractor/internal/condition"
 	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/runstore"
 	"github.com/allouis/attractor/internal/setup"
 )
 
@@ -71,12 +72,23 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	if childWorkdir == "" {
 		childWorkdir = filepath.Dir(dotPath)
 	}
-	// The child run writes under a "child" subdir of this stage, through
-	// its own engine store (which creates the directory). Empty when the
-	// parent run has no logs root, so the child runs no-persistence too.
+	// The child run writes under a per-invocation subdir of this stage,
+	// through its own engine store (which creates the directory). Empty when
+	// the parent run has no logs root, so the child runs no-persistence too.
+	//
+	// Each Execute gets a FRESH child dir. A revisited manager_loop node (a
+	// review fix round re-entering the review child) must re-run the child
+	// from scratch against the changed context — not resume the prior round's
+	// checkpoint.json and replay its cached lens outputs, the bug that made
+	// the review loop of run a5ac1389 unable to converge. Rather than delete
+	// the previous checkpoint (which would let the re-run clobber the prior
+	// round's artifacts in place), rotate to child, child-2, … so every
+	// round's review is preserved for forensics. Probing existing dirs keeps
+	// this stateless (no attempt counter to thread through revisits) and
+	// entirely on the store seam.
 	childLogs := ""
 	if env.Stage != nil {
-		childLogs = env.Stage.Sub("child").Root()
+		childLogs = env.Stage.Sub(freshChildSubdir(env.Stage)).Root()
 	}
 
 	childSrc, err := os.ReadFile(dotPath)
@@ -182,6 +194,18 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 		Status:        engine.StatusFail,
 		FailureReason: "manager_loop: max cycles exceeded",
 	}
+}
+
+// freshChildSubdir returns the next unused child-run subdir name under the
+// stage: "child" on the first invocation, then "child-2", "child-3", … on each
+// revisit. A revisit thereby runs the child engine against an empty dir (no
+// checkpoint.json to resume from) while every prior round's artifacts stay put.
+func freshChildSubdir(stage *runstore.Dir) string {
+	name := "child"
+	for n := 2; stage.Exists(name); n++ {
+		name = fmt.Sprintf("child-%d", n)
+	}
+	return name
 }
 
 // fileExists reports whether path names an existing regular file.
