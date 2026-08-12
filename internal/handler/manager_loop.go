@@ -157,10 +157,29 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 					ContextUpdates: childStatus.contextUpdates(),
 				}
 			}
+			// Distinguish a real review verdict from a failure of the review
+			// machinery itself. A synth that WROTE a FAIL verdict is a verdict —
+			// it belongs downstream, routed to a fix round. A synth whose
+			// status.json never arrived (require_status miss) is machinery
+			// failure: surfacing it as a review FAIL feeds a harness error to
+			// the fix agent as if it were a finding (the a5ac1389 loop). The
+			// build/implement fix node reads the findings from
+			// $context.stack.child.failure_reason, so the honest machinery label
+			// is stamped there too, not just on this node's own reason.
+			updates := childStatus.contextUpdates()
+			if isRequireStatusMiss(finalOutcome.FailureReason) {
+				machinery := "review machinery failed (not a verdict): " + finalOutcome.FailureReason
+				updates["stack.child.failure_reason"] = machinery
+				return engine.Outcome{
+					Status:         engine.StatusFail,
+					FailureReason:  "manager_loop: " + machinery,
+					ContextUpdates: updates,
+				}
+			}
 			return engine.Outcome{
 				Status:         engine.StatusFail,
 				FailureReason:  "manager_loop: child failed — " + finalOutcome.FailureReason,
-				ContextUpdates: childStatus.contextUpdates(),
+				ContextUpdates: updates,
 			}
 		default:
 		}
