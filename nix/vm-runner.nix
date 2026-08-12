@@ -105,6 +105,14 @@ let
       # commit). Failure is non-fatal: a repo without git-dependent tests
       # shouldn't die here.
       if [ -d "$cwd/.jj" ] && [ ! -e "$cwd/.git" ]; then
+        # git refuses to operate on repos owned by another uid: the 9p-copied
+        # workspace keeps host uids while the guest runs as root, so without
+        # this every git op below — and any git the repo's own build scripts
+        # invoke — dies with "dubious ownership" (2026-08-12: the submodule
+        # init silently failed at boot and Ghost's baseline check went green
+        # on a degraded cache build because of it). Single-purpose throwaway
+        # guest: allow everything.
+        git config --global --add safe.directory '*' 2>/dev/null || true
         base_commit=$(cd "$cwd" && jj log --no-graph -r @- -T commit_id 2>/dev/null || true)
         if [ -n "''${base_commit:-}" ]; then
           (
