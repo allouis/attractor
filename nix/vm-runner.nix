@@ -58,6 +58,17 @@ let
         exit 1
       }
 
+      # Surface a NON-fatal degradation loudly: echo a clearly-greppable line to
+      # the VM console AND append it to runner-warnings.txt under the shared logs
+      # root (/mnt/runlogs = the daemon's run dir), which the daemon serves via
+      # GET /artifacts. The run keeps going (a warning, not a poweroff), but the
+      # failure is visible in the run's artifacts instead of buried in the
+      # console. Used for submodule fetch failures below.
+      warn() {
+        echo "attractor-vm-run: WARNING: $1" >&2
+        printf '%s\n' "attractor-vm-run: $1" >> /mnt/runlogs/runner-warnings.txt 2>/dev/null || true
+      }
+
       job=/mnt/job/job.json
       for _ in $(seq 1 60); do [ -f "$job" ] && break; sleep 1; done
       if [ ! -f "$job" ]; then
@@ -124,16 +135,28 @@ let
           ) || echo "attractor-vm-run: git metadata setup failed (continuing)" >&2
           # Submodules: jj tracks only the gitlink, so their CONTENT is absent
           # from the materialized workspace (Ghost's default themes live in
-          # submodules — the app 500s without them). Add the repo's real
-          # origin so .gitmodules' relative URLs resolve, then fetch over the
-          # network. Non-fatal: tests rarely need submodules, app runs do.
+          # submodules — the app 500s without them). The LAUNCHER already copied
+          # every submodule the HOST checkout had into the workspace
+          # (copyHostSubmodules); fetch over the network ONLY the ones still
+          # EMPTY here. A host-copied dir is populated but NOT a git-registered
+          # submodule (its .git was skipped), so `git submodule update` on it
+          # would error or redundantly re-clone — skipping non-empty paths is the
+          # simplest correct thing. Add the repo's real origin first so
+          # .gitmodules' relative URLs resolve. Non-fatal but LOUD: a failed
+          # fetch degrades app features that need the submodule (tests rarely do,
+          # app runs do), so it lands in runner-warnings.txt via warn(), not just
+          # the console.
           if [ -f "$cwd/.gitmodules" ]; then
-            (
-              cd "$cwd" &&
-              origin_url=$(git config --file /mnt/repo/.git/config remote.origin.url 2>/dev/null || true) &&
-              { [ -z "$origin_url" ] || git remote add origin "$origin_url" 2>/dev/null || true; } &&
-              git submodule update --init --recursive --depth 1
-            ) || echo "attractor-vm-run: submodule init failed (continuing)" >&2
+            origin_url=$(git config --file /mnt/repo/.git/config remote.origin.url 2>/dev/null || true)
+            [ -z "$origin_url" ] || git -C "$cwd" remote add origin "$origin_url" 2>/dev/null || true
+            while IFS= read -r sm_path; do
+              [ -n "$sm_path" ] || continue
+              if [ -d "$cwd/$sm_path" ] && [ -n "$(find "$cwd/$sm_path" -mindepth 1 -maxdepth 1 2>/dev/null | head -n1)" ]; then
+                continue # already populated by the host copy
+              fi
+              git -C "$cwd" submodule update --init --depth 1 -- "$sm_path" \
+                || warn "submodule init failed for $sm_path (app features needing it may be degraded)"
+            done < <(git config --file "$cwd/.gitmodules" --get-regexp '^submodule\..*\.path$' | awk '{print $2}')
           fi
         fi
       fi
