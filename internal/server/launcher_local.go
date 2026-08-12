@@ -45,6 +45,15 @@ func (l localLauncher) Launch(run *Run, reportURL string) error {
 	if err != nil {
 		return fmt.Errorf("child logs dir: %w", err)
 	}
+	// Resume: the child's --logs is a fresh throwaway dir each launch, but the
+	// engine resumes from {logs}/checkpoint.json. On a restart the daemon holds
+	// this run's checkpoint at run.logsRoot (the failed attempt uploaded it), so
+	// seed the child's dir with it — otherwise the resumed child would start
+	// fresh and re-run every completed, side-effecting node (the vm launcher
+	// avoids this by sharing run.logsRoot into the guest as --logs directly).
+	if data, err := os.ReadFile(filepath.Join(run.logsRoot, "checkpoint.json")); err == nil {
+		_ = os.WriteFile(filepath.Join(childLogs, "checkpoint.json"), data, 0o644)
+	}
 	srcPath := filepath.Join(childLogs, "source.dot")
 	if err := os.WriteFile(srcPath, []byte(run.Source()), 0o644); err != nil {
 		return fmt.Errorf("write source: %w", err)
