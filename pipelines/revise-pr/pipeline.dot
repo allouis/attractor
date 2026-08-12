@@ -1,0 +1,106 @@
+// revise-pr — point a run at an EXISTING PR branch, review it, fix the
+// findings, and push the updates back to the same branch (the PR updates
+// in place). The counterpart to `implement` (which opens a NEW PR): here
+// the branch already exists and the work lands on it, no PR is created.
+//
+// Dispatch resolves a PR Item to vars and MUST seed workspace_revision =
+// the PR's bookmark, so the VM launcher materializes the per-run jj
+// workspace at the branch tip (launcher_vm workspaceRevision) rather than
+// the host repo's @ — the run works IN the checked-out branch:
+//
+//   POST /workflows/revise-pr/run
+//   vars = {repo, pr_number, bookmark, workspace_revision=<bookmark>}
+//
+// or from the CLI:
+//
+//   attractor run revise-pr -var repo=owner/name -var pr_number=42 \
+//     -var bookmark=hkg-1914 -var workspace_revision=hkg-1914
+//
+// workspace_revision is declared in `vars` so a dispatch that forgets it
+// is rejected up front rather than silently reviewing the host's @.
+//
+// Flow: a `baseline_*` chain runs the repo's deterministic checks FIRST on
+// the branch as-is — a red baseline terminates the run with the check's
+// output (an honest signal that the branch is broken before we touch it;
+// there is no fix stage to route to yet, and fixing on a broken base makes
+// every later check failure ambiguous). `review_loop` then runs the shared
+// review-core sub-pipeline over the LOCAL diff (`jj diff --from 'trunk()'
+// --to @`), so post-fix iterations see UNPUSHED work — `gh pr diff` would
+// only ever show the pushed state. A clean branch (PASS) goes straight to
+// the human ship gate; a FAIL routes to `fix`, which addresses the findings
+// in small jj commits, re-runs the deterministic checks, and loops back
+// into review. Shipping pushes the existing bookmark, updating the PR in
+// place.
+digraph revise_pr {
+    goal = "Review PR #$context.pr_number in $context.repo and address its findings on branch $context.bookmark"
+    vars = "repo,pr_number,bookmark,workspace_revision"
+    max_node_visits = 10
+
+    start [shape=Mdiamond]
+
+    // Baseline: the same deterministic checks as the post-fix gate, run
+    // BEFORE any work on the branch as it stands. Distinct nodes (not the
+    // gating ones below) so a baseline failure terminates the run with the
+    // check's output instead of routing to `fix`, and so gate-node visit
+    // counts stay clean.
+    baseline_deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
+    baseline_typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
+    baseline_lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
+    baseline_test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+
+    // Multi-lens review of the branch's change, run inline as a child
+    // pipeline. The diff is LOCAL (trunk()..@) so it captures the fix
+    // stage's committed-but-unpushed work on re-review; `gh pr diff` would
+    // only see what is already on the remote. synth's PASS/FAIL verdict
+    // becomes this node's outcome.
+    review_loop [type="stack.manager_loop", timeout="45m",
+                 stack.child_dotfile="../review-core/pipeline.dot",
+                 stack.child.var.diff_cmd="jj diff --from 'trunk()' --to @"]
+
+    // Reached only after a FAIL verdict, so the child's findings are set.
+    // Its own thread (not review-core's): a fresh session that reads the
+    // findings from context and works in the checked-out branch.
+    fix [llm_model="claude-fable-5[1m]", thread_id="fix",
+         fidelity="full", timeout="120m", prompt="@prompts/fix.md"]
+
+    // Deterministic checks — commands come from the repo's checks config,
+    // seeded into context by the daemon. They run in the run's cwd (the
+    // branch checkout), each routing back to `fix` on failure.
+    deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
+    typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
+    lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
+    test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+
+    ship [shape=hexagon, label="Push these fixes to the PR?"]
+
+    // Publish: push the existing bookmark, updating the PR in place. No PR
+    // is created — the branch is already on the remote.
+    push_updates [llm_model="claude-fable-5[1m]", thread_id="publish",
+                  fidelity="full", timeout="15m", prompt="@prompts/push-updates.md"]
+
+    done [shape=Msquare]
+
+    start -> baseline_deps
+    baseline_deps      -> baseline_typecheck
+    baseline_typecheck -> baseline_lint
+    baseline_lint      -> baseline_test
+    baseline_test      -> review_loop
+
+    review_loop -> ship [condition="outcome=success"]
+    review_loop -> fix  [condition="outcome=fail", label="Address findings"]
+
+    fix       -> deps
+    deps      -> typecheck   [condition="outcome=success"]
+    deps      -> fix         [condition="outcome=fail", label="Fix deps"]
+    typecheck -> lint        [condition="outcome=success"]
+    typecheck -> fix         [condition="outcome=fail", label="Fix types"]
+    lint      -> test        [condition="outcome=success"]
+    lint      -> fix         [condition="outcome=fail", label="Fix lint"]
+    test      -> review_loop  [condition="outcome=success"]
+    test      -> fix          [condition="outcome=fail", label="Fix tests"]
+
+    ship -> push_updates [label="[P] Push updates"]
+    ship -> fix          [label="[C] Request changes"]
+
+    push_updates -> done
+}

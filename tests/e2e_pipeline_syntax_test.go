@@ -19,6 +19,9 @@ import (
 var shippedPipelineFiles = []string{
 	"../pipelines/review-pr/pipeline.dot",
 	"../pipelines/review-core/pipeline.dot",
+	"../pipelines/revise-pr/pipeline.dot",
+	"../pipelines/revise-pr/prompts/fix.md",
+	"../pipelines/revise-pr/prompts/push-updates.md",
 	"../pipelines/implement/pipeline.dot",
 	"../pipelines/implement/prompts/plan.md",
 	"../pipelines/implement/prompts/implement.md",
