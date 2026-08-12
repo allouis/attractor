@@ -401,20 +401,27 @@ func ensureJJRepo(dir string) error {
 func runWorkspaceName(runID string) string { return "run-" + runID }
 
 // materializeWorkspace adds an isolated jj workspace of repoDir at dest,
-// named name (spec W1). jj workspaces materialise only TRACKED files, so a
-// gitignored node_modules never appears — the run installs its own,
-// matching its own lockfile, and its mutations never touch the host
-// checkout. The workspace lives on the host and shows in `jj log`, the
-// property the 9p transport preserves.
-func materializeWorkspace(repoDir, dest, name string) error {
+// named name, based on revision (spec W1). jj workspaces materialise only
+// TRACKED files, so a gitignored node_modules never appears — the run
+// installs its own, matching its own lockfile, and its mutations never touch
+// the host checkout. The workspace lives on the host and shows in `jj log`,
+// the property the 9p transport preserves.
+//
+// revision is the jj revset the workspace's @ is based on: "@" (the host
+// repo's current working state) for a normal run, or a bookmark/rev like
+// "hkg-1914" when a run targets an existing branch (revise-pr seeds
+// workspace_revision; see workspaceRevision). The caller validates it
+// resolves before we get here (ensureRevisionResolves).
+func materializeWorkspace(repoDir, dest, name, revision string) error {
 	// Idempotent: a leftover workspace of this name — a prior run whose
 	// cleanup didn't complete (daemon crash) — would make `add` fail with
 	// "already exists", permanently blocking a retry of the same run id
 	// (B3). Forget any stale one first (ignoring "no such workspace").
 	_ = forgetWorkspace(repoDir, name)
-	// --revision @ bases the workspace on the host repo's current working
-	// state (default would base on @-, dropping uncommitted work).
-	cmd := exec.Command("jj", "-R", repoDir, "workspace", "add", "--name", name, "--revision", "@", dest)
+	// --revision bases the workspace on revision. "@" bases it on the host
+	// repo's current working state (the default would base on @-, dropping
+	// uncommitted work); a bookmark bases it on that branch's tip instead.
+	cmd := exec.Command("jj", "-R", repoDir, "workspace", "add", "--name", name, "--revision", revision, dest)
 	cmd.Dir = repoDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("jj workspace add: %w\n%s", err, out)
@@ -509,7 +516,7 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	// that committed work. A fresh run — or a restart after the reaper forgot the
 	// workspace — materializes anew.
 	if !(dirExists(work) && workspaceKnown(run.cwd, wsName)) {
-		if err := materializeWorkspace(run.cwd, work, wsName); err != nil {
+		if err := materializeWorkspace(run.cwd, work, wsName, "@"); err != nil {
 			run.failCrashed("vm launcher: materialize workspace: " + err.Error())
 			return err
 		}

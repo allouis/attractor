@@ -30,7 +30,7 @@ func TestLaunch_ReusesExistingWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := filepath.Join(vmDir, run.ID, "work")
-	if err := materializeWorkspace(repo, work, runWorkspaceName(run.ID)); err != nil {
+	if err := materializeWorkspace(repo, work, runWorkspaceName(run.ID), "@"); err != nil {
 		t.Fatalf("pre-materialize: %v", err)
 	}
 	sentinel := filepath.Join(work, "attempt-work.txt")

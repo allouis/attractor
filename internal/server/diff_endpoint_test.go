@@ -74,7 +74,7 @@ func addWorkspaceRun(t *testing.T, srv *Server, repo, id string) (*Run, string) 
 		t.Fatalf("base commit: %v", err)
 	}
 	work := filepath.Join(t.TempDir(), "work")
-	if err := materializeWorkspace(repo, work, runWorkspaceName(id)); err != nil {
+	if err := materializeWorkspace(repo, work, runWorkspaceName(id), "@"); err != nil {
 		t.Fatalf("materialize workspace: %v", err)
 	}
 	addRun(srv, id, t.TempDir())

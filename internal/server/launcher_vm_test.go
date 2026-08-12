@@ -231,7 +231,7 @@ func TestMaterializeWorkspace(t *testing.T) {
 	jj("describe", "-m", "init")
 
 	work := filepath.Join(t.TempDir(), "work")
-	if err := materializeWorkspace(repo, work, "run-abc"); err != nil {
+	if err := materializeWorkspace(repo, work, "run-abc", "@"); err != nil {
 		t.Fatalf("materializeWorkspace: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(work, "foo.txt")); err != nil || string(got) != "tracked" {
@@ -261,7 +261,7 @@ func TestWorkspaceStoreReachableInGuest(t *testing.T) {
 	}
 	repo := jjInitRepo(t)
 	work := filepath.Join(t.TempDir(), "work")
-	if err := materializeWorkspace(repo, work, "run-abc"); err != nil {
+	if err := materializeWorkspace(repo, work, "run-abc", "@"); err != nil {
 		t.Fatalf("materializeWorkspace: %v", err)
 	}
 	if _, err := pointGuestJJStore(work); err != nil {
@@ -393,10 +393,10 @@ func TestMaterializeWorkspaceIdempotent(t *testing.T) {
 		t.Skip("jj not on PATH")
 	}
 	repo := jjInitRepo(t)
-	if err := materializeWorkspace(repo, filepath.Join(t.TempDir(), "w1"), "run-x"); err != nil {
+	if err := materializeWorkspace(repo, filepath.Join(t.TempDir(), "w1"), "run-x", "@"); err != nil {
 		t.Fatalf("first materialize: %v", err)
 	}
-	if err := materializeWorkspace(repo, filepath.Join(t.TempDir(), "w2"), "run-x"); err != nil {
+	if err := materializeWorkspace(repo, filepath.Join(t.TempDir(), "w2"), "run-x", "@"); err != nil {
 		t.Fatalf("relaunch same id must succeed (forget-before-add): %v", err)
 	}
 }
@@ -451,7 +451,7 @@ func TestGuestJJStoreMechanism(t *testing.T) {
 	}
 	repo := jjInitRepo(t)
 	work := filepath.Join(t.TempDir(), "work")
-	if err := materializeWorkspace(repo, work, "run-xyz"); err != nil {
+	if err := materializeWorkspace(repo, work, "run-xyz", "@"); err != nil {
 		t.Fatalf("materializeWorkspace: %v", err)
 	}
 	// Stand in for the guest's two subtree mounts: .jj and .git reachable as
@@ -499,7 +499,7 @@ func TestGuestLocalWorkspaceCopyJJ(t *testing.T) {
 	}
 	repo := jjInitRepo(t)
 	work := filepath.Join(t.TempDir(), "work")
-	if err := materializeWorkspace(repo, work, "run-copy"); err != nil {
+	if err := materializeWorkspace(repo, work, "run-copy", "@"); err != nil {
 		t.Fatalf("materializeWorkspace: %v", err)
 	}
 	// The guest's copy onto ext4: `cp -a /mnt/workspace/. /work/`. A distinct

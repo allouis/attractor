@@ -104,7 +104,7 @@ func TestReaperForgetsJJWorkspace(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := materializeWorkspace(repo, work, "run-old"); err != nil {
+	if err := materializeWorkspace(repo, work, "run-old", "@"); err != nil {
 		t.Fatalf("materializeWorkspace: %v", err)
 	}
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
