@@ -217,6 +217,66 @@ func copyTreeFiltered(src, dst string, skip func(name string) bool) error {
 	return nil
 }
 
+// submodulePaths parses a .gitmodules file for the `path = <p>` entries naming
+// each submodule's location within the worktree, in file order. A missing file
+// returns nil with no error — a repo with no submodules is the common case.
+func submodulePaths(gitmodulesPath string) ([]string, error) {
+	data, err := os.ReadFile(gitmodulesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var paths []string
+	for _, line := range strings.Split(string(data), "\n") {
+		key, val, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != "path" {
+			continue
+		}
+		if p := strings.TrimSpace(val); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
+// copyHostSubmodules fills a materialized workspace's submodule dirs from the
+// HOST checkout. jj tracks only a submodule's gitlink, so `jj workspace add`
+// leaves its CONTENT absent — but the app needs it (Ghost's default themes live
+// in submodules; it 500s without them). The host checkout (run.cwd) usually has
+// the content already, so copy it in; the guest's network `submodule update`
+// then only has to fetch the submodules the host lacked. A submodule whose host
+// dir is missing or empty is skipped (left for the guest fetch); a repo with no
+// .gitmodules is a no-op. The submodule's own `.git` (a gitlink file or nested
+// repo) is not copied — the guest builds its own git metadata (vm-runner.nix).
+func copyHostSubmodules(hostRepo, work string) error {
+	paths, err := submodulePaths(filepath.Join(work, ".gitmodules"))
+	if err != nil {
+		return err
+	}
+	for _, p := range paths {
+		src := filepath.Join(hostRepo, p)
+		if !nonEmptyDir(src) {
+			continue // host lacks it too — leave it for the guest's network fetch
+		}
+		dst := filepath.Join(work, p)
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			return err
+		}
+		if err := copyTreeFiltered(src, dst, func(name string) bool { return name == ".git" }); err != nil {
+			return fmt.Errorf("copy submodule %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
+// nonEmptyDir reports whether path is a directory with at least one entry.
+func nonEmptyDir(path string) bool {
+	entries, err := os.ReadDir(path)
+	return err == nil && len(entries) > 0
+}
+
 // vmEnv builds the environment run-nixos-vm reads: the per-run qcow2 disk and
 // the five 9p share sources the nix module's sharedDirectories expand —
 // ATTRACTOR_JOB_DIR (job dir, ro), ATTRACTOR_WORKSPACE (per-run jj workspace,
@@ -442,6 +502,14 @@ func (l vmLauncher) Launch(run *Run, reportURL string) error {
 	wsName := runWorkspaceName(run.ID)
 	if err := materializeWorkspace(run.cwd, work, wsName); err != nil {
 		run.failCrashed("vm launcher: materialize workspace: " + err.Error())
+		return err
+	}
+	// jj materialized only tracked files, so submodule CONTENT is absent (only
+	// the gitlink is tracked). Copy it from the host checkout so the guest boots
+	// with the themes/etc. present; the guest's network fetch then covers only
+	// what the host lacked (vm-runner.nix).
+	if err := copyHostSubmodules(run.cwd, work); err != nil {
+		run.failCrashed("vm launcher: copy submodules: " + err.Error())
 		return err
 	}
 	// Repoint the workspace's `.jj/repo` at the guest store mount so in-guest
