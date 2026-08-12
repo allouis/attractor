@@ -133,7 +133,19 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	response := result.ResponseText
 	_ = stage.Write("response.md", []byte(response))
 
-	if oc, ok := readAgentStatus(stage); ok {
+	requireStatus := env.Node.Bool("require_status")
+	oc, ok := readAgentStatus(stage)
+	if !ok && requireStatus {
+		// A verdict node's agent may land its final status.json write shortly
+		// after the backend turn returns — in-guest that write races the last
+		// flush through the 9p mount by ~2s, so an honest verdict would be
+		// scored as missing. Poll a bounded window; a status that appears
+		// within it is used normally (including a FAIL). Only require_status
+		// nodes pay this cost — every other node keeps the single immediate
+		// check below, so there is no universal slowdown.
+		oc, ok = pollAgentStatus(stage, requireStatusGraceWindow, requireStatusPollInterval)
+	}
+	if ok {
 		// Status-file contract: agent self-reported its outcome.
 		// Merge in the routing baggage so the engine still sees last_stage
 		// and last_response in context.
@@ -144,10 +156,10 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	// A verdict node (require_status=true) whose status never arrived must
 	// fail loud, not default to success — defaulting is how a lost FAIL
 	// verdict passes a review gate.
-	if env.Node.Bool("require_status") {
+	if requireStatus {
 		return engine.Outcome{
 			Status:         engine.StatusFail,
-			FailureReason:  "agent wrote no " + filepath.Join(stage.Root(), "status.json") + " (require_status node)",
+			FailureReason:  requireStatusMissReason(stage),
 			ContextUpdates: applyDefaults(nil, env.Node, response),
 		}
 	}
@@ -239,6 +251,52 @@ func relocateLeakedStatus(stage *runstore.Dir, workStatus string, existedBefore 
 		return // agent also wrote the stage-dir copy; keep that one
 	}
 	_ = stage.Write("status.json", data)
+}
+
+// requireStatusGraceWindow / requireStatusPollInterval bound how long a
+// require_status node waits for the agent's status.json after the backend turn
+// ends, before failing as missing. In-guest the agent's final write can land
+// ~2s after the turn returns (it races the last flush through the 9p mount);
+// the window covers that without slowing any other node. Package vars so tests
+// can shrink them.
+var (
+	requireStatusGraceWindow  = 5 * time.Second
+	requireStatusPollInterval = 200 * time.Millisecond
+)
+
+// pollAgentStatus retries readAgentStatus until it succeeds or the window
+// elapses. A status that appears within the window is used verbatim (including
+// a FAIL verdict); a status that never arrives returns (zero, false) so the
+// caller emits the require_status-miss failure.
+func pollAgentStatus(stage *runstore.Dir, window, interval time.Duration) (engine.Outcome, bool) {
+	deadline := time.Now().Add(window)
+	for {
+		time.Sleep(interval)
+		if oc, ok := readAgentStatus(stage); ok {
+			return oc, true
+		}
+		if !time.Now().Before(deadline) {
+			return engine.Outcome{}, false
+		}
+	}
+}
+
+// requireStatusMissReason is the failure_reason a require_status node emits
+// when the agent's status.json never arrived within the grace window. It marks
+// a MACHINERY failure of the verdict harness (the verdict was never written) —
+// distinct from a FAIL verdict the agent authored. manager_loop keys on this
+// signature (via isRequireStatusMiss) so a harness miss is not fed to a fix
+// agent as if it were a review finding.
+func requireStatusMissReason(stage *runstore.Dir) string {
+	return "agent wrote no " + filepath.Join(stage.Root(), "status.json") + " (require_status node)"
+}
+
+// isRequireStatusMiss reports whether a failure_reason carries the
+// require_status machinery-miss signature (as opposed to an agent-authored
+// verdict). The signature survives wrapping ("manager_loop: child failed — …"),
+// so it holds when the reason has bubbled up through nested manager loops.
+func isRequireStatusMiss(reason string) bool {
+	return strings.Contains(reason, "status.json (require_status node)")
 }
 
 // readAgentStatus reads the agent-authored status.json if present and
