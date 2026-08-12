@@ -6,9 +6,20 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"syscall"
+	"time"
 
 	"github.com/allouis/attractor/internal/engine"
 )
+
+// toolWaitDelay bounds how long exec.Cmd.Wait keeps copying stdout/stderr after
+// the command's process has exited (or been killed). A tool_command that
+// backgrounds a grandchild (a test runner spawning worker processes) leaves
+// that child holding the stdout pipe open after the shell exits; without a
+// bound, Wait blocks on the pipe copy forever — the failure mode that wedged a
+// run for hours. After this delay Wait abandons the copy, closes the pipes, and
+// returns, so a stuck stage fails instead of hanging the engine.
+const toolWaitDelay = 5 * time.Second
 
 // Tool executes an external command configured on the node and returns
 // the captured stdout. Spec §4.10. The shell used is `/bin/sh -c <cmd>`
@@ -42,6 +53,20 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 
 	exe := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	// Run the shell in its own process group (Setpgid) and, on timeout, kill the
+	// whole group (negative pid) rather than just the shell. A test runner
+	// spawns worker grandchildren; killing only the shell orphans them still
+	// holding the stdout pipe, which blocks Wait. Killing the group reaps the
+	// tree so the pipe closes promptly. WaitDelay below is the backstop for a
+	// child that escapes the group (setsid) — it bounds the pipe copy regardless.
+	exe.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	exe.Cancel = func() error {
+		if exe.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-exe.Process.Pid, syscall.SIGKILL)
+	}
+	exe.WaitDelay = toolWaitDelay
 	stage := env.Stage
 	if stage != nil {
 		if err := stage.MkdirAll(); err != nil {
