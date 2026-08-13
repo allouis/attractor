@@ -38,6 +38,11 @@ type Engine struct {
 	restartCount    int
 	usageMu         sync.Mutex
 	usageTotal      Usage
+	// visitsMu/visits mirror the run state's per-node visit counts for
+	// emit, which stamps Event.Visit (D3 span identity) and cannot see
+	// the run state directly (handlers call emit concurrently).
+	visitsMu sync.Mutex
+	visits   map[string]int
 	seq             atomic.Int64
 	initialContext  map[string]string
 	skipEventLog    bool
@@ -211,6 +216,7 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 		// overrides the graph-level `max_node_visits`; absent/zero means
 		// unlimited.
 		state.visits[nodeID]++
+		e.setVisit(nodeID, state.visits[nodeID])
 		if limit := node.Int("max_visits", g.IntAttr("max_node_visits", 0)); limit > 0 && state.visits[nodeID] > limit {
 			return e.fail(fmt.Sprintf("node %q exceeded max_node_visits (%d)", nodeID, limit))
 		}
@@ -279,6 +285,7 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			if err != nil {
 				return e.fail(err.Error())
 			}
+			e.resetVisits()
 			// resetState archived the prior incarnation's logs (including
 			// events.jsonl); reopen a fresh file for the new incarnation.
 			e.openEventsFile()
@@ -771,12 +778,39 @@ func (e *Engine) closeEventsFile() {
 	}
 }
 
+// setVisit records the current visit number for a node so emit can
+// stamp it on events. resetVisits clears the map on a loop_restart (a
+// fresh incarnation restarts visit counting, matching run state).
+func (e *Engine) setVisit(nodeID string, visit int) {
+	e.visitsMu.Lock()
+	defer e.visitsMu.Unlock()
+	if e.visits == nil {
+		e.visits = map[string]int{}
+	}
+	e.visits[nodeID] = visit
+}
+
+func (e *Engine) resetVisits() {
+	e.visitsMu.Lock()
+	defer e.visitsMu.Unlock()
+	e.visits = nil
+}
+
+func (e *Engine) visitOf(nodeID string) int {
+	e.visitsMu.Lock()
+	defer e.visitsMu.Unlock()
+	return e.visits[nodeID]
+}
+
 func (e *Engine) emit(ev Event) {
 	if ev.Timestamp.IsZero() {
 		ev.Timestamp = e.now()
 	}
 	if ev.RunID == "" {
 		ev.RunID = e.RunID
+	}
+	if ev.Visit == 0 && ev.NodeID != "" {
+		ev.Visit = e.visitOf(ev.NodeID)
 	}
 	ev.Seq = e.seq.Add(1)
 	// Accumulate per-stage usage and attach the run rollup to the

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -106,9 +107,16 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 	err = exe.Run()
 
 	if err != nil {
+		// The diagnostic can live on either stream (gofmt -l and many
+		// linters print to stdout): prefer stderr, fall back to stdout,
+		// so the downstream fix agent is never handed a bare exit code.
+		diag := stderr.String()
+		if strings.TrimSpace(diag) == "" {
+			diag = stdout.String()
+		}
 		return engine.Outcome{
 			Status:        engine.StatusFail,
-			FailureReason: fmt.Sprintf("tool: %v: %s", err, truncate(stderr.String(), 200)),
+			FailureReason: fmt.Sprintf("tool: %v: %s", err, truncate(diag, 400)),
 			ContextUpdates: map[string]string{
 				"tool.output":    stdout.String(),
 				"tool.stderr":    stderr.String(),
