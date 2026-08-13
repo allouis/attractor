@@ -229,6 +229,14 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			return outcome, nil
 		}
 
+		// Stuck-loop breaker (loop-guards LG2): the same node failing with
+		// the identical reason N consecutive times means the loop is not
+		// converging — abort now instead of burning rounds until
+		// max_node_visits. Changing reasons are progress and never trip it.
+		if msg := state.recordFailure(g, nodeID, outcome); msg != "" {
+			return e.fail(msg)
+		}
+
 		// Record completion and persist artifacts. Only SUCCESS-class
 		// outcomes go in completedNodes so a resumed run will re-execute
 		// a failed stage from scratch.
@@ -309,6 +317,41 @@ type runState struct {
 	// overrides for the next handler invocation.
 	incomingEdge *graph.Edge
 	previousNode string
+	// lastFailReason/failStreak back the LG2 stuck-loop breaker: per
+	// node, the reason of the last failure and how many consecutive
+	// failures repeated it verbatim.
+	lastFailReason map[string]string
+	failStreak     map[string]int
+}
+
+// recordFailure updates the LG2 stuck-loop bookkeeping for a node
+// outcome and returns a non-empty abort message when the same node has
+// failed with the identical (trimmed) reason max_repeated_failures
+// times in a row (graph attr, default 3; 0 disables).
+func (s *runState) recordFailure(g *graph.Graph, nodeID string, outcome Outcome) string {
+	if s.failStreak == nil {
+		s.failStreak = map[string]int{}
+		s.lastFailReason = map[string]string{}
+	}
+	if outcome.Status != StatusFail {
+		delete(s.failStreak, nodeID)
+		delete(s.lastFailReason, nodeID)
+		return ""
+	}
+	reason := strings.TrimSpace(outcome.FailureReason)
+	if s.failStreak[nodeID] > 0 && reason == s.lastFailReason[nodeID] {
+		s.failStreak[nodeID]++
+	} else {
+		s.failStreak[nodeID] = 1
+		s.lastFailReason[nodeID] = reason
+	}
+	limit := g.IntAttr("max_repeated_failures", 3)
+	if limit > 0 && s.failStreak[nodeID] >= limit {
+		return fmt.Sprintf(
+			"stuck loop: node %q failed %d consecutive times with the same reason — no progress is being made. Reason: %s",
+			nodeID, s.failStreak[nodeID], reason)
+	}
+	return ""
 }
 
 // loadOrInitState resumes from a checkpoint when one exists, else builds a

@@ -14,6 +14,7 @@ import (
 func TestEngine_MaxNodeVisitsBoundsLoops(t *testing.T) {
 	src := `digraph g {
 		max_node_visits = 3
+		max_repeated_failures = 0 // isolate the visit limit from the LG2 stuck-loop breaker
 		start [shape=Mdiamond]
 		work [type="tool", tool_command="false"]
 		done [shape=Msquare]

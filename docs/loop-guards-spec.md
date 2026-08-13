@@ -89,6 +89,6 @@ quota burn far less likely by killing futile loops early.
 
 | ID | Milestone | Status |
 |----|-----------|--------|
-| LG1 | require_status misses → StatusRetry, bounded by node retry policy; exhausted → run fails with machinery reason; never routes to fix. manager_loop child machinery propagates the same way. TDD incl. the a5ac1389 replay shape | todo |
-| LG2 | engine stuck-loop breaker: N identical consecutive failure_reasons on one node aborts the run (default 3, `max_repeated_failures` graph attr); progress loops (changing reasons) untouched. TDD | todo |
+| LG1 | require_status misses → StatusRetry, bounded by node retry policy; exhausted → run fails with machinery reason; never routes to fix. manager_loop child machinery propagates the same way. TDD incl. the a5ac1389 replay shape | done |
+| LG2 | engine stuck-loop breaker: N identical consecutive failure_reasons on one node aborts the run (default 3, `max_repeated_failures` graph attr); progress loops (changing reasons) untouched. TDD | done |
 | LG3 | parked-run design for quota/session-limit errors (spec addendum only in this set) | todo |

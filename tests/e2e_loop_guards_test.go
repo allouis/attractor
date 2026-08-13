@@ -72,3 +72,78 @@ func TestLG1_ExhaustedRetriesKeepUnderlyingReason(t *testing.T) {
 		t.Fatalf("exhaustion flattened the reason: %q", out.FailureReason)
 	}
 }
+
+// lg2Src is a classic review/fix loop: work fails, fix "fixes", work
+// re-runs. max_node_visits is deliberately high — LG2 must fire first.
+const lg2Src = `digraph t {
+	max_node_visits=10
+	start [shape=Mdiamond]
+	work [prompt="do it"]
+	fix  [prompt="fix it"]
+	done [shape=Msquare]
+	start -> work
+	work -> done [condition="outcome=success"]
+	work -> fix  [condition="outcome=fail"]
+	fix -> work
+}`
+
+func failStep(reason string) fake.Step {
+	return fake.Step{Outcome: &engine.Outcome{Status: engine.StatusFail, FailureReason: reason}}
+}
+
+// LG2: the same node failing with the IDENTICAL failure_reason N
+// consecutive times (default 3) aborts the run — no progress is being
+// made, and every further round is waste.
+func TestLG2_IdenticalRepeatedFailuresAbortRun(t *testing.T) {
+	be := fake.New()
+	be.SetSequence("work", failStep("cannot apply patch: hunk mismatch"))
+	be.SetText("fix", "pretended to fix")
+
+	out, _, _ := runFixture(t, lg2Src, be, nil)
+	if out.Status != engine.StatusFail {
+		t.Fatalf("status = %s, want fail", out.Status)
+	}
+	if !strings.Contains(out.FailureReason, "stuck loop") {
+		t.Fatalf("want stuck-loop abort, got %q", out.FailureReason)
+	}
+	if got := be.CallCount("work"); got != 3 {
+		t.Fatalf("work ran %d times, want 3 (abort on third identical failure)", got)
+	}
+}
+
+// LG2 must never touch a loop that is making progress: changing failure
+// reasons mean the fix rounds are doing something.
+func TestLG2_ChangingReasonsAreNotTouched(t *testing.T) {
+	be := fake.New()
+	be.SetSequence("work",
+		failStep("finding A"),
+		failStep("finding B"),
+		failStep("finding C"),
+		fake.Step{Text: "all findings addressed"},
+	)
+	be.SetText("fix", "fixed a finding")
+
+	out, _, _ := runFixture(t, lg2Src, be, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("status = %s (reason %q), want success — changing reasons are progress", out.Status, out.FailureReason)
+	}
+	if got := be.CallCount("work"); got != 4 {
+		t.Fatalf("work ran %d times, want 4", got)
+	}
+}
+
+// LG2: the graph attr max_repeated_failures tunes the threshold.
+func TestLG2_MaxRepeatedFailuresAttr(t *testing.T) {
+	src := strings.Replace(lg2Src, "max_node_visits=10", "max_node_visits=10\n\tmax_repeated_failures=2", 1)
+	be := fake.New()
+	be.SetSequence("work", failStep("same reason"))
+	be.SetText("fix", "noop")
+
+	out, _, _ := runFixture(t, src, be, nil)
+	if !strings.Contains(out.FailureReason, "stuck loop") {
+		t.Fatalf("want stuck-loop abort at threshold 2, got %q", out.FailureReason)
+	}
+	if got := be.CallCount("work"); got != 2 {
+		t.Fatalf("work ran %d times, want 2", got)
+	}
+}
