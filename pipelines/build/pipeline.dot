@@ -21,8 +21,7 @@
 //   fix -> verify -> review_loop ...  (re-review after every fix)
 //
 // The fix node reads the synth's blocking findings from
-// $context.stack.child.failure_reason (manager_loop surfaces the child's
-// failure reason into the parent context) and the change itself from
+// $context.failure_reason and the change itself from
 // `jj diff --from $context.review_base --to @`.
 
 digraph build {

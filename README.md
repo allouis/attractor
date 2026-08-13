@@ -14,7 +14,7 @@ written for humans and agents working on or with this tool.
 ## Install
 
 ```bash
-nix build .#attractor     # → ./result/bin/attractor (+ hookshim)
+nix build .#attractor     # → ./result/bin/attractor
 ```
 
 Needs [nix](https://nixos.org) with flakes. The runtime closure bundles
@@ -175,10 +175,8 @@ preamble carrying run state. Its obligations:
 
 ## Composition
 
-Two ways to embed one pipeline in another
-([D6](./docs/local-first-plan.md)):
-
-- **Child known at parse time → `subgraph`** (static inline):
+One way to embed one pipeline in another
+([D6](./docs/local-first-plan.md)) — `subgraph` static inlining:
 
   ```dot
   review [type="subgraph", graph_ref="../review-core/pipeline.dot",
@@ -194,11 +192,6 @@ Two ways to embed one pipeline in another
   shows the real fan-out. `var.*` satisfies the child's declared vars by
   static substitution.
 
-- **Child chosen at runtime → `stack.manager_loop`** (the router
-  dispatching an item to a work pipeline): runs the child engine inline,
-  seeding its context from the parent; the child's terminal outcome
-  becomes the node's outcome, telemetry lands under
-  `$context.stack.child.*`.
 
 ## Observing a run
 
@@ -231,7 +224,6 @@ for remote runs: `run --ui-token <t>` + the token rides the announce.
 | `attractor validate <path>` | transforms + lint only; catches missing prompt files and `$context` typos before any run |
 | `attractor render <path> [-o out.svg]` | DOT → SVG via graphviz |
 | `attractor hub` | pull-based run directory: announce + scrape + archive + launch |
-| `attractor serve` | legacy HTTP daemon (submit, SSE, web UI, automations) |
 | `attractor version` | print version |
 
 Bare pipeline names resolve under `./pipelines/` then
@@ -255,9 +247,8 @@ Claude Code CLI directly. See
 
 Under `pipelines/`: `bug-fix` (understand → reproduce → fix → checks →
 multi-lens review → ship gate), `implement`, `review-pr`, `revise-pr`,
-`build`, `checks`, `router` (dispatches intake items to the above), and
-`review-core` — the shared five-lens adversarial review + synth verdict
-that the others inline via `subgraph`.
+`build`, `checks`, and `review-core` — the shared five-lens adversarial
+review + synth verdict that the others inline via `subgraph`.
 
 ## Docs
 
@@ -270,8 +261,6 @@ that the others inline via `subgraph`.
 | [codergen-backends-spec](./docs/codergen-backends-spec.md) | agent CLI integration |
 | [acp-backend](./docs/acp-backend.md) | ACP backend, token usage, stall watchdog |
 | [provider-config](./docs/provider-config.md) | per-node backend / model routing |
-| [service-spec](./docs/service-spec.md) | legacy HTTP daemon + automations |
-| [items-spec](./docs/items-spec.md) | work items (GitHub / Linear intake) |
 
 ## Contributing
 

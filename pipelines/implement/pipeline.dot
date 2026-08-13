@@ -2,9 +2,7 @@
 // implement in small jj commits, deterministic static checks, an
 // adversarial self-review, a human ship gate, then a draft PR.
 //
-// The router's `issue` target: stack.manager_loop runs this child inline
-// and sources its declared vars from context (router-spec R3). It also runs
-// standalone from the CLI against the same contract:
+// Runs standalone from the CLI against this var contract:
 //
 //   attractor run implement -var repo=owner/name -var identifier=ENG-42 \
 //     -var url=… -var title=…
@@ -16,10 +14,10 @@
 // `plan` then reads the issue and produces a plan — no code — and
 // self-reports `review_base` (the change id before any work) via its
 // status.json context_updates. A human approves the plan at `plan_gate`
-// (browser /questions surface under the daemon, console from a TTY).
+// (the run's own /questions surface under --ui, console from a TTY).
 // `implement` then works in small atomic jj commits; four deterministic
 // tool nodes run the repo's configured checks (seeded as
-// $context.check.<name> by the daemon; a no-op when unconfigured), each
+// -var check.<name>=… on the CLI), each
 // routing back to `implement` on failure. `review_loop` runs the shared
 // review-core sub-pipeline against everything since review_base —
 // committed work plus any stray working-copy changes. A PASS reaches the
@@ -62,8 +60,8 @@ digraph implement {
                fidelity="full", timeout="120m",
                prompt="@prompts/implement.md"]
 
-    // Deterministic checks — commands come from the repo's checks config,
-    // seeded into context by the daemon. They run in the run's cwd (the repo).
+    // Deterministic checks — commands seeded as -var check.<name>. They run
+    // in the run's cwd (the repo).
     deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
     typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
     lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]

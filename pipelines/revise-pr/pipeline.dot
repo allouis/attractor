@@ -3,15 +3,9 @@
 // in place). The counterpart to `implement` (which opens a NEW PR): here
 // the branch already exists and the work lands on it, no PR is created.
 //
-// Dispatch resolves a PR Item to vars and MUST seed workspace_revision =
-// the PR's bookmark, so the VM launcher materializes the per-run jj
-// workspace at the branch tip (launcher_vm workspaceRevision) rather than
-// the host repo's @ — the run works IN the checked-out branch:
-//
-//   POST /workflows/revise-pr/run
-//   vars = {repo, pr_number, bookmark, workspace_revision=<bookmark>}
-//
-// or from the CLI:
+// Whatever launches the run MUST seed workspace_revision = the PR's
+// bookmark, so the workspace is materialized at the branch tip rather
+// than the repo's @ — the run works IN the checked-out branch:
 //
 //   attractor run revise-pr -var repo=owner/name -var pr_number=42 \
 //     -var bookmark=hkg-1914 -var workspace_revision=hkg-1914
@@ -68,7 +62,7 @@ digraph revise_pr {
          fidelity="full", timeout="120m", prompt="@prompts/fix.md"]
 
     // Deterministic checks — commands come from the repo's checks config,
-    // seeded into context by the daemon. They run in the run's cwd (the
+    // seeded as -var check.<name>. They run in the run's cwd (the
     // branch checkout), each routing back to `fix` on failure.
     deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
     typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]

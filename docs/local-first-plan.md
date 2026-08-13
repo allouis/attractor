@@ -284,3 +284,16 @@ makes failures visible enough to debug the next ones. Phase 3 deletes weight
 while the surface area is quiet. Phase 4 re-adds distribution on top of a unit
 that is already proven to work alone. Each phase leaves the system in a
 shippable state; nothing in Phases 1–3 is throwaway if Phase 4 is delayed.
+
+## Postscript — the 2026-08-13 strip
+
+Decided same day, executed on the `strip-daemon` branch: the tool is
+`attractor run` + `attractor hub` (+ validate/render). Everything the
+plan had frozen is now deleted rather than waiting on Phase 3–4
+evidence — the daemon (`serve`, registry, launchers, web UI), items
+intake (GitHub/Linear) and the router, `stack.manager_loop` (its last
+user was the router; parse-time children use `subgraph`), phone-home/
+ingest/hookshim (P4.15's deletion completed without a VM launcher:
+VM orchestration is handled outside the tool — whatever boots the
+machine runs `attractor run --announce` inside it), and cron
+automations. Pull is the only model.

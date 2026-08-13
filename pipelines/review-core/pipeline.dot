@@ -3,8 +3,8 @@
 //
 // Five adversarial reviewers run in parallel, each from a different lens,
 // then `synth` merges their findings into one review plus a PASS/FAIL
-// verdict. Reused by the PR-review and implement pipelines via
-// stack.manager_loop, seeding `diff_cmd` through the child context.
+// verdict. Reused by the other pipelines via subgraph inlining,
+// seeding `diff_cmd` through var.diff_cmd.
 //
 // The one input is `diff_cmd`: the command that shows the change under
 // review. Each lens runs it to see the diff; different callers pass

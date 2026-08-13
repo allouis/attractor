@@ -5,7 +5,7 @@
 // involving an agent.
 //
 // Commands come from the repo's checks config, seeded into the run context
-// as $context.check.<name> by the daemon (a no-op echo when unconfigured).
+// as -var check.<name>=… on the CLI (a no-op echo when unconfigured).
 // A failing check has no fail edge and no agent to route back to, so the
 // run fails with that check's output — which is the diagnostic signal this
 // pipeline exists to produce.

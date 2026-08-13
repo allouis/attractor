@@ -1,10 +1,10 @@
 // review — dispatch a GitHub PR Item to a code review (items-spec I5,
 // review-pipeline-spec RV3).
 //
-// The daemon dispatches this via POST /items/run: it resolves the PR
+// Run it with the PR's vars on the CLI: it resolves the PR
 // Item to vars (repo, pr_number, url, title). The review is DIFF-BASED:
-// `review_loop` runs the shared multi-lens review-core sub-pipeline inline
-// via stack.manager_loop, seeding each lens's diff_cmd with `gh pr diff`.
+// `review_loop` inlines the shared multi-lens review-core sub-pipeline
+// (subgraph), seeding each lens's diff_cmd with `gh pr diff`.
 // That reads the PR straight from the GitHub API, so it needs no local
 // checkout and works under ANY runner — including a VM whose /work jj
 // workspace has no `.git` (an earlier `gh pr checkout` node failed there,
