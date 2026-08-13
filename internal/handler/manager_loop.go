@@ -6,47 +6,26 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
-	"time"
 
-	"github.com/allouis/attractor/internal/condition"
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/runstore"
 	"github.com/allouis/attractor/internal/setup"
 )
 
-// ManagerLoop supervises a child pipeline (spec §4.11). The child .dot
-// is given by the graph-level `stack.child_dotfile` attribute; the
-// supervisor cycles through observe/steer/wait actions until the child
-// terminates or a stop condition fires.
-//
-// Steering is currently best-effort: the manager records intent in the
-// parent context (`context.stack.steering`) so a Codergen backend that
-// supports mid-flight steering can consume it. Without such a backend
-// the steer action is logged as a no-op.
+// ManagerLoop runs a child pipeline inline (spec §4.11, slimmed per
+// local-first plan D6). It exists for children unknowable until runtime
+// — the router dispatching an item to a work pipeline. A child known at
+// parse time uses `type="subgraph"` static expansion instead. The
+// earlier supervisor machinery (poll/steer/cooldown/stop-condition) was
+// never used by a shipped pipeline and is gone.
 type ManagerLoop struct{}
 
-// Execute runs the supervisor cycle.
+// Execute runs the child pipeline to completion and maps its terminal
+// outcome onto this node's.
 func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	childDot := nodeOrGraphAttr(env, "stack.child_dotfile")
 	if childDot == "" {
 		return engine.Outcome{Status: engine.StatusFail, FailureReason: "manager_loop: graph missing stack.child_dotfile"}
-	}
-	pollInterval := 45 * time.Second
-	if d, ok := env.Node.Duration("manager.poll_interval"); ok {
-		pollInterval = d
-	}
-	maxCycles := env.Node.Int("manager.max_cycles", 1000)
-	stopCondition := env.Node.Attrs["manager.stop_condition"]
-	actions := parseActions(env.Node.Attrs["manager.actions"])
-
-	autostart := true
-	if v, ok := env.Node.Attrs["stack.child_autostart"]; ok && v != "true" {
-		autostart = false
-	}
-
-	cooldown := 120 * time.Second
-	if d, ok := env.Node.Duration("manager.steer_cooldown"); ok {
-		cooldown = d
 	}
 
 	// Resolve a relative child_dotfile. Precedence:
@@ -135,96 +114,53 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 	childEng := engine.New(engine.Config{Registry: registry, LogsRoot: childLogs, InitialContext: initialContext})
 	childStatus := newChildTelemetry(env.Context)
-	doneCh := make(chan engine.Outcome, 1)
 
-	if autostart {
-		go func() {
-			consumeDone := make(chan struct{})
-			go func() {
-				consumeChildEvents(childEng.Events(), childStatus, env)
-				close(consumeDone)
-			}()
-			out, _ := childEng.Run(prepared)
-			// Wait for the event consumer to drain before reporting done, so
-			// it never calls env.Emit after Execute returns and the parent
-			// engine closes its event channel (send-on-closed-channel race).
-			<-consumeDone
-			doneCh <- out
-		}()
+	// Consume the child's event stream (telemetry shadow + forwarding)
+	// while the child runs; drain it fully before returning so nothing
+	// calls env.Emit after the parent engine closes its channel.
+	consumeDone := make(chan struct{})
+	go func() {
+		consumeChildEvents(childEng.Events(), childStatus, env)
+		close(consumeDone)
+	}()
+	finalOutcome, _ := childEng.Run(prepared)
+	<-consumeDone
+
+	childStatus.markDone(finalOutcome)
+	if finalOutcome.Status == engine.StatusSuccess || finalOutcome.Status == engine.StatusPartialSuccess {
+		return engine.Outcome{
+			Status:         engine.StatusSuccess,
+			Notes:          "manager_loop: child completed",
+			ContextUpdates: childStatus.contextUpdates(),
+		}
 	}
-
-	steerLast := time.Time{}
-	for cycle := 1; cycle <= maxCycles; cycle++ {
-		select {
-		case finalOutcome := <-doneCh:
-			childStatus.markDone(finalOutcome)
-			if finalOutcome.Status == engine.StatusSuccess || finalOutcome.Status == engine.StatusPartialSuccess {
-				return engine.Outcome{
-					Status:         engine.StatusSuccess,
-					Notes:          "manager_loop: child completed",
-					ContextUpdates: childStatus.contextUpdates(),
-				}
-			}
-			// Distinguish a real review verdict from a failure of the review
-			// machinery itself. A synth that WROTE a FAIL verdict is a verdict —
-			// it belongs downstream, routed to a fix round. A synth whose
-			// status.json never arrived (require_status miss) is machinery
-			// failure: surfacing it as a review FAIL feeds a harness error to
-			// the fix agent as if it were a finding (the a5ac1389 loop). The
-			// build/implement fix node reads the findings from
-			// $context.stack.child.failure_reason, so the honest machinery label
-			// is stamped there too, not just on this node's own reason.
-			updates := childStatus.contextUpdates()
-			if isRequireStatusMiss(finalOutcome.FailureReason) {
-				machinery := "review machinery failed (not a verdict): " + finalOutcome.FailureReason
-				updates["stack.child.failure_reason"] = machinery
-				// Machinery-classed RETRY (loop-guards LG1): the parent
-				// engine re-runs this node — a fresh child dir per
-				// invocation — then fails the run; it never routes the
-				// harness error to a fix round.
-				return engine.Outcome{
-					Status:         engine.StatusRetry,
-					FailureReason:  "manager_loop: " + machinery,
-					FailureClass:   engine.FailureClassMachinery,
-					ContextUpdates: updates,
-				}
-			}
-			return engine.Outcome{
-				Status:         engine.StatusFail,
-				FailureReason:  "manager_loop: child failed — " + finalOutcome.FailureReason,
-				ContextUpdates: updates,
-			}
-		default:
-		}
-
-		if actions["observe"] {
-			childStatus.observe(env.Context)
-		}
-		if actions["steer"] && time.Since(steerLast) >= cooldown {
-			steered := steerChild(env)
-			if steered {
-				steerLast = time.Now()
-			}
-		}
-		if stopCondition != "" {
-			expr, err := condition.Parse(stopCondition)
-			if err == nil {
-				if expr.Evaluate(engine.Resolver{Context: env.Context}) {
-					return engine.Outcome{
-						Status:         engine.StatusSuccess,
-						Notes:          "manager_loop: stop condition satisfied",
-						ContextUpdates: childStatus.contextUpdates(),
-					}
-				}
-			}
-		}
-		if actions["wait"] {
-			time.Sleep(pollInterval)
+	// Distinguish a real review verdict from a failure of the review
+	// machinery itself. A synth that WROTE a FAIL verdict is a verdict —
+	// it belongs downstream, routed to a fix round. A synth whose
+	// status.json never arrived (require_status miss) is machinery
+	// failure: surfacing it as a review FAIL feeds a harness error to
+	// the fix agent as if it were a finding (the a5ac1389 loop). The
+	// downstream fix node reads the findings from
+	// $context.stack.child.failure_reason, so the honest machinery label
+	// is stamped there too, not just on this node's own reason.
+	updates := childStatus.contextUpdates()
+	if isRequireStatusMiss(finalOutcome.FailureReason) {
+		machinery := "review machinery failed (not a verdict): " + finalOutcome.FailureReason
+		updates["stack.child.failure_reason"] = machinery
+		// Machinery-classed RETRY (loop-guards LG1): the parent engine
+		// re-runs this node — a fresh child dir per invocation — then
+		// fails the run; it never routes the harness error to a fix round.
+		return engine.Outcome{
+			Status:         engine.StatusRetry,
+			FailureReason:  "manager_loop: " + machinery,
+			FailureClass:   engine.FailureClassMachinery,
+			ContextUpdates: updates,
 		}
 	}
 	return engine.Outcome{
-		Status:        engine.StatusFail,
-		FailureReason: "manager_loop: max cycles exceeded",
+		Status:         engine.StatusFail,
+		FailureReason:  "manager_loop: child failed — " + finalOutcome.FailureReason,
+		ContextUpdates: updates,
 	}
 }
 
@@ -291,36 +227,6 @@ func nodeOrGraphAttr(env engine.HandlerEnv, key string) string {
 		return v
 	}
 	return env.Graph.Attrs[key]
-}
-
-// parseActions converts the comma-separated `manager.actions` attribute
-// into a lookup set. Empty or absent defaults to observe + wait.
-func parseActions(raw string) map[string]bool {
-	out := map[string]bool{}
-	if raw == "" {
-		out["observe"] = true
-		out["wait"] = true
-		return out
-	}
-	for _, part := range strings.Split(raw, ",") {
-		out[strings.TrimSpace(part)] = true
-	}
-	return out
-}
-
-// steerChild reads any queued steering message from
-// `context.stack.steering.next` and pushes it down to the child via
-// `context.stack.child.steering`. The codergen backend layer is
-// expected to surface this to the agent; for backends without
-// mid-flight steering (current MVP) this is a no-op breadcrumb.
-func steerChild(env engine.HandlerEnv) bool {
-	msg := env.Context.Get("stack.steering.next")
-	if msg == "" {
-		return false
-	}
-	env.Context.Set("stack.child.steering", msg)
-	env.Context.Set("stack.steering.next", "")
-	return true
 }
 
 // childTelemetry shadows the child engine's event stream into the

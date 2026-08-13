@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 
-	"github.com/allouis/attractor/internal/artifact"
 	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/runstore"
 )
@@ -25,13 +24,12 @@ type HandlerEnv struct {
 	// and backends persist prompt/response/status/tool-call artifacts
 	// through it so they cannot write outside the stage dir (e.g. into the
 	// process cwd / a user repo). Nil only for no-persistence runs.
-	Stage     *runstore.Dir
-	Context   *Context
-	LogsRoot  string
-	RunID     string
-	Emit      func(Event)
-	Registry  *Registry
-	Artifacts *artifact.Store
+	Stage    *runstore.Dir
+	Context  *Context
+	LogsRoot string
+	RunID    string
+	Emit     func(Event)
+	Registry *Registry
 
 	// Fidelity is the resolved context-fidelity mode (spec §5.4) for
 	// the incoming traversal. Codergen handlers prepend Preamble to the

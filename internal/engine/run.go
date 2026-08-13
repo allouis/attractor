@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/allouis/attractor/internal/artifact"
 	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/lint"
 	"github.com/allouis/attractor/internal/runstore"
@@ -28,7 +27,6 @@ type Engine struct {
 	LogsRoot        string
 	store           *runstore.Dir
 	RunID           string
-	Artifacts       *artifact.Store
 	MaxLoopRestarts int
 	events          chan Event
 	eventsFile      *os.File
@@ -87,7 +85,6 @@ func New(cfg Config) *Engine {
 		LogsRoot:        cfg.LogsRoot,
 		store:           newStore(cfg.LogsRoot),
 		RunID:           runID,
-		Artifacts:       artifact.New(filepath.Join(cfg.LogsRoot, "artifacts")),
 		MaxLoopRestarts: 100,
 		events:          make(chan Event, buf),
 		rng:             mrand.New(mrand.NewSource(time.Now().UnixNano())),
@@ -574,7 +571,6 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		RunID:     e.RunID,
 		Emit:      e.emit,
 		Registry:  e.Registry,
-		Artifacts: e.Artifacts,
 		Fidelity:  fidelity,
 		ThreadID:  threadID,
 		Preamble:  preamble,
