@@ -49,7 +49,7 @@ func TestClaudeCode_ParsesStreamJSON(t *testing.T) {
 	if out.Status != engine.StatusSuccess {
 		t.Fatalf("expected SUCCESS, got %s reason=%q", out.Status, out.FailureReason)
 	}
-	resp, err := os.ReadFile(filepath.Join(logsRoot, "node1", "response.md"))
+	resp, err := os.ReadFile(spanPath(t, logsRoot, "node1", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(resp), "stream reply") {
 		t.Fatalf("response.md missing reply: %q", resp)
@@ -119,7 +119,7 @@ func runOneNode(t *testing.T, be *claudecode.Backend, prompt string, logsRoot st
 		// going so the caller can inspect.
 		_ = err
 	}
-	data, err := os.ReadFile(filepath.Join(logsRoot, "node1", "status.json"))
+	data, err := os.ReadFile(spanPath(t, logsRoot, "node1", "status.json"))
 	if err != nil {
 		// FAIL path: engine no longer writes status.json on fail; build
 		// a synthetic outcome based on the last events / FailureReason

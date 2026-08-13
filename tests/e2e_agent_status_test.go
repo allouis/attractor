@@ -61,11 +61,11 @@ func TestAgentStatus_AgentCanFailStage(t *testing.T) {
 	}
 	// Confirm the fix branch ran (i.e. the engine routed via the fail
 	// edge rather than the success edge).
-	if _, err := os.Stat(filepath.Join(logs, "fix", "status.json")); err != nil {
+	if _, err := os.Stat(spanPath(t, logs, "fix", "status.json")); err != nil {
 		t.Fatalf("expected fix branch to execute via fail edge: %v", err)
 	}
 	// Confirm stuck's status.json reflects the agent's FAIL reason.
-	data, err := os.ReadFile(filepath.Join(logs, "stuck", "status.json"))
+	data, err := os.ReadFile(spanPath(t, logs, "stuck", "status.json"))
 	must(t, err)
 	if !strings.Contains(string(data), "no prior context available") {
 		t.Fatalf("agent failure_reason missing from final status.json: %s", data)
@@ -109,7 +109,7 @@ func TestAgentStatus_AgentWritesToCwdIsAdoptedAndCleanedUp(t *testing.T) {
 		t.Fatalf("pipeline should reach SUCCESS via the fail edge; got %s reason=%q", out.Status, out.FailureReason)
 	}
 	// The fail edge was taken (engine adopted the cwd-written FAIL).
-	if _, err := os.Stat(filepath.Join(logs, "fix", "status.json")); err != nil {
+	if _, err := os.Stat(spanPath(t, logs, "fix", "status.json")); err != nil {
 		t.Fatalf("fail edge not taken — agent's cwd status.json was not adopted: %v", err)
 	}
 	// The status.json must be relocated out of the work dir (no leak).

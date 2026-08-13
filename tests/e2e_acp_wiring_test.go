@@ -2,7 +2,6 @@ package attractor_test
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestCLI_ACPBackendEndToEnd(t *testing.T) {
 	})
 	must(t, err)
 
-	resp, err := os.ReadFile(filepath.Join(logsRoot, "plan", "response.md"))
+	resp, err := os.ReadFile(spanPath(t, logsRoot, "plan", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(resp), "echo:") {
 		t.Fatalf("plan response.md should carry agent output, got %q", resp)

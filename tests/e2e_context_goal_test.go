@@ -40,7 +40,7 @@ func TestEngine_GoalResolvedAtRunStart(t *testing.T) {
 	}
 
 	// A node's `$goal` resolves through the frozen context, not the raw attr.
-	prompt, err := os.ReadFile(filepath.Join(logs, "work", "prompt.md"))
+	prompt, err := os.ReadFile(spanPath(t, logs, "work", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(prompt), "PR #42") {
 		t.Fatalf("work prompt missing resolved goal: %q", prompt)
@@ -87,7 +87,7 @@ func TestEngine_GoalUnresolvedFailsAtStart(t *testing.T) {
 		t.Fatalf("error should name the key: %v", err)
 	}
 	// Fail-fast: no node ran, so no work stage dir.
-	if fileExists(t, filepath.Join(logs, "work", "status.json")) {
+	if spanFileExists(t, logs, "work", "status.json") {
 		t.Fatal("work node ran despite unresolved goal at start")
 	}
 }

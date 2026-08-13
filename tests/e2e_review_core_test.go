@@ -3,7 +3,6 @@ package attractor_test
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -93,7 +92,7 @@ func TestReviewCore_FanOutToSynth(t *testing.T) {
 
 	// synth read every lens finding via $context.parallel.results: each
 	// marker is present in synth's interpolated prompt.
-	promptMD, err := os.ReadFile(filepath.Join(logs, "synth", "prompt.md"))
+	promptMD, err := os.ReadFile(spanPath(t, logs, "synth", "prompt.md"))
 	must(t, err)
 	for lens, marker := range markers {
 		if !strings.Contains(string(promptMD), marker) {

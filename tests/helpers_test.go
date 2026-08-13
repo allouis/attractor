@@ -2,6 +2,7 @@ package attractor_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -115,9 +116,12 @@ func runFixtureBaseDir(t *testing.T, src, baseDir string, be backend.CodergenBac
 	return out, logsRoot
 }
 
+// readStatus reads a node's LATEST canonical status under the span-dir
+// layout (A4): highest visit, then highest attempt.
 func readStatus(t *testing.T, logsRoot, nodeID string) engine.Outcome {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(logsRoot, nodeID, "status.json"))
+	dir := latestSpanDir(t, logsRoot, nodeID)
+	data, err := os.ReadFile(filepath.Join(logsRoot, dir, "status.json"))
 	if err != nil {
 		t.Fatalf("read status %s: %v", nodeID, err)
 	}
@@ -127,6 +131,31 @@ func readStatus(t *testing.T, logsRoot, nodeID string) engine.Outcome {
 	}
 	out.Status = engine.ParseStatus(out.StatusString)
 	return out
+}
+
+// latestSpanDir finds a node's newest {node}@v{V}.a{A} directory.
+func latestSpanDir(t *testing.T, logsRoot, nodeID string) string {
+	t.Helper()
+	entries, err := os.ReadDir(logsRoot)
+	if err != nil {
+		t.Fatalf("read logs root: %v", err)
+	}
+	best, bestV, bestA := "", -1, -1
+	for _, ent := range entries {
+		if !ent.IsDir() {
+			continue
+		}
+		var v, a int
+		if n, _ := fmt.Sscanf(ent.Name(), nodeID+"@v%d.a%d", &v, &a); n == 2 {
+			if v > bestV || (v == bestV && a > bestA) {
+				best, bestV, bestA = ent.Name(), v, a
+			}
+		}
+	}
+	if best == "" {
+		t.Fatalf("no span dir for node %q under %s", nodeID, logsRoot)
+	}
+	return best
 }
 
 func fileExists(t *testing.T, path string) bool {
@@ -146,4 +175,29 @@ func childPrompt(t *testing.T, be *fake.Backend, nodeID string) string {
 	}
 	t.Fatalf("node %q never invoked", nodeID)
 	return ""
+}
+
+// spanFileExists reports whether the node has any span dir containing
+// the named file — for negative assertions ("this node never ran").
+func spanFileExists(t *testing.T, logsRoot, nodeID, name string) bool {
+	t.Helper()
+	entries, err := os.ReadDir(logsRoot)
+	if err != nil {
+		return false
+	}
+	for _, ent := range entries {
+		var v, a int
+		if n, _ := fmt.Sscanf(ent.Name(), nodeID+"@v%d.a%d", &v, &a); n == 2 {
+			if _, err := os.Stat(filepath.Join(logsRoot, ent.Name(), name)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// spanPath resolves a file inside a node's latest span dir.
+func spanPath(t *testing.T, logsRoot, nodeID, name string) string {
+	t.Helper()
+	return filepath.Join(logsRoot, latestSpanDir(t, logsRoot, nodeID), name)
 }

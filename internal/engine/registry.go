@@ -47,6 +47,12 @@ type HandlerEnv struct {
 	// then empty. Empty leaves the subprocess at attractor's cwd for
 	// codergen and at the stage dir for tool handlers.
 	Cwd string
+	// ExecuteNode runs another node through the engine's ONE executor —
+	// visit/attempt counting, retry policy, panic recovery, span-dir
+	// storage, and stage events all included. Composite handlers
+	// (parallel) fan out through this instead of invoking handlers
+	// directly, so a branch is never a second execution dialect.
+	ExecuteNode func(nodeID string, ctx *Context) Outcome
 }
 
 // Registry maps handler types to handler instances (spec §4.2).

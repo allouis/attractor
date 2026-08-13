@@ -54,12 +54,12 @@ func TestCLI_RoutesNodesThroughProviderConfig(t *testing.T) {
 	err := cli.Run([]string{"--logs", logsRoot, pipeline})
 	must(t, err)
 
-	planResp, err := os.ReadFile(filepath.Join(logsRoot, "plan", "response.md"))
+	planResp, err := os.ReadFile(spanPath(t, logsRoot, "plan", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(planResp), "model=opus-routed") {
 		t.Fatalf("plan node should be routed to anthropic with its model, got %q", planResp)
 	}
-	reviewResp, err := os.ReadFile(filepath.Join(logsRoot, "review", "response.md"))
+	reviewResp, err := os.ReadFile(spanPath(t, logsRoot, "review", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(reviewResp), "model=gpt-routed") {
 		t.Fatalf("review node should be routed to openai with its model, got %q", reviewResp)
@@ -94,7 +94,7 @@ func TestCLI_ExplicitBackendOverridesConfig(t *testing.T) {
 	err := cli.Run([]string{"--backend", "simulation", "--logs", logsRoot, pipeline})
 	must(t, err)
 
-	resp, err := os.ReadFile(filepath.Join(logsRoot, "plan", "response.md"))
+	resp, err := os.ReadFile(spanPath(t, logsRoot, "plan", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(resp), "[simulated]") {
 		t.Fatalf("--backend simulation should override config routing, got %q", resp)

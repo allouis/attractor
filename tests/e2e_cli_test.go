@@ -38,14 +38,13 @@ func TestCLI_RunSimulationMode(t *testing.T) {
 	// even in simulation mode.
 	for _, id := range []string{"plan", "implement", "review"} {
 		for _, f := range []string{"prompt.md", "response.md", "status.json"} {
-			path := filepath.Join(logsRoot, id, f)
-			if _, err := os.Stat(path); err != nil {
-				t.Fatalf("missing %s: %v", path, err)
+			if _, err := os.Stat(spanPath(t, logsRoot, id, f)); err != nil {
+				t.Fatalf("missing %s/%s: %v", id, f, err)
 			}
 		}
 	}
 	// $goal expanded into the plan prompt.
-	prompt, err := os.ReadFile(filepath.Join(logsRoot, "plan", "prompt.md"))
+	prompt, err := os.ReadFile(spanPath(t, logsRoot, "plan", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(prompt), "Create a hello world Python script") {
 		t.Fatalf("plan prompt missing $goal expansion: %q", prompt)

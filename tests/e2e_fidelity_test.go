@@ -2,7 +2,6 @@ package attractor_test
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -147,7 +146,7 @@ func TestFidelity_PreambleLandsInCodergenPrompt(t *testing.T) {
 	// `impl` runs after `plan` completes, so its prompt should carry a
 	// compact preamble referencing the previous stage AND inlining the
 	// previous stage's full response.
-	prompt, err := os.ReadFile(filepath.Join(logs, "impl", "prompt.md"))
+	prompt, err := os.ReadFile(spanPath(t, logs, "impl", "prompt.md"))
 	must(t, err)
 	body := string(prompt)
 	if !strings.Contains(body, "Completed stages") {

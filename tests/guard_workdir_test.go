@@ -3,7 +3,6 @@ package attractor_test
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/allouis/attractor/internal/backend/fake"
@@ -46,13 +45,13 @@ func TestRun_DoesNotWriteToNodeWorkDir(t *testing.T) {
 
 	// ...and the artifacts DID land under the run dir, proving the writes
 	// happened and were merely confined.
-	for _, want := range []string{
-		filepath.Join("gen", "prompt.md"),
-		filepath.Join("gen", "response.md"),
-		filepath.Join("run", "stdout.txt"),
+	for _, want := range [][2]string{
+		{"gen", "prompt.md"},
+		{"gen", "response.md"},
+		{"run", "stdout.txt"},
 	} {
-		if _, err := os.Stat(filepath.Join(logs, want)); err != nil {
-			t.Fatalf("expected run artifact %s under the run dir: %v", want, err)
+		if !spanFileExists(t, logs, want[0], want[1]) {
+			t.Fatalf("expected run artifact %s/%s under the run dir", want[0], want[1])
 		}
 	}
 }

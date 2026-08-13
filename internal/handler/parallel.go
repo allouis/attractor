@@ -46,6 +46,9 @@ func (h Parallel) Execute(env engine.HandlerEnv) engine.Outcome {
 		},
 	})
 
+	if env.ExecuteNode == nil {
+		return engine.Outcome{Status: engine.StatusFail, FailureReason: "parallel: env.ExecuteNode unset"}
+	}
 	type branchResult struct {
 		Branch  string         `json:"branch"`
 		Outcome engine.Outcome `json:"outcome"`
@@ -61,60 +64,14 @@ func (h Parallel) Execute(env engine.HandlerEnv) engine.Outcome {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			branchCtx := env.Context.Clone()
-			workerNode, ok := env.Graph.Nodes[e.To]
-			if !ok {
-				results[i] = branchResult{Branch: e.To, Outcome: engine.Outcome{
-					Status: engine.StatusFail, FailureReason: "parallel: worker node missing",
-				}}
-				return
-			}
-			handler, err := env.Registry.Resolve(workerNode)
-			if err != nil {
-				results[i] = branchResult{Branch: e.To, Outcome: engine.Outcome{
-					Status: engine.StatusFail, FailureReason: "parallel: resolve handler: " + err.Error(),
-				}}
-				return
-			}
-			// Branches emit real stage events under their OWN node id —
-			// without these no span exists for a branch, so the waterfall
-			// showed a parallel fan-out as one opaque bar (2026-08-13).
-			emit(env, engine.Event{
-				Kind:    engine.EventStageStarted,
-				NodeID:  e.To,
-				Visit:   1,
-				Attempt: 1,
-			})
+			// Each branch runs through the engine's ONE executor
+			// (env.ExecuteNode): visit/attempt counting, retry policy,
+			// panic recovery, span-dir storage, and stage events — a
+			// branch is not a second execution dialect.
 			start := time.Now()
-			subEnv := env
-			subEnv.Node = workerNode
-			subEnv.Context = branchCtx
-			// Each branch gets its own stage seam under the parallel
-			// node's dir — sharing env.Stage let N concurrent branches
-			// clobber each other's prompt/response and consume each
-			// other's status.json verdicts (2026-08-13 audit).
-			if env.Stage != nil {
-				subEnv.Stage = env.Stage.Sub(e.To)
-			}
-			oc := handler.Execute(subEnv)
+			oc := env.ExecuteNode(e.To, env.Context.Clone())
 			oc.Finalize()
-			dur := time.Since(start)
-			results[i] = branchResult{Branch: e.To, Outcome: oc, Dur: dur}
-			kind := engine.EventStageCompleted
-			msg := ""
-			if oc.Status == engine.StatusFail {
-				kind = engine.EventStageFailed
-				msg = oc.FailureReason
-			}
-			emit(env, engine.Event{
-				Kind:     kind,
-				NodeID:   e.To,
-				Visit:    1,
-				Attempt:  1,
-				Status:   oc.Status.String(),
-				Message:  msg,
-				Duration: dur,
-			})
+			results[i] = branchResult{Branch: e.To, Outcome: oc, Dur: time.Since(start)}
 		}()
 	}
 	wg.Wait()

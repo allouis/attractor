@@ -1,7 +1,6 @@
 package attractor_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/allouis/attractor/internal/backend/fake"
@@ -31,10 +30,10 @@ func TestEngine_SeededInitialContext(t *testing.T) {
 
 	logs := runSeeded(t, src, map[string]string{"item.type": "pr"})
 
-	if !fileExists(t, filepath.Join(logs, "pr_path", "status.json")) {
+	if !fileExists(t, spanPath(t, logs, "pr_path", "status.json")) {
 		t.Fatal("expected pr_path taken (seeded item.type=pr)")
 	}
-	if fileExists(t, filepath.Join(logs, "issue_path", "status.json")) {
+	if spanFileExists(t, logs, "issue_path", "status.json") {
 		t.Fatal("did not expect issue_path taken")
 	}
 }

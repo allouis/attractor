@@ -31,7 +31,7 @@ func TestCLI_ResolvesPipelineFromDotAttractorPipelines(t *testing.T) {
 	err := cli.Run([]string{"--backend", "simulation", "--logs", logsRoot, "lookup-demo"})
 	must(t, err)
 
-	if _, err := os.Stat(filepath.Join(logsRoot, "work", "response.md")); err != nil {
+	if _, err := os.Stat(spanPath(t, logsRoot, "work", "response.md")); err != nil {
 		t.Fatalf("pipeline from ~/.attractor/pipelines did not resolve/run: %v", err)
 	}
 }
@@ -58,7 +58,7 @@ func TestCLI_ResolvesSingleFilePipelineFromDotAttractorPipelines(t *testing.T) {
 	err := cli.Run([]string{"--backend", "simulation", "--logs", logsRoot, "flat-demo"})
 	must(t, err)
 
-	if _, err := os.Stat(filepath.Join(logsRoot, "work", "response.md")); err != nil {
+	if _, err := os.Stat(spanPath(t, logsRoot, "work", "response.md")); err != nil {
 		t.Fatalf("flat pipeline from ~/.attractor/pipelines did not resolve/run: %v", err)
 	}
 }

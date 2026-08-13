@@ -92,7 +92,7 @@ func TestBareVar_NoLongerExpands(t *testing.T) {
 		filepath.Join(tmp, "pipeline.dot"),
 	})
 	must(t, err)
-	body, err := os.ReadFile(filepath.Join(logsRoot, "work", "prompt.md"))
+	body, err := os.ReadFile(spanPath(t, logsRoot, "work", "prompt.md"))
 	must(t, err)
 	if got := string(body); !strings.Contains(got, "legacy $epic_id vs ABC-123") {
 		t.Fatalf("bare $var should stay literal, $context. should resolve: %q", got)

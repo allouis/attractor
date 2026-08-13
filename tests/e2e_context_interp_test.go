@@ -2,7 +2,6 @@ package attractor_test
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +20,7 @@ func TestContextInterp_CodergenPromptFromContext(t *testing.T) {
 		start -> plan -> done
 	}`
 	_, _, logs := runFixtureSeeded(t, src, fake.New(), nil, map[string]string{"pr_number": "42"})
-	body, err := os.ReadFile(filepath.Join(logs, "plan", "prompt.md"))
+	body, err := os.ReadFile(spanPath(t, logs, "plan", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(body), "PR #42") {
 		t.Fatalf("context not interpolated into prompt: %q", body)
@@ -55,7 +54,7 @@ func TestContextInterp_GoalStillResolves(t *testing.T) {
 		start -> plan -> done
 	}`
 	_, _, logs := runFixture(t, src, fake.New(), nil)
-	body, err := os.ReadFile(filepath.Join(logs, "plan", "prompt.md"))
+	body, err := os.ReadFile(spanPath(t, logs, "plan", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(body), "Goal: ship it") {
 		t.Fatalf("$goal not resolved: %q", body)
@@ -71,7 +70,7 @@ func TestContextInterp_ShellVarUntouched(t *testing.T) {
 		start -> plan -> done
 	}`
 	_, _, logs := runFixture(t, src, fake.New(), nil)
-	body, err := os.ReadFile(filepath.Join(logs, "plan", "prompt.md"))
+	body, err := os.ReadFile(spanPath(t, logs, "plan", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(body), "run $HOME now") {
 		t.Fatalf("shell var should pass through untouched: %q", body)

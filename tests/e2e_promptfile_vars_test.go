@@ -103,7 +103,7 @@ func TestCLI_PipelineByNameResolution(t *testing.T) {
 		"demo",
 	})
 	must(t, err)
-	if _, err := os.Stat(filepath.Join(logsRoot, "work", "status.json")); err != nil {
+	if _, err := os.Stat(spanPath(t, logsRoot, "work", "status.json")); err != nil {
 		t.Fatalf("pipeline by name did not run: %v", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestCLI_VarFlagAndDeclaredVarsValidation(t *testing.T) {
 		filepath.Join(tmp, "pipeline.dot"),
 	})
 	must(t, err)
-	body, err := os.ReadFile(filepath.Join(logsRoot, "work", "prompt.md"))
+	body, err := os.ReadFile(spanPath(t, logsRoot, "work", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(body), "Implement ABC-123") {
 		t.Fatalf("var not expanded into prompt: %q", body)
@@ -164,7 +164,7 @@ func TestCLI_PromptFileEndToEnd(t *testing.T) {
 		filepath.Join(tmp, "pipeline.dot"),
 	})
 	must(t, err)
-	body, err := os.ReadFile(filepath.Join(logsRoot, "plan", "prompt.md"))
+	body, err := os.ReadFile(spanPath(t, logsRoot, "plan", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(body), "Plan: ship the thing") {
 		t.Fatalf("@path + $var integration: %q", body)

@@ -23,7 +23,7 @@ func TestCwd_ToolRunsInGraphCwd(t *testing.T) {
 		start -> probe -> done
 	}`
 	_, _, logs := runFixture(t, src, fake.New(), nil)
-	stdout, err := os.ReadFile(filepath.Join(logs, "probe", "stdout.txt"))
+	stdout, err := os.ReadFile(spanPath(t, logs, "probe", "stdout.txt"))
 	must(t, err)
 	body := string(stdout)
 	if !strings.Contains(body, workspace) {
@@ -50,7 +50,7 @@ func TestCwd_NodeOverridesGraph(t *testing.T) {
 		start -> probe -> done
 	}`
 	_, _, logs := runFixture(t, src, fake.New(), nil)
-	stdout, err := os.ReadFile(filepath.Join(logs, "probe", "stdout.txt"))
+	stdout, err := os.ReadFile(spanPath(t, logs, "probe", "stdout.txt"))
 	must(t, err)
 	if !strings.Contains(string(stdout), "b") {
 		t.Fatalf("node-level cwd did not override graph cwd; stdout=%q", stdout)

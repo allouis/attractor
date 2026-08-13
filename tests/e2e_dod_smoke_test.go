@@ -55,11 +55,9 @@ func TestDoD_AttractorSection_11_13(t *testing.T) {
 
 	// 5. Each codergen node produced full artefact set.
 	for _, id := range []string{"plan", "implement", "review"} {
-		dir := filepath.Join(logs, id)
 		for _, f := range []string{"prompt.md", "response.md", "status.json"} {
-			path := filepath.Join(dir, f)
-			if _, err := os.Stat(path); err != nil {
-				t.Fatalf("missing %s: %v", path, err)
+			if _, err := os.Stat(spanPath(t, logs, id, f)); err != nil {
+				t.Fatalf("missing %s/%s: %v", id, f, err)
 			}
 		}
 	}
@@ -92,7 +90,7 @@ func TestDoD_AttractorSection_11_13(t *testing.T) {
 	}
 
 	// 8. $goal expansion landed in the plan prompt.
-	prompt, err := os.ReadFile(filepath.Join(logs, "plan", "prompt.md"))
+	prompt, err := os.ReadFile(spanPath(t, logs, "plan", "prompt.md"))
 	must(t, err)
 	if !strings.Contains(string(prompt), "Create a hello world Python script") {
 		t.Fatalf("plan prompt missing $goal expansion: %q", prompt)

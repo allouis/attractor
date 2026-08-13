@@ -39,8 +39,12 @@ type Engine struct {
 	// visitsMu/visits mirror the run state's per-node visit counts for
 	// emit, which stamps Event.Visit (D3 span identity) and cannot see
 	// the run state directly (handlers call emit concurrently).
-	visitsMu       sync.Mutex
-	visits         map[string]int
+	visitsMu sync.Mutex
+	visits   map[string]int
+	// lastSpanDir tracks each node's most recent span directory (A4) so
+	// the preamble builder can inline recent responses without knowing
+	// visit/attempt counters. Guarded by visitsMu.
+	lastSpanDir    map[string]string
 	seq            atomic.Int64
 	initialContext map[string]string
 }
@@ -95,45 +99,46 @@ func newStore(logsRoot string) *runstore.Dir {
 	return runstore.New(logsRoot)
 }
 
-// stageStore returns the write seam for one visit of a node — the
-// per-visit stage directory {node_id}/v{visit} (spec amendment A1).
-// Every visit gets a fresh dir so a failed loop's history stays
-// inspectable; mirrorStage copies the latest visit to the node root for
-// spec §5.6 consumers. nil when the run has no logs root.
-func (e *Engine) stageStore(nodeID string, visit int) *runstore.Dir {
-	if e.store == nil {
-		return nil
-	}
+// SpanDir is the storage rule for one execution attempt (amendment
+// A4): span identity {node_id}@v{visit}.a{attempt}, one directory at
+// the run root, derived forward from the identity the event log
+// carries. Never parsed — always constructed.
+func SpanDir(nodeID string, visit, attempt int) string {
 	if visit < 1 {
 		visit = 1
 	}
-	return e.store.Sub(nodeID).Sub(fmt.Sprintf("v%d", visit))
+	if attempt < 1 {
+		attempt = 1
+	}
+	return fmt.Sprintf("%s@v%d.a%d", nodeID, visit, attempt)
 }
 
-// mirrorStage copies the visit dir's tree to the node root, so the
-// node root always reflects the latest visit (spec §5.6). Best-effort:
-// a run whose mirror fails still has the authoritative v{N} artifacts.
-func (e *Engine) mirrorStage(nodeID string, visit int) {
+// spanStore returns the write seam for one execution attempt. nil when
+// the run has no logs root.
+func (e *Engine) spanStore(nodeID string, visit, attempt int) *runstore.Dir {
 	if e.store == nil {
+		return nil
+	}
+	return e.store.Sub(SpanDir(nodeID, visit, attempt))
+}
+
+// finalizeSpan makes an attempt's directory a complete record: the
+// agent's own status.json (when one exists) is preserved verbatim as
+// agent-status.json, and the engine-resolved Outcome becomes the
+// canonical status.json — for EVERY terminal attempt, including
+// retries and failures (the old success-only write left failed
+// attempts without a status document).
+func (e *Engine) finalizeSpan(stage *runstore.Dir, outcome Outcome) {
+	if stage == nil {
 		return
 	}
-	src := filepath.Join(e.LogsRoot, nodeID, fmt.Sprintf("v%d", visit))
-	dst := e.store.Sub(nodeID)
-	_ = filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return nil
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return nil
-		}
-		_ = dst.Write(rel, data)
-		return nil
-	})
+	if data, err := stage.Read("status.json"); err == nil {
+		_ = stage.Write("agent-status.json", data)
+	}
+	outcome.Finalize()
+	if data, err := json.MarshalIndent(outcome, "", "  "); err == nil {
+		_ = stage.Write("status.json", data)
+	}
 }
 
 // Events returns the read-only event channel. The channel is closed
@@ -280,21 +285,10 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 		if outcome.Status == StatusSuccess || outcome.Status == StatusPartialSuccess {
 			state.completedNodes = append(state.completedNodes, nodeID)
 			state.nodeOutcomes[nodeID] = outcome
-			if err := e.writeStatus(nodeID, state.visits[nodeID], outcome); err != nil {
-				return e.fail(fmt.Sprintf("write status.json: %v", err))
-			}
-			// Mirror before the checkpoint event so any consumer keying
-			// on checkpoint_saved sees the node root already reflecting
-			// this visit.
-			e.mirrorStage(nodeID, state.visits[nodeID])
 			if err := e.saveCheckpoint(state); err != nil {
 				return e.fail(fmt.Sprintf("save checkpoint: %v", err))
 			}
 			e.emit(Event{Kind: EventCheckpointSaved, Timestamp: e.now(), RunID: e.RunID, NodeID: nodeID})
-		} else {
-			// Failed visits mirror too — the root should show the latest
-			// visit whatever its outcome (spec §5.6, amendment A1).
-			e.mirrorStage(nodeID, state.visits[nodeID])
 		}
 
 		next, advanceEdge := e.advanceOrFail(g, node, &outcome, state)
@@ -565,7 +559,6 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 	env := HandlerEnv{
 		Node:     node,
 		Graph:    g,
-		Stage:    e.stageStore(node.ID, state.visits[node.ID]),
 		Context:  state.context,
 		LogsRoot: e.LogsRoot,
 		RunID:    e.RunID,
@@ -576,13 +569,33 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		Preamble: preamble,
 		Cwd:      cwd,
 	}
-	handler, err := e.Registry.Resolve(node)
-	if err != nil {
+	env.ExecuteNode = e.branchRunner(g, preamble, cwd)
+	if _, err := e.Registry.Resolve(node); err != nil {
 		return Outcome{}, err
 	}
 
+	outcome := e.runNodeAttempts(node, env, policy, state.visits[node.ID], state.retries)
+	return outcome, nil
+}
+
+// runNodeAttempts is the one attempt loop every execution goes through
+// — cursor nodes and parallel branches alike: per-attempt span dirs,
+// canonical status, retry backoff, and stage events. retries may be
+// nil (branch executions don't feed the checkpoint's retry map).
+func (e *Engine) runNodeAttempts(node *graph.Node, env HandlerEnv, policy RetryPolicy, visit int, retries map[string]int) Outcome {
+	if retries == nil {
+		retries = map[string]int{}
+	}
+	handler, err := e.Registry.Resolve(node)
+	if err != nil {
+		return failOutcome(err.Error())
+	}
 	var outcome Outcome
 	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
+		// Each attempt gets its own span directory (A4): a cold retry
+		// must not destroy the previous attempt's evidence.
+		env.Stage = e.spanStore(node.ID, visit, attempt)
+		e.recordSpanDir(node.ID, visit, attempt)
 		e.emit(Event{Kind: EventStageStarted, Timestamp: e.now(), RunID: e.RunID, NodeID: node.ID, Attempt: attempt})
 		start := e.now()
 		outcome = e.executeHandler(handler, env)
@@ -590,15 +603,17 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		dur := e.now().Sub(start)
 		switch outcome.Status {
 		case StatusSuccess, StatusPartialSuccess, StatusSkipped:
+			e.finalizeSpan(env.Stage, outcome)
 			e.emit(Event{
 				Kind: EventStageCompleted, Timestamp: e.now(), RunID: e.RunID,
 				NodeID: node.ID, Status: outcome.StatusString, Duration: dur,
 			})
-			state.retries[node.ID] = 0
-			return outcome, nil
+			retries[node.ID] = 0
+			return outcome
 		case StatusRetry:
 			if attempt < policy.MaxAttempts {
-				state.retries[node.ID] = attempt
+				e.finalizeSpan(env.Stage, outcome)
+				retries[node.ID] = attempt
 				delay := policy.Backoff.DelayForAttempt(attempt, e.rng)
 				e.emit(Event{
 					Kind: EventStageRetrying, Timestamp: e.now(), RunID: e.RunID,
@@ -612,7 +627,8 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 				outcome.Status = StatusPartialSuccess
 				outcome.Notes = "retries exhausted, partial accepted"
 				outcome.Finalize()
-				return outcome, nil
+				e.finalizeSpan(env.Stage, outcome)
+				return outcome
 			}
 			outcome.Status = StatusFail
 			// Keep the underlying reason (and its failure class) — a bare
@@ -623,20 +639,73 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 				outcome.FailureReason = "max retries exceeded"
 			}
 			outcome.Finalize()
+			e.finalizeSpan(env.Stage, outcome)
 			e.emit(Event{
 				Kind: EventStageFailed, Timestamp: e.now(), RunID: e.RunID,
 				NodeID: node.ID, Status: outcome.StatusString, Message: outcome.FailureReason,
 			})
-			return outcome, nil
+			return outcome
 		case StatusFail:
+			e.finalizeSpan(env.Stage, outcome)
 			e.emit(Event{
 				Kind: EventStageFailed, Timestamp: e.now(), RunID: e.RunID,
 				NodeID: node.ID, Status: outcome.StatusString, Message: outcome.FailureReason,
 			})
-			return outcome, nil
+			return outcome
 		}
 	}
-	return outcome, nil
+	return outcome
+}
+
+// branchRunner builds the ExecuteNode callback the engine injects into
+// HandlerEnv: it runs any node through runNodeAttempts with its own
+// visit counter bump, retry policy, and span storage. preamble and
+// parentCwd are the values resolved for the invoking node — branches
+// inherit them exactly as they inherited the copied env before.
+func (e *Engine) branchRunner(g *graph.Graph, preamble, parentCwd string) func(string, *Context) Outcome {
+	return func(nodeID string, ctx *Context) Outcome {
+		node, ok := g.Nodes[nodeID]
+		if !ok {
+			return failOutcome("execute node: unknown node " + nodeID)
+		}
+		visit := e.bumpVisit(nodeID)
+		cwd := node.Attrs["cwd"]
+		if cwd == "" {
+			cwd = parentCwd
+		}
+		fidelity := ResolveFidelity(nil, node, g)
+		threadID := ""
+		if fidelity == FidelityFull {
+			threadID = ResolveThread(nil, node, g, "")
+		}
+		env := HandlerEnv{
+			Node:     node,
+			Graph:    g,
+			Context:  ctx,
+			LogsRoot: e.LogsRoot,
+			RunID:    e.RunID,
+			Emit:     e.emit,
+			Registry: e.Registry,
+			Fidelity: fidelity,
+			ThreadID: threadID,
+			Preamble: preamble,
+			Cwd:      cwd,
+		}
+		env.ExecuteNode = e.branchRunner(g, preamble, parentCwd)
+		return e.runNodeAttempts(node, env, nodeRetryPolicy(node, g), visit, nil)
+	}
+}
+
+// bumpVisit increments and returns a node's visit counter (thread-safe;
+// branch executions run concurrently).
+func (e *Engine) bumpVisit(nodeID string) int {
+	e.visitsMu.Lock()
+	defer e.visitsMu.Unlock()
+	if e.visits == nil {
+		e.visits = map[string]int{}
+	}
+	e.visits[nodeID]++
+	return e.visits[nodeID]
 }
 
 // executeHandler runs one handler attempt, converting a panic into a
@@ -748,21 +817,6 @@ func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
 	return e.store.Write("run.json", data)
 }
 
-// writeStatus persists the engine's outcome record into the node's
-// visit dir; the mirror pass copies it (with the rest of the visit's
-// artifacts) to the node root.
-func (e *Engine) writeStatus(nodeID string, visit int, outcome Outcome) error {
-	outcome.Finalize()
-	data, err := json.MarshalIndent(outcome, "", "  ")
-	if err != nil {
-		return err
-	}
-	if e.store == nil {
-		return nil
-	}
-	return e.stageStore(nodeID, visit).Write("status.json", data)
-}
-
 func (e *Engine) saveCheckpoint(state *runState) error {
 	values, logs := state.context.Snapshot()
 	var lastOutcome *Outcome
@@ -855,6 +909,16 @@ func (e *Engine) resetVisits() {
 	e.visitsMu.Lock()
 	defer e.visitsMu.Unlock()
 	e.visits = nil
+}
+
+// recordSpanDir remembers the node's current span directory.
+func (e *Engine) recordSpanDir(nodeID string, visit, attempt int) {
+	e.visitsMu.Lock()
+	defer e.visitsMu.Unlock()
+	if e.lastSpanDir == nil {
+		e.lastSpanDir = map[string]string{}
+	}
+	e.lastSpanDir[nodeID] = SpanDir(nodeID, visit, attempt)
 }
 
 func (e *Engine) visitOf(nodeID string) int {
@@ -973,7 +1037,13 @@ func (e *Engine) readRecentResponses(completed []string, limit int) map[string]s
 	}
 	out := make(map[string]string, len(completed)-start)
 	for _, id := range completed[start:] {
-		data, err := os.ReadFile(filepath.Join(e.LogsRoot, id, "response.md"))
+		e.visitsMu.Lock()
+		dir := e.lastSpanDir[id]
+		e.visitsMu.Unlock()
+		if dir == "" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(e.LogsRoot, dir, "response.md"))
 		if err != nil {
 			continue
 		}

@@ -30,9 +30,8 @@ func TestEngine_LinearPipelineWithFakeBackend(t *testing.T) {
 	}
 	// prompt/response/status artifacts present for both codergen stages.
 	for _, id := range []string{"plan", "impl"} {
-		dir := filepath.Join(logs, id)
 		for _, f := range []string{"prompt.md", "response.md", "status.json"} {
-			if !fileExists(t, filepath.Join(dir, f)) {
+			if !spanFileExists(t, logs, id, f) {
 				t.Fatalf("missing %s/%s", id, f)
 			}
 		}
@@ -129,10 +128,10 @@ func TestEngine_ConditionalRouting(t *testing.T) {
 	if out.Status != engine.StatusSuccess {
 		t.Fatalf("status=%s", out.Status)
 	}
-	if !fileExists(t, filepath.Join(logs, "ok", "status.json")) {
+	if !fileExists(t, spanPath(t, logs, "ok", "status.json")) {
 		t.Fatal("expected ok path taken")
 	}
-	if fileExists(t, filepath.Join(logs, "bad", "status.json")) {
+	if spanFileExists(t, logs, "bad", "status.json") {
 		t.Fatal("did not expect bad path taken")
 	}
 }
@@ -159,7 +158,7 @@ func TestEngine_PreferredLabelRouting(t *testing.T) {
 	if out.Status != engine.StatusSuccess {
 		t.Fatalf("status=%s", out.Status)
 	}
-	if !fileExists(t, filepath.Join(logs, "right", "status.json")) {
+	if !fileExists(t, spanPath(t, logs, "right", "status.json")) {
 		t.Fatal("expected right edge taken via preferred_label")
 	}
 }
@@ -242,7 +241,7 @@ func TestEngine_WaitHumanWithQueueInterviewer(t *testing.T) {
 	if out.Status != engine.StatusSuccess {
 		t.Fatalf("status=%s", out.Status)
 	}
-	if !fileExists(t, filepath.Join(logs, "yes", "status.json")) {
+	if !fileExists(t, spanPath(t, logs, "yes", "status.json")) {
 		t.Fatal("expected yes branch taken")
 	}
 }
@@ -265,7 +264,7 @@ func TestEngine_FailureFailEdgeRouting(t *testing.T) {
 		// Final outcome: fix succeeds, then done. Pipeline ends SUCCESS.
 		t.Fatalf("expected SUCCESS via fail edge → fix; got %s", out.Status)
 	}
-	if !fileExists(t, filepath.Join(logs, "fix", "status.json")) {
+	if !fileExists(t, spanPath(t, logs, "fix", "status.json")) {
 		t.Fatal("expected fail edge to route through fix")
 	}
 }
@@ -281,11 +280,13 @@ func TestEngine_ResumeFromCheckpoint(t *testing.T) {
 	if out1.Status != engine.StatusFail {
 		t.Fatalf("first run should fail; got %s", out1.Status)
 	}
-	if !fileExists(t, filepath.Join(logsRoot, "plan", "status.json")) {
+	if !fileExists(t, spanPath(t, logsRoot, "plan", "status.json")) {
 		t.Fatal("plan should have succeeded before crash")
 	}
-	if fileExists(t, filepath.Join(logsRoot, "impl", "status.json")) {
-		t.Fatal("impl status should not exist after crash")
+	// A4: even the failed attempt has a canonical status document now.
+	implStatus := readStatus(t, logsRoot, "impl")
+	if implStatus.Status != engine.StatusFail {
+		t.Fatalf("impl canonical status = %v, want fail", implStatus.Status)
 	}
 
 	// Second run with same logs root: engine should skip plan and finish.
@@ -319,10 +320,10 @@ func TestEngine_EdgeSelectionWeightTiebreak(t *testing.T) {
 	}`
 	be := fake.New()
 	_, _, logs := runFixture(t, src, be, nil)
-	if !fileExists(t, filepath.Join(logs, "b", "status.json")) {
+	if !fileExists(t, spanPath(t, logs, "b", "status.json")) {
 		t.Fatal("weight=5 edge should win")
 	}
-	if fileExists(t, filepath.Join(logs, "a", "status.json")) {
+	if spanFileExists(t, logs, "a", "status.json") {
 		t.Fatal("lower-weight edge should be skipped")
 	}
 }
@@ -342,7 +343,7 @@ func TestEngine_EdgeSelectionLexicalTiebreak(t *testing.T) {
 	}`
 	be := fake.New()
 	_, _, logs := runFixture(t, src, be, nil)
-	if !fileExists(t, filepath.Join(logs, "aa", "status.json")) {
+	if !fileExists(t, spanPath(t, logs, "aa", "status.json")) {
 		t.Fatal("aa wins lexically when weights tie")
 	}
 }

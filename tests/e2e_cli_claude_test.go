@@ -44,7 +44,7 @@ func TestCLI_ExplicitClaudeBackend(t *testing.T) {
 	})
 	must(t, err)
 
-	resp, err := os.ReadFile(filepath.Join(logsRoot, "plan", "response.md"))
+	resp, err := os.ReadFile(spanPath(t, logsRoot, "plan", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(resp), "hello from claude") {
 		t.Fatalf("plan response.md missing real reply: %q", resp)
@@ -64,7 +64,7 @@ func TestCLI_DefaultBackendIsSimulation(t *testing.T) {
 	})
 	must(t, err)
 
-	resp, err := os.ReadFile(filepath.Join(logsRoot, "plan", "response.md"))
+	resp, err := os.ReadFile(spanPath(t, logsRoot, "plan", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(resp), "[simulated]") {
 		t.Fatalf("default backend should be simulation, got %q", resp)
@@ -97,7 +97,7 @@ func TestCLI_ExplicitSimulationFlag(t *testing.T) {
 		"../testdata/pipelines/smoke.dot",
 	})
 	must(t, err)
-	resp, err := os.ReadFile(filepath.Join(logsRoot, "plan", "response.md"))
+	resp, err := os.ReadFile(spanPath(t, logsRoot, "plan", "response.md"))
 	must(t, err)
 	if !strings.Contains(string(resp), "[simulated]") {
 		t.Fatalf("--backend simulation should skip claude lookup: %q", resp)

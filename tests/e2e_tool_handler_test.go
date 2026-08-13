@@ -2,7 +2,6 @@ package attractor_test
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,7 +27,7 @@ func TestTool_RunsShellCommandAndCapturesOutput(t *testing.T) {
 	if got := st.ContextUpdates["tool.exit_code"]; got != "0" {
 		t.Fatalf("tool.exit_code=%q", got)
 	}
-	stdout, err := os.ReadFile(filepath.Join(logs, "gen", "stdout.txt"))
+	stdout, err := os.ReadFile(spanPath(t, logs, "gen", "stdout.txt"))
 	must(t, err)
 	if string(stdout) != "hello-tool" {
 		t.Fatalf("stdout.txt=%q", stdout)
@@ -119,7 +118,7 @@ func TestTool_UndefinedContextKeyFailsNode(t *testing.T) {
 	if !strings.Contains(out.FailureReason, "nope") {
 		t.Fatalf("failure reason should name the key: %q", out.FailureReason)
 	}
-	if _, err := os.Stat(filepath.Join(logs, "gen", "stdout.txt")); !os.IsNotExist(err) {
+	if _, err := os.Stat(spanPath(t, logs, "gen", "stdout.txt")); !os.IsNotExist(err) {
 		t.Fatalf("shell should not have run; stdout.txt exists (err=%v)", err)
 	}
 }
