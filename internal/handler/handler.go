@@ -162,12 +162,16 @@ func resolveTextOutcome(env engine.HandlerEnv, stage *runstore.Dir, response str
 	}
 
 	// A verdict node (require_status=true) whose status never arrived must
-	// fail loud, not default to success — defaulting is how a lost FAIL
-	// verdict passes a review gate.
+	// not default to success — defaulting is how a lost FAIL verdict
+	// passes a review gate. It surfaces as a machinery-classed RETRY
+	// (loop-guards LG1): the engine re-runs the node under its retry
+	// policy, and on exhaustion fails the RUN with this reason instead of
+	// routing a harness error to a fix agent.
 	if requireStatus {
 		return engine.Outcome{
-			Status:         engine.StatusFail,
+			Status:         engine.StatusRetry,
 			FailureReason:  requireStatusMissReason(stage),
+			FailureClass:   engine.FailureClassMachinery,
 			ContextUpdates: applyDefaults(nil, env.Node, response),
 		}
 	}

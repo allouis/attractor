@@ -138,14 +138,17 @@ func (h Codergen) enforceContracts(env engine.HandlerEnv, stage *runstore.Dir, o
 	return violationFail(env, v, response)
 }
 
-// violationFail is the loud terminal outcome for an uncorrected
-// contract violation. The violation message is the failure reason so
-// signature-based consumers (manager_loop's require_status-miss
-// detection) keep working.
+// violationFail is the terminal outcome for an uncorrected contract
+// violation: a machinery-classed RETRY (loop-guards LG1). The engine
+// re-runs the node under its retry policy; exhausted, the run fails
+// with the violation message — never routing the harness error to a
+// fix agent. The message keeps the violation signature so consumers
+// (manager_loop's require_status-miss detection) still recognize it.
 func violationFail(env engine.HandlerEnv, v *Violation, response string) engine.Outcome {
 	return engine.Outcome{
-		Status:         engine.StatusFail,
+		Status:         engine.StatusRetry,
 		FailureReason:  v.Message,
+		FailureClass:   engine.FailureClassMachinery,
 		ContextUpdates: applyDefaults(nil, env.Node, response),
 	}
 }

@@ -58,18 +58,23 @@ func TestPromptStageDirSubstituted(t *testing.T) {
 	}
 }
 
-// require_status=true makes a missing agent-authored status.json a FAILURE
-// instead of a synthesized success — a verdict node whose verdict never
-// arrived must not pass its gate.
-func TestRequireStatusFailsWithoutAgentStatus(t *testing.T) {
+// require_status=true makes a missing agent-authored status.json a
+// machinery-classed RETRY (loop-guards LG1) instead of a synthesized
+// success — a verdict node whose verdict never arrived must not pass its
+// gate, and the engine retries then fails the run rather than routing
+// the harness error to a fix agent.
+func TestRequireStatusMissIsMachineryRetry(t *testing.T) {
 	shortGrace(t)
 	env, _ := codergenEnv(t, map[string]string{"prompt": "p", "require_status": "true"})
 	be := backend.Func(func(_ engine.HandlerEnv, _ string) (backend.Result, error) {
 		return backend.Result{ResponseText: "verdict prose, no status file"}, nil
 	})
 	oc := Codergen{Backend: be}.Execute(env)
-	if oc.Status != engine.StatusFail {
-		t.Fatalf("status = %v, want fail (no agent status on require_status node)", oc.Status)
+	if oc.Status != engine.StatusRetry {
+		t.Fatalf("status = %v, want retry (machinery miss on require_status node)", oc.Status)
+	}
+	if oc.FailureClass != engine.FailureClassMachinery {
+		t.Fatalf("failure class = %q, want machinery", oc.FailureClass)
 	}
 	if !strings.Contains(oc.FailureReason, "status.json") {
 		t.Fatalf("failure reason should name the missing status file: %q", oc.FailureReason)

@@ -60,17 +60,21 @@ func runManagerLoopOverChild(t *testing.T, be backend.CodergenBackend) (engine.O
 }
 
 // When the child's synth is a require_status miss (verdict never written),
-// manager_loop must fail its OWN node as a MACHINERY failure — not surface it
-// as a review FAIL verdict downstream. Feeding a harness error to a fix agent
-// as if it were a finding is what wedged the a5ac1389 review loop.
+// manager_loop must surface its OWN node as a MACHINERY failure (a
+// machinery-classed RETRY per LG1) — not a review FAIL verdict routed
+// downstream. Feeding a harness error to a fix agent as if it were a
+// finding is what wedged the a5ac1389 review loop.
 func TestManagerLoop_RequireStatusMissIsMachineryFailure(t *testing.T) {
 	shortGrace(t)
 	be := backend.Func(func(_ engine.HandlerEnv, _ string) (backend.Result, error) {
 		return backend.Result{ResponseText: "prose, but no status.json"}, nil
 	})
 	out, ctx := runManagerLoopOverChild(t, be)
-	if out.Status != engine.StatusFail {
-		t.Fatalf("status = %v, want fail", out.Status)
+	if out.Status != engine.StatusRetry {
+		t.Fatalf("status = %v, want machinery retry (LG1)", out.Status)
+	}
+	if out.FailureClass != engine.FailureClassMachinery {
+		t.Fatalf("failure class = %q, want machinery", out.FailureClass)
 	}
 	if !strings.Contains(out.FailureReason, "machinery failed (not a verdict)") {
 		t.Fatalf("require_status miss should read as machinery failure, got: %q", out.FailureReason)

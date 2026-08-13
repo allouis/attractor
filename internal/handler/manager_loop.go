@@ -170,9 +170,14 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 			if isRequireStatusMiss(finalOutcome.FailureReason) {
 				machinery := "review machinery failed (not a verdict): " + finalOutcome.FailureReason
 				updates["stack.child.failure_reason"] = machinery
+				// Machinery-classed RETRY (loop-guards LG1): the parent
+				// engine re-runs this node — a fresh child dir per
+				// invocation — then fails the run; it never routes the
+				// harness error to a fix round.
 				return engine.Outcome{
-					Status:         engine.StatusFail,
+					Status:         engine.StatusRetry,
 					FailureReason:  "manager_loop: " + machinery,
+					FailureClass:   engine.FailureClassMachinery,
 					ContextUpdates: updates,
 				}
 			}

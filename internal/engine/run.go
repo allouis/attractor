@@ -220,6 +220,15 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			return e.fail(err.Error())
 		}
 
+		// A machinery-classed failure (loop-guards LG1) terminates the
+		// run with its own reason: routing it through outcome=fail edges
+		// would send a fix agent to "address" a harness error it cannot
+		// fix — the a5ac1389 ghost-chasing loop.
+		if outcome.Status == StatusFail && outcome.FailureClass == FailureClassMachinery {
+			e.emit(Event{Kind: EventPipelineFailed, Timestamp: e.now(), RunID: e.RunID, NodeID: nodeID, Message: outcome.FailureReason})
+			return outcome, nil
+		}
+
 		// Record completion and persist artifacts. Only SUCCESS-class
 		// outcomes go in completedNodes so a resumed run will re-execute
 		// a failed stage from scratch.
@@ -515,7 +524,13 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 				return outcome, nil
 			}
 			outcome.Status = StatusFail
-			outcome.FailureReason = "max retries exceeded"
+			// Keep the underlying reason (and its failure class) — a bare
+			// "max retries exceeded" hides what went wrong (LG1).
+			if outcome.FailureReason != "" {
+				outcome.FailureReason = "max retries exceeded: " + outcome.FailureReason
+			} else {
+				outcome.FailureReason = "max retries exceeded"
+			}
 			outcome.Finalize()
 			e.emit(Event{
 				Kind: EventStageFailed, Timestamp: e.now(), RunID: e.RunID,

@@ -63,10 +63,11 @@ func TestContractCorrection_MissingStatusCorrectedInSession(t *testing.T) {
 	}
 }
 
-// Two failed corrections fail the node loud, keeping the require_status
-// machinery-miss marker so manager_loop still distinguishes harness
-// failures from agent verdicts.
-func TestContractCorrection_TwoFailedCorrectionsFailLoud(t *testing.T) {
+// Two failed corrections exhaust the in-session budget: the node
+// surfaces a machinery-classed RETRY (LG1) keeping the require_status
+// machinery-miss marker, so the engine can re-run it and — exhausted —
+// fail the run rather than route the harness error to a fix agent.
+func TestContractCorrection_TwoFailedCorrectionsBecomeMachineryRetry(t *testing.T) {
 	shortGrace(t)
 	env, _ := codergenEnv(t, map[string]string{"prompt": "p", "require_status": "true"})
 	be := &correctableBackend{
@@ -78,8 +79,11 @@ func TestContractCorrection_TwoFailedCorrectionsFailLoud(t *testing.T) {
 		},
 	}
 	oc := Codergen{Backend: be}.Execute(env)
-	if oc.Status != engine.StatusFail {
-		t.Fatalf("status = %v, want fail after exhausted corrections", oc.Status)
+	if oc.Status != engine.StatusRetry {
+		t.Fatalf("status = %v, want retry after exhausted corrections", oc.Status)
+	}
+	if oc.FailureClass != engine.FailureClassMachinery {
+		t.Fatalf("failure class = %q, want machinery", oc.FailureClass)
 	}
 	if len(be.contects) != 2 {
 		t.Fatalf("Continue called %d times, want exactly 2", len(be.contects))
@@ -113,17 +117,18 @@ func TestContractCorrection_AgentFailVerdictIsNotCorrected(t *testing.T) {
 	}
 }
 
-// A backend that cannot continue a session (no Continuer) keeps the old
-// behavior: the require_status miss fails immediately.
-func TestContractCorrection_NonContinuerFailsImmediately(t *testing.T) {
+// A backend that cannot continue a session (no Continuer) skips the
+// correction loop: the require_status miss surfaces directly as a
+// machinery retry.
+func TestContractCorrection_NonContinuerSkipsCorrections(t *testing.T) {
 	shortGrace(t)
 	env, _ := codergenEnv(t, map[string]string{"prompt": "p", "require_status": "true"})
 	be := backend.Func(func(_ engine.HandlerEnv, _ string) (backend.Result, error) {
 		return backend.Result{ResponseText: "no status"}, nil
 	})
 	oc := Codergen{Backend: be}.Execute(env)
-	if oc.Status != engine.StatusFail || !isRequireStatusMiss(oc.FailureReason) {
-		t.Fatalf("want immediate require_status fail, got %+v", oc)
+	if oc.Status != engine.StatusRetry || !isRequireStatusMiss(oc.FailureReason) {
+		t.Fatalf("want machinery retry on require_status miss, got %+v", oc)
 	}
 }
 
