@@ -35,7 +35,9 @@ func (s *Server) getStage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	writeJSON(w, http.StatusOK, readStageDetail(stageDir))
+	// Serve the latest visit's live copy (amendment A1); the node root
+	// only mirrors at completion.
+	writeJSON(w, http.StatusOK, readStageDetail(latestVisitDir(stageDir)))
 }
 
 // readStageDetail collects a stage's inline artifacts from its log dir.

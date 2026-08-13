@@ -41,7 +41,9 @@ func TestAgentStatus_AgentCanFailStage(t *testing.T) {
 	// writes the status file then delegates to the fake.
 	wrapper := backend.Func(func(env engine.HandlerEnv, prompt string) (backend.Result, error) {
 		if env.Node.ID == "stuck" {
-			stageDir := filepath.Join(env.LogsRoot, env.Node.ID)
+			// The agent writes to its {stage_dir} (the per-visit dir the
+			// prompt names), exactly as the status-file contract instructs.
+			stageDir := env.Stage.Root()
 			must(t, os.MkdirAll(stageDir, 0o755))
 			payload := map[string]any{
 				"outcome":        "fail",

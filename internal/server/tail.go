@@ -121,7 +121,10 @@ func tailFilePath(logsRoot, node, name string) (string, bool) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", false
 	}
-	return full, true
+	// Tail the latest visit's live file (amendment A1): during a visit
+	// the stream grows under {node}/v{N}; the root copy is a
+	// completion-time mirror.
+	return stageFilePath(filepath.Join(root, node), name), true
 }
 
 // parseOffset parses the offset query value, clamping a missing or malformed

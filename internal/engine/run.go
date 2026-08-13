@@ -108,13 +108,45 @@ func newStore(logsRoot string) *runstore.Dir {
 	return runstore.New(logsRoot)
 }
 
-// stageStore returns the write seam for a node's stage directory, or nil
-// when the run has no logs root.
-func (e *Engine) stageStore(nodeID string) *runstore.Dir {
+// stageStore returns the write seam for one visit of a node — the
+// per-visit stage directory {node_id}/v{visit} (spec amendment A1).
+// Every visit gets a fresh dir so a failed loop's history stays
+// inspectable; mirrorStage copies the latest visit to the node root for
+// spec §5.6 consumers. nil when the run has no logs root.
+func (e *Engine) stageStore(nodeID string, visit int) *runstore.Dir {
 	if e.store == nil {
 		return nil
 	}
-	return e.store.Sub(nodeID)
+	if visit < 1 {
+		visit = 1
+	}
+	return e.store.Sub(nodeID).Sub(fmt.Sprintf("v%d", visit))
+}
+
+// mirrorStage copies the visit dir's tree to the node root, so the
+// node root always reflects the latest visit (spec §5.6). Best-effort:
+// a run whose mirror fails still has the authoritative v{N} artifacts.
+func (e *Engine) mirrorStage(nodeID string, visit int) {
+	if e.store == nil {
+		return
+	}
+	src := filepath.Join(e.LogsRoot, nodeID, fmt.Sprintf("v%d", visit))
+	dst := e.store.Sub(nodeID)
+	_ = filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		_ = dst.Write(rel, data)
+		return nil
+	})
 }
 
 // Events returns the read-only event channel. The channel is closed
@@ -252,13 +284,21 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 		if outcome.Status == StatusSuccess || outcome.Status == StatusPartialSuccess {
 			state.completedNodes = append(state.completedNodes, nodeID)
 			state.nodeOutcomes[nodeID] = outcome
-			if err := e.writeStatus(nodeID, outcome); err != nil {
+			if err := e.writeStatus(nodeID, state.visits[nodeID], outcome); err != nil {
 				return e.fail(fmt.Sprintf("write status.json: %v", err))
 			}
+			// Mirror before the checkpoint event: consumers keying on
+			// checkpoint_saved (the phone-home stage uploader) must see
+			// the node root already reflecting this visit.
+			e.mirrorStage(nodeID, state.visits[nodeID])
 			if err := e.saveCheckpoint(state); err != nil {
 				return e.fail(fmt.Sprintf("save checkpoint: %v", err))
 			}
 			e.emit(Event{Kind: EventCheckpointSaved, Timestamp: e.now(), RunID: e.RunID, NodeID: nodeID})
+		} else {
+			// Failed visits mirror too — the root should show the latest
+			// visit whatever its outcome (spec §5.6, amendment A1).
+			e.mirrorStage(nodeID, state.visits[nodeID])
 		}
 
 		next, advanceEdge := e.advanceOrFail(g, node, &outcome, state)
@@ -523,7 +563,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 	env := HandlerEnv{
 		Node:      node,
 		Graph:     g,
-		Stage:     e.stageStore(node.ID),
+		Stage:     e.stageStore(node.ID, state.visits[node.ID]),
 		Context:   state.context,
 		LogsRoot:  e.LogsRoot,
 		RunID:     e.RunID,
@@ -689,7 +729,10 @@ func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
 	return e.store.Write("run.json", data)
 }
 
-func (e *Engine) writeStatus(nodeID string, outcome Outcome) error {
+// writeStatus persists the engine's outcome record into the node's
+// visit dir; the mirror pass copies it (with the rest of the visit's
+// artifacts) to the node root.
+func (e *Engine) writeStatus(nodeID string, visit int, outcome Outcome) error {
 	outcome.Finalize()
 	data, err := json.MarshalIndent(outcome, "", "  ")
 	if err != nil {
@@ -698,7 +741,7 @@ func (e *Engine) writeStatus(nodeID string, outcome Outcome) error {
 	if e.store == nil {
 		return nil
 	}
-	return e.store.Sub(nodeID).Write("status.json", data)
+	return e.stageStore(nodeID, visit).Write("status.json", data)
 }
 
 func (e *Engine) saveCheckpoint(state *runState) error {

@@ -376,11 +376,15 @@ func isTerminalEvent(k engine.EventKind) bool {
 	return k == engine.EventPipelineCompleted || k == engine.EventPipelineFailed
 }
 
-// isStageDoneEvent reports whether ev ends a single stage — the point at
-// which that node's dir is final enough to phone home incrementally. A
-// failed stage still has files worth serving, so it uploads too.
+// isStageDoneEvent reports whether ev marks a node's dir final enough to
+// phone home incrementally. Successful stages key on checkpoint_saved —
+// the engine emits it only after writing status.json and mirroring the
+// visit dir to the node root (amendment A1), so the upload is
+// deterministic, not racing the mirror. A failed stage still has files
+// worth serving; its upload is best-effort early (the terminal sweep is
+// the catch-all).
 func isStageDoneEvent(k engine.EventKind) bool {
-	return k == engine.EventStageCompleted || k == engine.EventStageFailed
+	return k == engine.EventCheckpointSaved || k == engine.EventStageFailed
 }
 
 // daemonOwnedArtifact reports whether a run-dir file is one the daemon

@@ -693,6 +693,16 @@ func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Per-visit layout (amendment A1): a stable {node}/{file} URL keeps
+	// working mid-visit by falling back to the latest v{N} copy when the
+	// root mirror hasn't landed yet.
+	if _, err := os.Stat(full); err != nil {
+		if dir, name := filepath.Dir(full), filepath.Base(full); dir != root {
+			if p := stageFilePath(dir, name); p != full && fileExistsFS(p) {
+				full = p
+			}
+		}
+	}
 	// The prefix check above is textual — it does not follow symlinks. Now that
 	// the listing puts every file one click away, an artifact that is a symlink
 	// to a host file must not be served: resolve links and confirm the real
