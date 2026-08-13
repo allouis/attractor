@@ -9,6 +9,8 @@ attractor-ui
 result
 ui-runs-dark.png
 *.png
+# …but committed README/doc screenshots are source:
+!docs/images/*.png
 
 # scratch review-summary written by dogfood record/review nodes; not source
 response.md
