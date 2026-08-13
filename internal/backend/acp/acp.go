@@ -57,11 +57,34 @@ type Backend struct {
 	// sessions maps engine thread ids to ACP session ids for session
 	// reuse under full fidelity.
 	sessions sync.Map // map[string]string
+	// lastSession maps node IDs to the session id their most recent Run
+	// used, so Continue can resume it for an in-session contract
+	// correction (D2) — independent of fidelity/thread reuse.
+	lastSession sync.Map // map[string]string
 }
 
 // Run satisfies backend.CodergenBackend: spawn the agent, run one
 // prompt turn, and translate the stop reason into a Result.
 func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, error) {
+	return b.turn(env, prompt, "")
+}
+
+// Continue satisfies backend.Continuer: it re-spawns the agent and loads
+// the session the node's preceding Run used, so a contract-correction
+// prompt lands in the same context window. Errors when no session is
+// recorded or the agent cannot load sessions — a correction in a fresh
+// session would have no memory of the work it must correct.
+func (b *Backend) Continue(env engine.HandlerEnv, prompt string) (backend.Result, error) {
+	sid, ok := b.lastSession.Load(env.Node.ID)
+	if !ok {
+		return backend.Result{}, fmt.Errorf("acp: no session to continue for node %q", env.Node.ID)
+	}
+	return b.turn(env, prompt, sid.(string))
+}
+
+// turn spawns the agent process and drives one prompt turn. A non-empty
+// resume names the session id to load instead of starting fresh.
+func (b *Backend) turn(env engine.HandlerEnv, prompt, resume string) (backend.Result, error) {
 	raw := b.resolveCommand(env)
 	if raw == "" {
 		return backend.Result{}, fmt.Errorf("acp: no agent command configured — set the node or graph `acp_command` attribute or the --acp-cmd flag")
@@ -145,7 +168,7 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		OnPermission: turn.onPermission,
 	})
 
-	stop, err := b.runTurn(ctx, client, turn, prompt)
+	stop, err := b.runTurn(ctx, client, turn, prompt, resume)
 	if err != nil {
 		if turn.wd != nil && turn.wd.fired.Load() {
 			return backend.Result{}, backend.Transient(fmt.Errorf("acp: stalled: no activity for %s", stall))
@@ -162,11 +185,13 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 	return resultFromStop(stop, turn.text()), nil
 }
 
-// runTurn performs the handshake and the prompt round-trip. Under
-// full fidelity, stages sharing a thread resume the recorded agent
-// session via session/load (spec §5.4 session reuse) when the agent
-// advertises loadSession; anything else starts fresh.
-func (b *Backend) runTurn(ctx context.Context, client *acp.Client, turn *turnState, prompt string) (acp.StopReason, error) {
+// runTurn performs the handshake and the prompt round-trip. A non-empty
+// resume loads exactly that session (a correction turn must land in the
+// context it corrects) and errors when it can't. Otherwise, under full
+// fidelity, stages sharing a thread resume the recorded agent session
+// via session/load (spec §5.4 session reuse) when the agent advertises
+// loadSession; anything else starts fresh.
+func (b *Backend) runTurn(ctx context.Context, client *acp.Client, turn *turnState, prompt, resume string) (acp.StopReason, error) {
 	env := turn.env
 	init, err := client.Initialize(ctx)
 	if err != nil {
@@ -176,9 +201,18 @@ func (b *Backend) runTurn(ctx context.Context, client *acp.Client, turn *turnSta
 	if cwd == "" {
 		cwd, _ = os.Getwd() // runstore:allow the agent's working dir defaults to attractor's cwd when the node sets none
 	}
-	reusable := env.Fidelity == engine.FidelityFull && env.ThreadID != ""
 	sessionID := ""
-	if reusable && init.SupportsLoadSession {
+	if resume != "" {
+		if !init.SupportsLoadSession {
+			return "", fmt.Errorf("continue: agent does not support session/load")
+		}
+		if err := client.LoadSession(ctx, resume, cwd); err != nil {
+			return "", fmt.Errorf("continue session/load: %w", err)
+		}
+		sessionID = resume
+	}
+	reusable := env.Fidelity == engine.FidelityFull && env.ThreadID != ""
+	if sessionID == "" && reusable && init.SupportsLoadSession {
 		if prev, ok := b.sessions.Load(env.ThreadID); ok {
 			sid := prev.(string)
 			if err := client.LoadSession(ctx, sid, cwd); err == nil {
@@ -196,6 +230,9 @@ func (b *Backend) runTurn(ctx context.Context, client *acp.Client, turn *turnSta
 	}
 	if reusable {
 		b.sessions.Store(env.ThreadID, sessionID)
+	}
+	if env.Node != nil {
+		b.lastSession.Store(env.Node.ID, sessionID)
 	}
 	// Session setup is done; arm the stall watchdog for the prompt turn so
 	// the countdown measures only in-turn quiet, not the agent's boot.

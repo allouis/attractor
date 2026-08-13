@@ -50,6 +50,10 @@ type Backend struct {
 	// Subsequent stages sharing a thread_id resume via `claude --resume`
 	// so the agent literally continues the prior conversation.
 	sessions sync.Map // map[string]string
+	// nodeSessions tracks the session id of each node's most recent Run,
+	// regardless of fidelity, so Continue can resume it for an
+	// in-session contract correction (D2).
+	nodeSessions sync.Map // map[string]string
 }
 
 // Run satisfies backend.CodergenBackend by invoking claude with
@@ -80,7 +84,25 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		}
 	}
 	_ = resuming // used below to decide whether to remember
-	cmd, cancel, err := b.prepareCmd(env, prompt, args)
+	return b.invoke(env, args)
+}
+
+// Continue satisfies backend.Continuer: it re-invokes claude with
+// --resume against the session the node's preceding Run reported, so a
+// contract-correction prompt continues the same conversation.
+func (b *Backend) Continue(env engine.HandlerEnv, prompt string) (backend.Result, error) {
+	v, ok := b.nodeSessions.Load(env.Node.ID)
+	if !ok {
+		return backend.Result{}, fmt.Errorf("claudecode: no session to continue for node %q", env.Node.ID)
+	}
+	args := []string{"--resume", v.(string), "-p", prompt, "--output-format", "stream-json", "--verbose"}
+	return b.invoke(env, args)
+}
+
+// invoke spawns the claude CLI with args, parses its stream-json
+// output, and maps the final result envelope onto a Result.
+func (b *Backend) invoke(env engine.HandlerEnv, args []string) (backend.Result, error) {
+	cmd, cancel, err := b.prepareCmd(env, args)
 	if err != nil {
 		return backend.Result{}, err
 	}
@@ -110,8 +132,11 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		switch kind {
 		case "system":
 			if sub, _ := rec["subtype"].(string); sub == "init" {
-				if sid, _ := rec["session_id"].(string); sid != "" && env.Fidelity == engine.FidelityFull {
-					b.rememberSession(env.ThreadID, sid)
+				if sid, _ := rec["session_id"].(string); sid != "" {
+					b.nodeSessions.Store(env.Node.ID, sid)
+					if env.Fidelity == engine.FidelityFull {
+						b.rememberSession(env.ThreadID, sid)
+					}
 				}
 			}
 		case "assistant":
@@ -125,8 +150,11 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 				}
 			}
 		case "result":
-			if sid, _ := rec["session_id"].(string); sid != "" && env.Fidelity == engine.FidelityFull {
-				b.rememberSession(env.ThreadID, sid)
+			if sid, _ := rec["session_id"].(string); sid != "" {
+				b.nodeSessions.Store(env.Node.ID, sid)
+				if env.Fidelity == engine.FidelityFull {
+					b.rememberSession(env.ThreadID, sid)
+				}
 			}
 			finalEnvelope = rec
 		}
@@ -171,7 +199,7 @@ func (b *Backend) rememberSession(threadID, sessionID string) {
 
 // prepareCmd builds an *exec.Cmd with the correlation env vars set and
 // optional per-run timeout cancellation wired in.
-func (b *Backend) prepareCmd(env engine.HandlerEnv, prompt string, args []string) (*exec.Cmd, context.CancelFunc, error) {
+func (b *Backend) prepareCmd(env engine.HandlerEnv, args []string) (*exec.Cmd, context.CancelFunc, error) {
 	bin := b.ClaudeBin
 	if bin == "" {
 		bin = "claude"
