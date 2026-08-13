@@ -25,7 +25,7 @@ PLAN_NODE=${4:-plan}
 PLANNOTATOR=${PLANNOTATOR:-plannotator}
 PORT=${PLANNOTATOR_PORT:-19432}
 
-run_id=$(curl -sf "$BASE/pipelines" | jq -r '.[0].id')
+run_id=$(curl -sf "$BASE/pipelines" | jq -r '.[0].run_id')
 echo "watching run $run_id for questions on $GATE_NODE (plannotator on :$PORT)"
 
 # latest_plan_status: the plan node's newest span dir by (visit, attempt).
