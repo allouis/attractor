@@ -1,9 +1,9 @@
 // Package toml holds the line-level primitives for the minimal TOML
-// subset Attractor's config and automation files use: `#` line comments,
+// subset Attractor's config files use: `#` line comments,
 // `key = "value"` pairs, and `[a.b.c]` table headers. It is intentionally
 // tiny — no arrays, integers, or multi-line values — and dependency-free,
 // matching the deliberately small config surface (service-spec §1, §5).
-// Callers (internal/config, internal/automation) layer their own table
+// Callers (internal/config) layer their own table
 // semantics on top of these shared helpers.
 package toml
 

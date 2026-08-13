@@ -263,7 +263,7 @@ func nodeMeta(g *graph.Graph) map[string]runview.NodeMeta {
 // providerBackend builds the config-routed codergen backend used when no
 // --backend override is given (service-spec §1), surfacing config-aware
 // warnings (unknown provider, missing model_env) to stderr so --json
-// stdout stays clean. Shared by `run` and `automations run`.
+// stdout stays clean.
 func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
 	cfg, err := loadProviderConfig()
 	if err != nil {
@@ -277,9 +277,8 @@ func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
 
 // runEngine wires the built-in handlers around a codergen backend and
 // executes prepared to completion, streaming events to stdout (one JSON
-// object per line when jsonOut). Shared standalone-run core of `run` and
-// `automations run`. initialContext seeds the run's context with the
-// `-var`/automation vars so `$context.<var>` resolves at runtime (C3).
+// object per line when jsonOut). initialContext seeds the run's context
+// with the `-var` vars so `$context.<var>` resolves at runtime (C3).
 func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string) error {
 	return runEngineWithID(prepared, cb, iv, logsRoot, jsonOut, initialContext, "")
 }
