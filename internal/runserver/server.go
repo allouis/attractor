@@ -9,6 +9,7 @@ package runserver
 
 import (
 	"bufio"
+	_ "embed"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -21,6 +22,9 @@ import (
 	"github.com/allouis/attractor/internal/runview"
 )
 
+//go:embed ui.html
+var uiHTML []byte
+
 // Server serves one run from its logs directory.
 type Server struct {
 	logsRoot string
@@ -28,6 +32,9 @@ type Server struct {
 	// when the process hosting this server has no live interviewer
 	// (e.g. serving a finished run dir).
 	Answer func(questionID, value, note string) error
+	// Meta enriches spans with graph-derived node metadata (D5:
+	// self-describing spans). Optional.
+	Meta map[string]runview.NodeMeta
 }
 
 // New returns a Server rooted at the run's logs directory.
@@ -46,6 +53,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.questions)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answer)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(uiHTML)
+	})
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui", http.StatusFound)
+	})
 	return mux
 }
 
@@ -62,6 +76,9 @@ func (s *Server) manifest() engine.Manifest {
 }
 
 // readEvents streams events.jsonl, returning events with Seq > since.
+// A scanner error (an over-long line, torn read) truncates the tail; the
+// events read so far are still returned — the poll model self-heals on
+// the next request once the writer finishes the line.
 func (s *Server) readEvents(since int64) []engine.Event {
 	f, err := os.Open(filepath.Join(s.logsRoot, "events.jsonl"))
 	if err != nil {
@@ -115,14 +132,23 @@ func (s *Server) doc(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, runview.Document(m, s.readEvents(0)))
+	doc := runview.Document(m, s.readEvents(0))
+	runview.AttachMeta(doc.Spans, s.Meta)
+	writeJSON(w, doc)
 }
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.checkID(w, r); !ok {
 		return
 	}
-	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	since := int64(0)
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		var err error
+		if since, err = strconv.ParseInt(raw, 10, 64); err != nil {
+			http.Error(w, "since: not an integer", http.StatusBadRequest)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	enc := json.NewEncoder(w)
 	for _, ev := range s.readEvents(since) {
@@ -192,11 +218,14 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.checkID(w, r); !ok {
 		return
 	}
-	// path.Clean the URL segment and reject anything escaping the root.
+	// path.Clean the URL segment and reject any ".." segment (segment
+	// compare, not substring — "notes..md" is a legal name).
 	rel := path.Clean("/" + r.PathValue("path"))
-	if strings.Contains(rel, "..") {
-		http.NotFound(w, r)
-		return
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == ".." {
+			http.NotFound(w, r)
+			return
+		}
 	}
 	http.ServeFile(w, r, filepath.Join(s.logsRoot, filepath.FromSlash(rel)))
 }

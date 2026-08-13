@@ -95,9 +95,15 @@ func Document(m engine.Manifest, events []engine.Event) RunDoc {
 	if len(pending) > 0 {
 		doc.PendingQuestions = pending
 	}
-	for _, s := range doc.Spans {
-		if s.Outcome == "running" {
-			doc.ActiveNodes = append(doc.ActiveNodes, s.NodeID)
+	// A hard-terminated run (LG1/LG2 abort, crash) can leave spans with
+	// no closing event; reporting them active alongside a terminal
+	// status would contradict itself, so active nodes exist only while
+	// the run does.
+	if doc.Status == "running" {
+		for _, s := range doc.Spans {
+			if s.Outcome == OutcomeRunning {
+				doc.ActiveNodes = append(doc.ActiveNodes, s.NodeID)
+			}
 		}
 	}
 	return doc

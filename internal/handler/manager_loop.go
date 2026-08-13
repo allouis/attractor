@@ -104,13 +104,21 @@ func (ManagerLoop) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 	// A reusable child pipeline that declares no acp_command inherits the
 	// parent's (node- then graph-level), so it runs under the same run-wide
-	// agent command without needing its own attr or a --acp-cmd flag. Only
-	// the agent command carries over — cwd/goal deliberately do not (the
-	// child mirrors its own graph; see childInitialContext).
+	// agent command without needing its own attr or a --acp-cmd flag.
 	if prepared.Graph.Attrs["acp_command"] == "" {
 		if pa := nodeOrGraphAttr(env, "acp_command"); pa != "" {
 			prepared.Graph.Attrs["acp_command"] = pa
 		}
+	}
+	// Likewise the working tree: a child that sets no cwd of its own
+	// operates on the parent's resolved cwd. Without this, the child's
+	// agents fall back to the attractor process cwd and review the wrong
+	// tree (dogfood run 2026-08-13: the five review lenses reviewed
+	// attractor's own working copy instead of the target repo). goal
+	// deliberately does not carry over (the child mirrors its own graph;
+	// see childInitialContext).
+	if prepared.Graph.Attrs["cwd"] == "" && env.Cwd != "" {
+		prepared.Graph.Attrs["cwd"] = env.Cwd
 	}
 
 	registry := env.Registry

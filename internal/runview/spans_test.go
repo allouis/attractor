@@ -89,6 +89,53 @@ func TestSpans_ZeroVisitDefaultsToOne(t *testing.T) {
 	}
 }
 
+// stage_failed closes its span as fail (falling back to "fail" when
+// the event carries no Status).
+func TestSpans_StageFailedCloses(t *testing.T) {
+	events := []engine.Event{
+		{Kind: engine.EventStageStarted, Seq: 1, Timestamp: ts(1), NodeID: "work", Visit: 1, Attempt: 1},
+		{Kind: engine.EventStageFailed, Seq: 2, Timestamp: ts(2), NodeID: "work", Visit: 1, Attempt: 1, Message: "boom"},
+	}
+	spans := Spans(events)
+	if len(spans) != 1 || spans[0].Outcome != "fail" || spans[0].Detail != "boom" {
+		t.Fatalf("stage_failed fold wrong: %+v", spans)
+	}
+}
+
+// A re-delivered event (same Seq — at-least-once delivery from a
+// scraped/re-shipped log) folds once: a duplicate stage_started must
+// not orphan the real span.
+func TestSpans_DuplicateSeqFoldsOnce(t *testing.T) {
+	started := engine.Event{Kind: engine.EventStageStarted, Seq: 1, Timestamp: ts(1), NodeID: "work", Visit: 1, Attempt: 1}
+	events := []engine.Event{
+		started,
+		started, // duplicate delivery
+		{Kind: engine.EventStageCompleted, Seq: 2, Timestamp: ts(2), NodeID: "work", Visit: 1, Attempt: 1, Status: "success"},
+	}
+	spans := Spans(events)
+	if len(spans) != 1 || spans[0].Outcome != "success" {
+		t.Fatalf("duplicate seq not deduped: %+v", spans)
+	}
+}
+
+// A tool_call_update reporting failure marks the original tick red
+// instead of appending a second tick.
+func TestSpans_FailedToolCallUpdateMarksTick(t *testing.T) {
+	events := []engine.Event{
+		{Kind: engine.EventStageStarted, Seq: 1, Timestamp: ts(1), NodeID: "work", Visit: 1, Attempt: 1},
+		{Kind: engine.EventStageProgress, Seq: 2, Timestamp: ts(2), NodeID: "work", Visit: 1, Detail: map[string]string{"kind": "tool_call", "status": "in_progress", "tool_call_id": "tc-1"}},
+		{Kind: engine.EventStageProgress, Seq: 3, Timestamp: ts(3), NodeID: "work", Visit: 1, Detail: map[string]string{"kind": "tool_call", "status": "failed", "tool_call_id": "tc-1"}},
+		{Kind: engine.EventStageCompleted, Seq: 4, Timestamp: ts(4), NodeID: "work", Visit: 1, Attempt: 1, Status: "success"},
+	}
+	spans := Spans(events)
+	if len(spans) != 1 || len(spans[0].ToolCalls) != 1 {
+		t.Fatalf("tick count wrong: %+v", spans)
+	}
+	if !spans[0].ToolCalls[0].Failed {
+		t.Fatalf("failed update did not mark the tick: %+v", spans[0].ToolCalls)
+	}
+}
+
 // Tool-call progress events tick their span (count + error flag), the
 // SSSF-style tick marks the waterfall renders inside a span bar.
 func TestSpans_ToolCallTicks(t *testing.T) {

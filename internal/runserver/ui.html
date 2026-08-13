@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>attractor run</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #2a2f3a; --text: #d7dae0;
+    --dim: #8b93a1; --accent: #6ea8fe; --ok: #4cc38a; --warn: #e5c07b;
+    --bad: #e06c75; --retry: #c678dd;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+           padding: .6rem 1rem; border-bottom: 1px solid var(--line);
+           position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  header .goal { color: var(--dim); overflow: hidden; text-overflow: ellipsis;
+                 white-space: nowrap; max-width: 40ch; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: .1rem .6rem;
+          background: var(--panel); white-space: nowrap; }
+  .chip b { color: var(--accent); font-weight: 600; }
+  .status-running { color: var(--warn); } .status-completed { color: var(--ok); }
+  .status-failed { color: var(--bad); }
+  select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+           border-radius: 4px; padding: .1rem .3rem; font: inherit; }
+  main { display: grid; grid-template-columns: 1fr minmax(0, 26rem); min-height: calc(100vh - 3rem); }
+  #waterfall { padding: .8rem 1rem; overflow-x: auto; }
+  #detail { border-left: 1px solid var(--line); padding: .8rem 1rem; background: var(--panel);
+            display: none; overflow-wrap: anywhere; }
+  #detail.open { display: block; }
+  #detail pre { white-space: pre-wrap; background: var(--bg); padding: .5rem;
+                border-radius: 4px; max-height: 22rem; overflow: auto; }
+  #detail .close { float: right; cursor: pointer; color: var(--dim); }
+  .lane { display: grid; grid-template-columns: 16rem 1fr; gap: .5rem;
+          align-items: center; margin-bottom: .35rem; }
+  .lane-label { text-align: right; color: var(--dim); overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+  .lane-label .ctx { display: block; height: 3px; background: var(--line);
+                     border-radius: 2px; margin-top: 2px; overflow: hidden; }
+  .lane-label .ctx i { display: block; height: 100%; background: var(--accent); }
+  .track { position: relative; height: 1.4rem; }
+  .span { position: absolute; top: 2px; bottom: 2px; border-radius: 3px;
+          background: #31384a; border: 1px solid var(--line); cursor: pointer;
+          overflow: hidden; min-width: 6px; }
+  .span.success { background: #1e3a2f; border-color: var(--ok); }
+  .span.fail { background: #3a2326; border-color: var(--bad); }
+  .span.retry { background: #33273c; border-color: var(--retry); border-style: dashed; }
+  .span.running { border-color: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { filter: brightness(1.5); } }
+  .tick { position: absolute; top: 20%; bottom: 20%; width: 2px; background: var(--dim); }
+  .tick.failed { background: var(--bad); width: 3px; }
+  .glyph { font-size: .8em; margin-right: .2rem; }
+  #questions { padding: 0 1rem; }
+  .question { border: 1px solid var(--warn); border-radius: 6px; padding: .6rem .8rem;
+              margin: .6rem 0; background: var(--panel); }
+  .question button { margin: .2rem .4rem .2rem 0; background: var(--bg); color: var(--text);
+                     border: 1px solid var(--accent); border-radius: 4px; padding: .25rem .7rem;
+                     cursor: pointer; font: inherit; }
+  .question button:hover { background: var(--accent); color: var(--bg); }
+  .question input { background: var(--bg); color: var(--text); border: 1px solid var(--line);
+                    border-radius: 4px; padding: .25rem; font: inherit; width: 60%; }
+  .fail-banner { margin: .6rem 1rem; padding: .5rem .8rem; border: 1px solid var(--bad);
+                 border-radius: 6px; color: var(--bad); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <span id="name">…</span>
+  <span class="goal" id="goal"></span>
+  <span class="chip">status <b id="status">…</b></span>
+  <span class="chip">runtime <b id="runtime">–</b></span>
+  <span class="chip">tokens <b id="tokens">–</b></span>
+  <span class="chip">spans <b id="spancount">–</b></span>
+  <label>lane <select id="groupby">
+    <option value="node_id">node</option>
+    <option value="thread_id">thread</option>
+    <option value="class">class</option>
+    <option value="type">type</option>
+  </select></label>
+</header>
+<div id="failreason" class="fail-banner" style="display:none"></div>
+<div id="questions"></div>
+<main>
+  <div id="waterfall"></div>
+  <aside id="detail"><span class="close" onclick="closeDetail()">✕</span><div id="detail-body"></div></aside>
+</main>
+<script>
+"use strict";
+let runId = null, lastSeq = -1, doc = null;
+const $ = id => document.getElementById(id);
+
+async function j(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(url + ": " + r.status);
+  return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
+}
+
+// Poll loop (D5): 500ms tick, never stops — a finished run keeps
+// serving its final state, a restarted server just resumes.
+async function tick() {
+  try {
+    if (!runId) {
+      const list = await j("/pipelines");
+      if (list.length) runId = list[0].run_id;
+    }
+    if (runId) {
+      const d = await j("/pipelines/" + runId);
+      if (d.last_seq !== lastSeq || d.status === "running") {
+        lastSeq = d.last_seq; doc = d; render();
+      }
+    }
+  } catch (e) { /* server briefly unavailable; keep polling */ }
+  setTimeout(tick, 500);
+}
+
+function fmtTokens(u) {
+  if (!u || (!u.input_tokens && !u.output_tokens)) return "–";
+  const k = n => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+  return k(u.input_tokens || 0) + " in / " + k(u.output_tokens || 0) + " out";
+}
+function fmtDur(ms) {
+  if (ms < 0) return "–";
+  const s = Math.floor(ms / 1000);
+  return s >= 3600 ? Math.floor(s/3600) + "h" + Math.floor(s%3600/60) + "m"
+       : s >= 60 ? Math.floor(s/60) + "m" + (s%60) + "s" : s + "s";
+}
+const GLYPH = { success: "✓", fail: "✗", retry: "↻", running: "◐", partial_success: "◑", skipped: "⊘" };
+
+function render() {
+  $("name").textContent = doc.graph_name || doc.run_id;
+  $("goal").textContent = doc.goal || "";
+  $("status").textContent = doc.status;
+  $("status").className = "status-" + doc.status;
+  $("tokens").textContent = fmtTokens(doc.usage);
+  $("spancount").textContent = doc.spans.length;
+  const start = Date.parse(doc.started_at);
+  const end = doc.ended_at ? Date.parse(doc.ended_at) : Date.now();
+  $("runtime").textContent = fmtDur(end - start);
+  $("failreason").style.display = doc.failure_reason ? "block" : "none";
+  $("failreason").textContent = doc.failure_reason || "";
+  renderQuestions();
+  renderWaterfall(start, end);
+}
+
+function renderQuestions() {
+  const host = $("questions");
+  host.innerHTML = "";
+  for (const q of doc.pending_questions || []) {
+    const box = document.createElement("div");
+    box.className = "question";
+    const text = document.createElement("div");
+    text.textContent = "⏸ " + (q.question?.text || q.message || q.id);
+    box.appendChild(text);
+    const note = document.createElement("input");
+    note.placeholder = "optional note to the agent";
+    for (const opt of q.question?.options || []) {
+      const b = document.createElement("button");
+      b.textContent = "[" + opt.key + "] " + opt.label;
+      b.onclick = () => answer(q.id, opt.key, note.value);
+      box.appendChild(b);
+    }
+    box.appendChild(note);
+    host.appendChild(box);
+  }
+}
+
+async function answer(qid, value, note) {
+  try {
+    await j("/pipelines/" + runId + "/questions/" + encodeURIComponent(qid) + "/answer",
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value, note }) });
+  } catch (e) { alert("answer failed: " + e.message); }
+}
+
+// Waterfall (D5): one lane per groupBy key, spans placed
+// time-truthfully within the lane. Tiny spans get a min-width floor
+// (CSS); tool calls render as tick marks, red on error.
+function renderWaterfall(start, end) {
+  const key = $("groupby").value;
+  const lanes = new Map();
+  for (const s of doc.spans) {
+    const k = s[key] || s.node_id;
+    if (!lanes.has(k)) lanes.set(k, []);
+    lanes.get(k).push(s);
+  }
+  const total = Math.max(end - start, 1);
+  const host = $("waterfall");
+  host.innerHTML = "";
+  for (const [label, spans] of lanes) {
+    const lane = document.createElement("div");
+    lane.className = "lane";
+    const lab = document.createElement("div");
+    lab.className = "lane-label";
+    lab.textContent = label;
+    lab.title = label;
+    // Context-occupancy bar (SSSF): lane input tokens vs the run max.
+    const laneTokens = spans.reduce((a, s) => a + (s.input_tokens || 0), 0);
+    const maxTokens = Math.max(...[...lanes.values()].map(
+      ss => ss.reduce((a, s) => a + (s.input_tokens || 0), 0)), 1);
+    const ctx = document.createElement("span");
+    ctx.className = "ctx";
+    const fill = document.createElement("i");
+    fill.style.width = (100 * laneTokens / maxTokens) + "%";
+    ctx.appendChild(fill);
+    lab.appendChild(ctx);
+    lane.appendChild(lab);
+    const track = document.createElement("div");
+    track.className = "track";
+    for (const s of spans) {
+      const s0 = Date.parse(s.started_at);
+      const s1 = s.ended_at ? Date.parse(s.ended_at) : end;
+      const el = document.createElement("div");
+      el.className = "span " + (s.outcome === "partial_success" ? "success" : s.outcome);
+      el.style.left = (100 * (s0 - start) / total) + "%";
+      el.style.width = Math.max(100 * (s1 - s0) / total, 0.4) + "%";
+      el.title = s.node_id + " v" + s.visit + " a" + s.attempt + " — " + s.outcome
+               + (s.detail ? ": " + s.detail : "");
+      const g = document.createElement("span");
+      g.className = "glyph";
+      g.textContent = GLYPH[s.outcome] || "";
+      el.appendChild(g);
+      for (const t of s.tool_calls || []) {
+        const tick = document.createElement("span");
+        tick.className = "tick" + (t.failed ? " failed" : "");
+        tick.style.left = (100 * (Date.parse(t.at) - s0) / Math.max(s1 - s0, 1)) + "%";
+        tick.title = t.title || "tool call";
+        el.appendChild(tick);
+      }
+      el.onclick = () => openDetail(s);
+      track.appendChild(el);
+    }
+    lane.appendChild(track);
+    host.appendChild(lane);
+  }
+}
+
+async function openDetail(s) {
+  const body = $("detail-body");
+  body.innerHTML = "";
+  const h = document.createElement("h3");
+  h.textContent = s.node_id + " (visit " + s.visit + ", attempt " + s.attempt + ") — " + s.outcome;
+  body.appendChild(h);
+  const meta = document.createElement("div");
+  meta.textContent = [s.type, s.class, s.model, s.thread_id && ("thread " + s.thread_id),
+    fmtTokens({ input_tokens: s.input_tokens, output_tokens: s.output_tokens })]
+    .filter(Boolean).join(" · ");
+  body.appendChild(meta);
+  if (s.detail) {
+    const d = document.createElement("pre");
+    d.textContent = s.detail;
+    body.appendChild(d);
+  }
+  for (const name of ["status.json", "prompt.md", "response.md"]) {
+    try {
+      const txt = await j("/pipelines/" + runId + "/artifacts/" + s.node_id + "/" + name);
+      const cap = document.createElement("div");
+      cap.textContent = name;
+      cap.style.color = "var(--dim)"; cap.style.marginTop = ".6rem";
+      const pre = document.createElement("pre");
+      pre.textContent = typeof txt === "string" ? txt : JSON.stringify(txt, null, 2);
+      body.appendChild(cap); body.appendChild(pre);
+    } catch (e) { /* artifact absent for this node kind */ }
+  }
+  $("detail").classList.add("open");
+}
+function closeDetail() { $("detail").classList.remove("open"); }
+$("groupby").onchange = () => doc && render();
+tick();
+</script>
+</body>
+</html>

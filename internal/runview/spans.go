@@ -20,8 +20,9 @@ type Span struct {
 	Attempt   int       `json:"attempt"`
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at,omitzero"`
-	// Outcome: running | success | partial_success | retry | fail |
-	// skipped. "running" means no closing event yet.
+	// Outcome: OutcomeRunning or an engine status string (success |
+	// partial_success | retry | fail | skipped). OutcomeRunning means no
+	// closing event yet.
 	Outcome string `json:"outcome"`
 	// Detail carries the closing event's message (retry reason, failure
 	// reason) when there is one.
@@ -29,6 +30,33 @@ type Span struct {
 	InputTokens  int        `json:"input_tokens,omitempty"`
 	OutputTokens int        `json:"output_tokens,omitempty"`
 	ToolCalls    []ToolTick `json:"tool_calls,omitempty"`
+	// Node metadata (D5: spans are self-describing so lane grouping is
+	// purely a frontend groupBy). Filled from the graph when available.
+	Type     string `json:"type,omitempty"`
+	Class    string `json:"class,omitempty"`
+	Model    string `json:"model,omitempty"`
+	ThreadID string `json:"thread_id,omitempty"`
+}
+
+// NodeMeta is the graph-derived metadata attached to a node's spans.
+type NodeMeta struct {
+	Type     string
+	Class    string
+	Model    string
+	ThreadID string
+}
+
+// GraphMeta extracts per-node metadata from graph node attributes.
+// Kept as a plain map so runview does not depend on the graph package.
+func AttachMeta(spans []Span, meta map[string]NodeMeta) {
+	for i := range spans {
+		if m, ok := meta[spans[i].NodeID]; ok {
+			spans[i].Type = m.Type
+			spans[i].Class = m.Class
+			spans[i].Model = m.Model
+			spans[i].ThreadID = m.ThreadID
+		}
+	}
 }
 
 // ToolTick is one tool call observed inside a span — the waterfall
@@ -39,9 +67,15 @@ type ToolTick struct {
 	Failed bool      `json:"failed,omitempty"`
 }
 
+// OutcomeRunning marks a span with no closing event yet.
+const OutcomeRunning = "running"
+
 // Spans folds an event log into execution spans, ordered by open time
 // (event order). Events with Visit 0 (older logs, forwarded child
-// events) fold under visit 1.
+// events) fold under visit 1. Events whose Seq repeats one already
+// folded are skipped: the engine's own log is exactly-once, but a
+// hub-scraped or re-shipped log may deliver at least once, and a
+// re-delivered stage_started would otherwise orphan the real span.
 func Spans(events []engine.Event) []Span {
 	var out []Span
 	// open maps node id -> index into out of that node's open span.
@@ -49,10 +83,19 @@ func Spans(events []engine.Event) []Span {
 	// attempt of one node at a time per node id, so node id suffices as
 	// the open-span key (parallel branches have distinct node ids).
 	open := map[string]int{}
-	// ticks maps a span's open tool_call_id set for error tracking.
+	// tickIdx maps node id -> (tool_call_id -> index into that span's
+	// ToolCalls) so tool_call_update events mark the original tick
+	// failed instead of appending a duplicate.
 	tickIdx := map[string]map[string]int{}
+	seen := map[int64]bool{}
 
 	for _, ev := range events {
+		if ev.Seq != 0 {
+			if seen[ev.Seq] {
+				continue
+			}
+			seen[ev.Seq] = true
+		}
 		if ev.NodeID == "" {
 			continue
 		}
@@ -73,7 +116,7 @@ func Spans(events []engine.Event) []Span {
 				Visit:     visit,
 				Attempt:   attempt,
 				StartedAt: ev.Timestamp,
-				Outcome:   "running",
+				Outcome:   OutcomeRunning,
 			})
 		case engine.EventStageRetrying:
 			if i, ok := open[ev.NodeID]; ok {

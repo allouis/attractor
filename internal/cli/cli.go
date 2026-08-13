@@ -35,6 +35,7 @@ import (
 	"github.com/allouis/attractor/internal/render"
 	"github.com/allouis/attractor/internal/report"
 	"github.com/allouis/attractor/internal/runserver"
+	"github.com/allouis/attractor/internal/runview"
 	"github.com/allouis/attractor/internal/server"
 	"github.com/allouis/attractor/internal/setup"
 )
@@ -208,6 +209,7 @@ func Run(args []string) error {
 	iv := resolveInterviewer(*humanFlag)
 	if *ui {
 		srv := runserver.New(logsRoot)
+		srv.Meta = nodeMeta(g)
 		// Gates are answered over the run's own /answer endpoint unless
 		// the user explicitly asked for a console/approve interviewer.
 		if !flagSet(fs, "human") {
@@ -224,6 +226,52 @@ func Run(args []string) error {
 		fmt.Fprintf(os.Stderr, "run: serving UI at http://%s/ui (API: /pipelines)\n", ln.Addr())
 	}
 	return runEngine(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars)
+}
+
+// nodeMeta extracts the per-node metadata the run server attaches to
+// spans (D5: self-describing spans so lane grouping is a frontend
+// groupBy). Class buckets the handler type for coarse grouping.
+func nodeMeta(g *graph.Graph) map[string]runview.NodeMeta {
+	meta := make(map[string]runview.NodeMeta, len(g.Nodes))
+	for id, n := range g.Nodes {
+		typ := n.Attrs["type"]
+		if typ == "" {
+			switch {
+			case n.Shape() == "Mdiamond" || id == "start" || id == "Start":
+				typ = "start"
+			case n.Shape() == "Msquare" || id == "exit" || id == "end":
+				typ = "exit"
+			case n.Shape() == "hexagon":
+				typ = "wait.human"
+			case n.Shape() == "diamond":
+				typ = "conditional"
+			case n.Shape() == "component":
+				typ = "parallel"
+			default:
+				typ = "codergen"
+			}
+		}
+		class := "flow"
+		switch {
+		case strings.HasPrefix(typ, "codergen"):
+			class = "agent"
+		case typ == "tool":
+			class = "tool"
+		case typ == "wait.human":
+			class = "gate"
+		case strings.HasPrefix(typ, "parallel"):
+			class = "parallel"
+		case strings.HasPrefix(typ, "stack."):
+			class = "manager"
+		}
+		meta[id] = runview.NodeMeta{
+			Type:     typ,
+			Class:    class,
+			Model:    n.Attrs["llm_model"],
+			ThreadID: n.Attrs["thread_id"],
+		}
+	}
+	return meta
 }
 
 // providerBackend builds the config-routed codergen backend used when no
