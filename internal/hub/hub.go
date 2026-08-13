@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/render"
 	"github.com/allouis/attractor/internal/runview"
 	"github.com/allouis/attractor/internal/webui"
 )
@@ -84,6 +85,7 @@ func (h *Hub) Handler() http.Handler {
 	mux.HandleFunc("GET /pipelines/{id}/events", h.proxyOrArchive("/events"))
 	mux.HandleFunc("GET /pipelines/{id}/questions", h.proxyOrArchive("/questions"))
 	mux.HandleFunc("GET /pipelines/{id}/artifacts", h.proxyOrArchive("/artifacts"))
+	mux.HandleFunc("GET /pipelines/{id}/graph", h.graph)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", h.artifact)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", h.answer)
 	mux.HandleFunc("POST /pipelines/{id}/archive", h.archive)
@@ -128,6 +130,34 @@ func (h *Hub) artifact(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.ServeFile(w, r, filepath.Join(h.runDir(id), filepath.FromSlash(rel)))
+}
+
+// graph proxies the live run's rendered topology, or renders the
+// archived graph.dot for finished runs.
+func (h *Hub) graph(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if lr, ok := h.liveRun(id); ok && lr.URL != "" {
+		resp, err := h.runGet(lr, lr.URL+"/pipelines/"+id+"/graph")
+		if err == nil {
+			defer resp.Body.Close()
+			w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
+			return
+		}
+	}
+	src, err := os.ReadFile(filepath.Join(h.runDir(id), "graph.dot"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	svg, err := render.SVG(src, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	_, _ = w.Write(svg)
 }
 
 // Run starts the background scrape loop until stop is closed.
@@ -315,11 +345,30 @@ func (h *Hub) proxyOrArchive(suffix string) http.HandlerFunc {
 			}
 			// Fall through to the archive on scrape failure.
 		}
-		if suffix == "/events" {
+		switch suffix {
+		case "/events":
 			path := filepath.Join(h.runDir(id), "events.jsonl")
 			if _, err := os.Stat(path); err == nil {
 				w.Header().Set("Content-Type", "application/x-ndjson")
 				serveEventsSince(w, path, r.URL.Query().Get("since"))
+				return
+			}
+		case "/artifacts":
+			// Archived runs: list the unpacked archive's tree, same
+			// shape as the run server's listing.
+			root := h.runDir(id)
+			if _, err := os.Stat(root); err == nil {
+				var files []string
+				_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+					if err != nil || d.IsDir() {
+						return nil
+					}
+					if rel, err := filepath.Rel(root, p); err == nil {
+						files = append(files, rel)
+					}
+					return nil
+				})
+				writeJSON(w, files)
 				return
 			}
 		}

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -271,5 +273,37 @@ func TestHub_ArtifactsProxyAndArchive(t *testing.T) {
 		if resp3.StatusCode == 200 {
 			t.Fatal("artifact path escape served")
 		}
+	}
+}
+
+// The artifacts LISTING must also survive archival — the waterfall's
+// detail panel drives its visit tabs and tool-call list off it.
+func TestHub_ArchivedArtifactsListing(t *testing.T) {
+	dir := t.TempDir()
+	writeRunDir(t, dir, "r8", "completed")
+	if err := os.MkdirAll(filepath.Join(dir, "work", "v1", "tool_calls"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "work", "v1", "tool_calls", "001-tool_call.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, ts := newHub(t)
+	var buf bytes.Buffer
+	if err := TarRunDir(dir, &buf); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest("POST", ts.URL+"/pipelines/r8/archive", &buf)
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 204 {
+		t.Fatalf("archive: %v %v", err, resp)
+	}
+	files := getJSON[[]string](t, ts.URL+"/pipelines/r8/artifacts")
+	found := false
+	for _, f := range files {
+		if f == "work/v1/tool_calls/001-tool_call.json" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("archived listing missing tool call file: %v", files)
 	}
 }

@@ -36,10 +36,22 @@
 <header>
   <h1>attractor hub</h1>
   <span class="dim" id="counts">…</span>
+  <span style="flex:1"></span>
+  <button id="launch-toggle" class="pill" style="cursor:pointer">+ launch run</button>
 </header>
+<form id="launch" style="display:none; padding:.8rem 1rem; border-bottom:1px solid var(--line)">
+  <input id="l-path" placeholder="pipeline name or .dot path" required
+         style="width:22rem; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:.3rem .5rem; font:inherit">
+  <input id="l-cwd" placeholder="working tree (--cwd)"
+         style="width:18rem; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:.3rem .5rem; font:inherit">
+  <input id="l-vars" placeholder='vars, k=v space-separated'
+         style="width:22rem; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:.3rem .5rem; font:inherit">
+  <button type="submit" class="pill" style="cursor:pointer; color:var(--accent)">launch</button>
+  <span id="l-msg" class="dim"></span>
+</form>
 <table id="runs" style="display:none">
   <thead><tr>
-    <th>run</th><th>pipeline</th><th>goal</th><th>status</th><th>where</th><th>started</th>
+    <th>run</th><th>pipeline</th><th>goal</th><th>status</th><th></th><th>where</th><th>started</th>
   </tr></thead>
   <tbody id="rows"></tbody>
 </table>
@@ -79,11 +91,13 @@ async function tick() {
       tr.className = "run";
       const where = r.archived ? ["archived", "archived"]
                   : r.reachable ? ["live", "live"] : ["unreachable", "unreachable"];
+      const gates = (d.pending_questions || []).length;
       tr.innerHTML =
         `<td><a href="/ui/${encodeURIComponent(r.run_id)}">${r.run_id}</a></td>` +
         `<td>${d.graph_name || ""}</td>` +
         `<td class="goal" title="${(d.goal || "").replaceAll('"', "&quot;")}">${d.goal || ""}</td>` +
         `<td><span class="pill ${r.status || d.status || ""}">${r.status || d.status || "?"}</span></td>` +
+        `<td>${gates ? `<span class="pill running" title="${gates} gate(s) waiting for a human">⏸ ${gates}</span>` : ""}</td>` +
         `<td><span class="pill ${where[0]}">${where[1]}</span></td>` +
         `<td>${fmtWhen(d.started_at)}</td>`;
       tr.onclick = ev => {
@@ -99,6 +113,25 @@ async function tick() {
   } catch (e) { /* hub briefly unavailable; keep polling */ }
   setTimeout(tick, 2000);
 }
+$("launch-toggle").onclick = () => {
+  const f = $("launch");
+  f.style.display = f.style.display === "none" ? "block" : "none";
+};
+$("launch").onsubmit = async ev => {
+  ev.preventDefault();
+  const vars = {};
+  for (const pair of $("l-vars").value.trim().split(/\s+/).filter(Boolean)) {
+    const i = pair.indexOf("=");
+    if (i > 0) vars[pair.slice(0, i)] = pair.slice(i + 1);
+  }
+  try {
+    const r = await fetch("/pipelines", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: $("l-path").value, cwd: $("l-cwd").value, vars }) });
+    $("l-msg").textContent = r.ok ? "launched — it will appear once it announces"
+                                  : "launch failed: " + r.status + " " + await r.text();
+  } catch (e) { $("l-msg").textContent = "launch failed: " + e.message; }
+};
 tick();
 </script>
 </body>

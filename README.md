@@ -173,8 +173,17 @@ Approval gates render as buttons — this run is paused at its ship gate:
 
 ![The live waterfall, paused at a human gate](./docs/images/waterfall.png)
 
+Clicking a span opens its full story — the agent's actual prompt,
+response, and status.json self-report, per-visit history when a node
+ran more than once, every tool call's payload, and live output while
+the span is still running. Header tabs switch to the rendered pipeline
+graph, the run's current context (every `$context.*` key), and a
+browser over the whole run directory:
+
+![Span detail: the agent's status report, prompt, response, and tool calls](./docs/images/detail.png)
+
 The same data is served as JSON (`/pipelines/{id}`, `/events?since=N`,
-`/artifacts/…`) for scripts and agents.
+`/artifacts/…`, `/graph`) for scripts and agents.
 
 ### Shipped pipelines
 

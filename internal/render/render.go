@@ -97,6 +97,14 @@ func graphvizSafe(src []byte) []byte {
 	if err != nil {
 		return src
 	}
+	return MinimalDOT(g)
+}
+
+// MinimalDOT re-emits a built graph as minimal graphviz-clean DOT:
+// nodes with shape + label, labelled edges, Attractor-only attributes
+// dropped. Used for rendering and as the run's persisted graph.dot
+// (the executed, transform-applied topology).
+func MinimalDOT(g *graph.Graph) []byte {
 	var b strings.Builder
 	writeGraphHeader(&b, false)
 	for _, id := range g.NodeOrder {

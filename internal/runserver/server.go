@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/allouis/attractor/internal/engine"
+	"github.com/allouis/attractor/internal/render"
 	"github.com/allouis/attractor/internal/runview"
 	"github.com/allouis/attractor/internal/webui"
 )
@@ -51,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /pipelines/{id}/events", s.events)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts", s.listArtifacts)
 	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", s.artifact)
+	mux.HandleFunc("GET /pipelines/{id}/graph", s.graph)
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.questions)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answer)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
@@ -205,6 +207,25 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// graph renders the run's persisted topology (graph.dot) as SVG.
+func (s *Server) graph(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkID(w, r); !ok {
+		return
+	}
+	src, err := os.ReadFile(filepath.Join(s.logsRoot, "graph.dot"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	svg, err := render.SVG(src, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	_, _ = w.Write(svg)
 }
 
 // listArtifacts returns the run dir's file tree (relative paths).

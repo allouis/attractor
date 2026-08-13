@@ -133,3 +133,31 @@ func TestServer_DroppedEndpointsAbsent(t *testing.T) {
 		t.Fatalf("/nodes should be 404, got %d", rr.Code)
 	}
 }
+
+// The graph endpoint renders the run's executed topology (graph.dot,
+// written at run start) as SVG, so the UI can show what routes where.
+func TestServer_GraphSVG(t *testing.T) {
+	dir := writeRun(t)
+	must(t, os.WriteFile(filepath.Join(dir, "graph.dot"), []byte(`digraph g {
+		start [shape=Mdiamond]
+		work [prompt="x"]
+		done [shape=Msquare]
+		start -> work -> done
+	}`), 0o644))
+	s := New(dir)
+	rr := get(t, s, "/pipelines/r1/graph")
+	if rr.Code != 200 {
+		t.Fatalf("graph status %d: %s", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.Contains(ct, "svg") {
+		t.Fatalf("content type %q, want svg", ct)
+	}
+	if !strings.Contains(rr.Body.String(), "<svg") {
+		t.Fatalf("not svg: %.120s", rr.Body.String())
+	}
+	// A run dir without graph.dot 404s rather than erroring.
+	s2 := New(writeRun(t))
+	if rr := get(t, s2, "/pipelines/r1/graph"); rr.Code != 404 {
+		t.Fatalf("missing graph.dot should 404, got %d", rr.Code)
+	}
+}

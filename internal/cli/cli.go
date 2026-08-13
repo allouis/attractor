@@ -285,6 +285,11 @@ func runEngineWithID(prepared *engine.PreparedGraph, cb backend.CodergenBackend,
 // runEngineFull is the shared engine-run core.
 func runEngineFull(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, runID string) error {
 	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext, RunID: runID}
+	if logsRoot != "" {
+		// Persist the executed topology so the run server's /graph
+		// endpoint (and the archive) can render it. Best-effort.
+		_ = os.WriteFile(filepath.Join(logsRoot, "graph.dot"), render.MinimalDOT(prepared.Graph), 0o644)
+	}
 	eng := engine.New(cfg)
 	done := make(chan struct{})
 	go func() {

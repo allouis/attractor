@@ -17,7 +17,7 @@
            padding: .6rem 1rem; border-bottom: 1px solid var(--line);
            position: sticky; top: 0; background: var(--bg); z-index: 2; }
   header .goal { color: var(--dim); overflow: hidden; text-overflow: ellipsis;
-                 white-space: nowrap; max-width: 40ch; }
+                 white-space: nowrap; max-width: 34ch; }
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: .1rem .6rem;
           background: var(--panel); white-space: nowrap; }
   .chip b { color: var(--accent); font-weight: 600; }
@@ -25,14 +25,22 @@
   .status-failed { color: var(--bad); }
   select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
            border-radius: 4px; padding: .1rem .3rem; font: inherit; }
-  main { display: grid; grid-template-columns: 1fr minmax(0, 26rem); min-height: calc(100vh - 3rem); }
+  button.tab { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+               border-radius: 4px; padding: .15rem .6rem; cursor: pointer; font: inherit; }
+  button.tab.active, button.tab:hover { border-color: var(--accent); color: var(--accent); }
+  main { display: grid; grid-template-columns: 1fr minmax(0, 30rem); min-height: calc(100vh - 3rem); }
+  #left { min-width: 0; }
   #waterfall { padding: .8rem 1rem; overflow-x: auto; }
+  #graphview, #artifactsview, #contextview { display: none; padding: .8rem 1rem; overflow: auto; }
+  #graphview img { max-width: 100%; background: #f6f8fa; border-radius: 6px; }
   #detail { border-left: 1px solid var(--line); padding: .8rem 1rem; background: var(--panel);
             display: none; overflow-wrap: anywhere; }
   #detail.open { display: block; }
   #detail pre { white-space: pre-wrap; background: var(--bg); padding: .5rem;
                 border-radius: 4px; max-height: 22rem; overflow: auto; }
   #detail .close { float: right; cursor: pointer; color: var(--dim); }
+  #detail h3 { margin: .2rem 0 .4rem; }
+  .cap { color: var(--dim); margin-top: .7rem; }
   .lane { display: grid; grid-template-columns: 16rem 1fr; gap: .5rem;
           align-items: center; margin-bottom: .35rem; }
   .lane-label { text-align: right; color: var(--dim); overflow: hidden;
@@ -63,6 +71,19 @@
                     border-radius: 4px; padding: .25rem; font: inherit; width: 60%; }
   .fail-banner { margin: .6rem 1rem; padding: .5rem .8rem; border: 1px solid var(--bad);
                  border-radius: 6px; color: var(--bad); white-space: pre-wrap; }
+  #live { background: var(--bg); border: 1px solid var(--warn); border-radius: 4px;
+          padding: .5rem; max-height: 14rem; overflow: auto; white-space: pre-wrap; }
+  .toolcall { border: 1px solid var(--line); border-radius: 4px; margin: .25rem 0; }
+  .toolcall summary { cursor: pointer; padding: .25rem .5rem; color: var(--dim); }
+  .toolcall pre { margin: 0; max-height: 16rem; }
+  table.kv { border-collapse: collapse; width: 100%; }
+  table.kv td { border-bottom: 1px solid var(--line); padding: .3rem .5rem;
+                vertical-align: top; }
+  table.kv td.k { color: var(--accent); white-space: nowrap; }
+  table.kv td.v { white-space: pre-wrap; overflow-wrap: anywhere; }
+  ul.files { list-style: none; padding: 0 0 0 .2rem; margin: 0; }
+  ul.files a { color: var(--accent); text-decoration: none; }
+  .visits button { margin-right: .3rem; }
 </style>
 </head>
 <body>
@@ -79,16 +100,32 @@
     <option value="class">class</option>
     <option value="type">type</option>
   </select></label>
+  <span style="flex:1"></span>
+  <button class="tab active" id="tab-waterfall">waterfall</button>
+  <button class="tab" id="tab-graph">graph</button>
+  <button class="tab" id="tab-context">context</button>
+  <button class="tab" id="tab-artifacts">files</button>
 </header>
 <div id="failreason" class="fail-banner" style="display:none"></div>
 <div id="questions"></div>
 <main>
-  <div id="waterfall"></div>
+  <div id="left">
+    <div id="waterfall"></div>
+    <div id="graphview"></div>
+    <div id="contextview"></div>
+    <div id="artifactsview"></div>
+  </div>
   <aside id="detail"><span class="close" onclick="closeDetail()">✕</span><div id="detail-body"></div></aside>
 </main>
 <script>
 "use strict";
 let runId = null, lastSeq = -1, doc = null;
+let eventCursor = 0;
+// liveText accumulates recent agent output per node from the event
+// stream (assistant deltas), so a running span can show what the agent
+// is saying right now.
+const liveText = {};
+let selected = null; // the span open in the detail panel
 const $ = id => document.getElementById(id);
 
 // On the hub, the page is served at /ui/{run_id}; on a single-run
@@ -103,6 +140,7 @@ async function j(url, opts) {
   if (!r.ok) throw new Error(url + ": " + r.status);
   return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
 }
+const api = path => "/pipelines/" + encodeURIComponent(runId) + path;
 
 // Poll loop (D5): 500ms tick, never stops — a finished run keeps
 // serving its final state, a restarted server just resumes.
@@ -113,13 +151,34 @@ async function tick() {
       if (list.length) runId = list[0].run_id;
     }
     if (runId) {
-      const d = await j("/pipelines/" + runId);
+      const d = await j(api(""));
       if (d.last_seq !== lastSeq || d.status === "running") {
         lastSeq = d.last_seq; doc = d; render();
       }
+      await drainEvents();
     }
   } catch (e) { /* server briefly unavailable; keep polling */ }
   setTimeout(tick, 500);
+}
+
+// drainEvents tails the event stream from a cursor and keeps the last
+// ~80 lines of agent output per node for the live view.
+async function drainEvents() {
+  const text = await j(api("/events?since=" + eventCursor));
+  if (typeof text !== "string" || !text.trim()) return;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let ev;
+    try { ev = JSON.parse(line); } catch { continue; }
+    if (ev.seq > eventCursor) eventCursor = ev.seq;
+    if (ev.kind === "stage_progress" && ev.detail?.kind === "assistant_delta" && ev.node_id) {
+      const buf = (liveText[ev.node_id] = liveText[ev.node_id] || []);
+      buf.push(ev.message || "");
+      // Deltas are fragments; keep a bounded tail.
+      if (buf.length > 400) buf.splice(0, buf.length - 400);
+    }
+  }
+  if (selected && selected.outcome === "running") renderLive();
 }
 
 function fmtTokens(u) {
@@ -138,6 +197,7 @@ const GLYPH = { success: "✓", fail: "✗", retry: "↻", running: "◐", parti
 function render() {
   $("name").textContent = doc.graph_name || doc.run_id;
   $("goal").textContent = doc.goal || "";
+  $("goal").title = doc.goal || "";
   $("status").textContent = doc.status;
   $("status").className = "status-" + doc.status;
   $("tokens").textContent = fmtTokens(doc.usage);
@@ -177,15 +237,15 @@ function renderQuestions() {
 
 async function answer(qid, value, note) {
   try {
-    await j("/pipelines/" + runId + "/questions/" + encodeURIComponent(qid) + "/answer",
+    await j(api("/questions/" + encodeURIComponent(qid) + "/answer"),
       { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value, note }) });
   } catch (e) { alert("answer failed: " + e.message); }
 }
 
 // Waterfall (D5): one lane per groupBy key, spans placed
-// time-truthfully within the lane. Tiny spans get a min-width floor
-// (CSS); tool calls render as tick marks, red on error.
+// time-truthfully within the lane. Tool calls render as tick marks,
+// red on error.
 function renderWaterfall(start, end) {
   const key = $("groupby").value;
   const lanes = new Map();
@@ -197,6 +257,8 @@ function renderWaterfall(start, end) {
   const total = Math.max(end - start, 1);
   const host = $("waterfall");
   host.innerHTML = "";
+  const maxTokens = Math.max(...[...lanes.values()].map(
+    ss => ss.reduce((a, s) => a + (s.input_tokens || 0), 0)), 1);
   for (const [label, spans] of lanes) {
     const lane = document.createElement("div");
     lane.className = "lane";
@@ -204,10 +266,7 @@ function renderWaterfall(start, end) {
     lab.className = "lane-label";
     lab.textContent = label;
     lab.title = label;
-    // Context-occupancy bar (SSSF): lane input tokens vs the run max.
     const laneTokens = spans.reduce((a, s) => a + (s.input_tokens || 0), 0);
-    const maxTokens = Math.max(...[...lanes.values()].map(
-      ss => ss.reduce((a, s) => a + (s.input_tokens || 0), 0)), 1);
     const ctx = document.createElement("span");
     ctx.className = "ctx";
     const fill = document.createElement("i");
@@ -237,7 +296,7 @@ function renderWaterfall(start, end) {
         tick.title = t.title || "tool call";
         el.appendChild(tick);
       }
-      el.onclick = () => openDetail(s);
+      el.onclick = () => openDetail(s, null);
       track.appendChild(el);
     }
     lane.appendChild(track);
@@ -245,36 +304,175 @@ function renderWaterfall(start, end) {
   }
 }
 
-async function openDetail(s) {
+// ---- detail panel ---------------------------------------------------------
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+// openDetail renders one span's full story. visit selects a historical
+// visit dir (null = the span's own visit).
+async function openDetail(s, visit) {
+  selected = s;
+  const v = visit || s.visit;
   const body = $("detail-body");
   body.innerHTML = "";
-  const h = document.createElement("h3");
-  h.textContent = s.node_id + " (visit " + s.visit + ", attempt " + s.attempt + ") — " + s.outcome;
-  body.appendChild(h);
-  const meta = document.createElement("div");
-  meta.textContent = [s.type, s.class, s.model, s.thread_id && ("thread " + s.thread_id),
+  body.appendChild(el("h3", null, s.node_id + " (visit " + s.visit + ", attempt " + s.attempt + ") — " + s.outcome));
+  const meta = el("div", null, [s.type, s.class, s.model, s.thread_id && ("thread " + s.thread_id),
     fmtTokens({ input_tokens: s.input_tokens, output_tokens: s.output_tokens })]
-    .filter(Boolean).join(" · ");
+    .filter(Boolean).join(" · "));
   body.appendChild(meta);
-  if (s.detail) {
-    const d = document.createElement("pre");
-    d.textContent = s.detail;
-    body.appendChild(d);
+  if (s.detail) body.appendChild(el("pre", null, s.detail));
+
+  // All the node's files, once: drive the visit tabs, the artifact
+  // fetches, and the tool-call list off the real tree.
+  let files = [];
+  try { files = await j(api("/artifacts")); } catch (e) {}
+  const nodeFiles = files.filter(f => f.startsWith(s.node_id + "/"));
+
+  // Visit tabs (amendment A1: {node}/v{N} is append-only history).
+  const visits = [...new Set(nodeFiles.map(f => {
+    const m = f.match(new RegExp("^" + s.node_id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/v(\\d+)/"));
+    return m ? +m[1] : null;
+  }).filter(x => x))].sort((a, b) => a - b);
+  if (visits.length > 1) {
+    const tabs = el("div", "visits");
+    tabs.appendChild(el("span", "cap", "visits: "));
+    for (const n of visits) {
+      const b = el("button", "tab" + (n === v ? " active" : ""), "v" + n);
+      b.onclick = () => openDetail(s, n);
+      tabs.appendChild(b);
+    }
+    body.appendChild(tabs);
   }
+
+  // Live agent output for a running span.
+  if (s.outcome === "running") {
+    body.appendChild(el("div", "cap", "live output"));
+    const live = el("div");
+    live.id = "live";
+    body.appendChild(live);
+    renderLive();
+  }
+
+  // Stage artifacts for the selected visit (fall back to the node-root
+  // mirror when no v-dir exists — old runs, branch nodes).
+  const base = visits.length ? s.node_id + "/v" + v : s.node_id;
   for (const name of ["status.json", "prompt.md", "response.md"]) {
+    if (!nodeFiles.includes(base + "/" + name) && visits.length) continue;
     try {
-      const txt = await j("/pipelines/" + runId + "/artifacts/" + s.node_id + "/" + name);
-      const cap = document.createElement("div");
-      cap.textContent = name;
-      cap.style.color = "var(--dim)"; cap.style.marginTop = ".6rem";
-      const pre = document.createElement("pre");
-      pre.textContent = typeof txt === "string" ? txt : JSON.stringify(txt, null, 2);
-      body.appendChild(cap); body.appendChild(pre);
+      const txt = await j(api("/artifacts/" + base + "/" + name));
+      body.appendChild(el("div", "cap", name + (visits.length > 1 ? " (v" + v + ")" : "")));
+      body.appendChild(el("pre", null, typeof txt === "string" ? txt : JSON.stringify(txt, null, 2)));
     } catch (e) { /* artifact absent for this node kind */ }
+  }
+  // Tool node output.
+  for (const name of ["stdout.txt", "stderr.txt"]) {
+    if (!nodeFiles.includes(base + "/" + name)) continue;
+    try {
+      const txt = await j(api("/artifacts/" + base + "/" + name));
+      if (String(txt).trim()) {
+        body.appendChild(el("div", "cap", name));
+        body.appendChild(el("pre", null, String(txt)));
+      }
+    } catch (e) {}
+  }
+
+  // Tool-call payloads (the ticks, expandable).
+  const calls = nodeFiles.filter(f => f.startsWith(base + "/tool_calls/")).sort();
+  if (calls.length) {
+    body.appendChild(el("div", "cap", "tool calls (" + calls.length + ")"));
+    for (const f of calls) {
+      const d = el("details", "toolcall");
+      d.appendChild(el("summary", null, f.split("/").pop()));
+      d.addEventListener("toggle", async () => {
+        if (d.open && d.childElementCount === 1) {
+          try {
+            const txt = await j(api("/artifacts/" + f));
+            d.appendChild(el("pre", null, typeof txt === "string" ? txt : JSON.stringify(txt, null, 2)));
+          } catch (e) { d.appendChild(el("pre", null, "unavailable: " + e.message)); }
+        }
+      }, { once: false });
+      body.appendChild(d);
+    }
   }
   $("detail").classList.add("open");
 }
-function closeDetail() { $("detail").classList.remove("open"); }
+
+function renderLive() {
+  const live = $("live");
+  if (!live || !selected) return;
+  live.textContent = (liveText[selected.node_id] || []).join("");
+  live.scrollTop = live.scrollHeight;
+}
+
+function closeDetail() { selected = null; $("detail").classList.remove("open"); }
+
+// ---- header tabs ----------------------------------------------------------
+
+const views = { waterfall: "waterfall", graph: "graphview", context: "contextview", artifacts: "artifactsview" };
+function showView(name) {
+  for (const [n, id] of Object.entries(views)) {
+    $(id).style.display = n === name ? "block" : "none";
+    $("tab-" + n).classList.toggle("active", n === name);
+  }
+}
+$("tab-waterfall").onclick = () => showView("waterfall");
+$("tab-graph").onclick = async () => {
+  showView("graph");
+  const host = $("graphview");
+  if (!host.childElementCount) {
+    const img = document.createElement("img");
+    img.alt = "pipeline graph";
+    img.src = api("/graph");
+    img.onerror = () => { host.textContent = "no graph available for this run"; };
+    host.appendChild(img);
+  }
+};
+$("tab-context").onclick = async () => {
+  showView("context");
+  const host = $("contextview");
+  host.innerHTML = "";
+  try {
+    const ckpt = await j(api("/artifacts/checkpoint.json"));
+    const values = (typeof ckpt === "string" ? JSON.parse(ckpt) : ckpt).context || {};
+    const tbl = el("table", "kv");
+    for (const k of Object.keys(values).sort()) {
+      const tr = document.createElement("tr");
+      tr.appendChild(el("td", "k", k));
+      tr.appendChild(el("td", "v", values[k]));
+      tbl.appendChild(tr);
+    }
+    host.appendChild(el("div", "cap", "run context (as of the last checkpoint)"));
+    host.appendChild(tbl);
+  } catch (e) {
+    host.textContent = "no checkpoint yet — the context appears after the first completed node";
+  }
+};
+$("tab-artifacts").onclick = async () => {
+  showView("artifacts");
+  const host = $("artifactsview");
+  host.innerHTML = "";
+  try {
+    const files = await j(api("/artifacts"));
+    const ul = el("ul", "files");
+    for (const f of files.sort()) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = api("/artifacts/" + f);
+      a.target = "_blank";
+      a.textContent = f;
+      li.appendChild(a);
+      ul.appendChild(li);
+    }
+    host.appendChild(el("div", "cap", files.length + " files in the run directory"));
+    host.appendChild(ul);
+  } catch (e) { host.textContent = "artifacts unavailable: " + e.message; }
+};
+
 $("groupby").onchange = () => doc && render();
 tick();
 </script>
