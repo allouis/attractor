@@ -86,6 +86,13 @@ func (h Parallel) Execute(env engine.HandlerEnv) engine.Outcome {
 			subEnv := env
 			subEnv.Node = workerNode
 			subEnv.Context = branchCtx
+			// Each branch gets its own stage seam under the parallel
+			// node's dir — sharing env.Stage let N concurrent branches
+			// clobber each other's prompt/response and consume each
+			// other's status.json verdicts (2026-08-13 audit).
+			if env.Stage != nil {
+				subEnv.Stage = env.Stage.Sub(e.To)
+			}
 			oc := handler.Execute(subEnv)
 			oc.Finalize()
 			dur := time.Since(start)

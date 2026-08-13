@@ -70,6 +70,11 @@ func parseClause(raw string) (Clause, error) {
 	if i := strings.Index(raw, "="); i >= 0 {
 		key := strings.TrimSpace(raw[:i])
 		val := strings.TrimSpace(raw[i+1:])
+		// Accept `==` as equality: the leading `=` of the value would
+		// otherwise silently become part of the literal (`outcome == fail`
+		// parsing as literal "= fail"), producing an edge that never
+		// matches with no error anywhere.
+		val = strings.TrimSpace(strings.TrimPrefix(val, "="))
 		if key == "" {
 			return Clause{}, fmt.Errorf("condition: empty key in clause %q", raw)
 		}

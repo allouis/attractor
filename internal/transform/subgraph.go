@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/allouis/attractor/internal/dot"
@@ -194,32 +195,46 @@ func (s Subgraph) loadChild(path, nodeID string, node *graph.Node) (*graph.Graph
 	}
 
 	// var.* static substitution: replace $context.<name> in every child
-	// node attr with the seeded value.
+	// node attr with the seeded value. Boundary-aware: substituting
+	// var.foo must leave $context.foobar and $context.foo.nested alone —
+	// plain ReplaceAll corrupted both, nondeterministically by map
+	// iteration order (2026-08-13 audit).
 	subs := map[string]string{}
 	for k, v := range node.Attrs {
 		if strings.HasPrefix(k, varPrefix) {
-			subs["$context."+strings.TrimPrefix(k, varPrefix)] = v
+			subs[strings.TrimPrefix(k, varPrefix)] = v
 		}
 	}
 	if len(subs) > 0 {
 		for _, cid := range child.NodeOrder {
 			for ak, av := range child.Nodes[cid].Attrs {
-				for ref, val := range subs {
-					av = strings.ReplaceAll(av, ref, val)
-				}
-				child.Nodes[cid].Attrs[ak] = av
+				child.Nodes[cid].Attrs[ak] = substituteVars(av, subs)
 			}
 		}
 		for _, e := range child.Edges {
 			for ak, av := range e.Attrs {
-				for ref, val := range subs {
-					av = strings.ReplaceAll(av, ref, val)
-				}
-				e.Attrs[ak] = av
+				e.Attrs[ak] = substituteVars(av, subs)
 			}
 		}
 	}
 	return child, nil
+}
+
+// contextRef matches one $context.<path> reference (dotted identifier
+// path, same shape the runtime interpolator accepts).
+var contextRef = regexp.MustCompile(`\$context\.([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)`)
+
+// substituteVars replaces exactly the $context.<name> references whose
+// FULL key is a seeded var; every other reference passes through for
+// runtime interpolation.
+func substituteVars(s string, subs map[string]string) string {
+	return contextRef.ReplaceAllStringFunc(s, func(m string) string {
+		key := strings.TrimPrefix(m, "$context.")
+		if val, ok := subs[key]; ok {
+			return val
+		}
+		return m
+	})
 }
 
 func prefixed(nodeID, childID string) string { return nodeID + "." + childID }

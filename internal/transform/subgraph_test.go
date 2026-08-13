@@ -230,3 +230,38 @@ func edgeList(g *graph.Graph) []string {
 	}
 	return out
 }
+
+// Audit bug 2: var substitution used plain strings.ReplaceAll, so
+// seeding var.foo also corrupted $context.foobar (→ <val>bar),
+// nondeterministically by map order. Substitution must be
+// identifier-boundary aware.
+func TestSubgraph_VarSubstitutionRespectsIdentifierBoundaries(t *testing.T) {
+	dir := t.TempDir()
+	child := filepath.Join(dir, "child.dot")
+	if err := os.WriteFile(child, []byte(`digraph c {
+		vars = "foo"
+		start [shape=Mdiamond]
+		work [prompt="use $context.foo but keep $context.foobar and $context.foo.nested"]
+		done [shape=Msquare]
+		start -> work -> done
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g := buildG(t, `digraph p {
+		start [shape=Mdiamond]
+		sub [type="subgraph", graph_ref="`+child+`", var.foo="VAL"]
+		done [shape=Msquare]
+		start -> sub -> done
+	}`)
+	out := expand(t, g)
+	prompt := out.Nodes["sub.work"].Attrs["prompt"]
+	if !strings.Contains(prompt, "use VAL but") {
+		t.Fatalf("$context.foo not substituted: %q", prompt)
+	}
+	if !strings.Contains(prompt, "$context.foobar") {
+		t.Fatalf("$context.foobar corrupted by prefix substitution: %q", prompt)
+	}
+	if !strings.Contains(prompt, "$context.foo.nested") {
+		t.Fatalf("$context.foo.nested corrupted (dotted path shares the identifier): %q", prompt)
+	}
+}

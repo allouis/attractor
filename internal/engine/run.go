@@ -274,6 +274,10 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 		// — inlined review subgraphs route synth FAIL verdicts to fix
 		// nodes this way (D6).
 		state.context.Set("failure_reason", outcome.FailureReason)
+		if state.lastOutcomes == nil {
+			state.lastOutcomes = map[string]Outcome{}
+		}
+		state.lastOutcomes[nodeID] = outcome
 		if outcome.Status == StatusSuccess || outcome.Status == StatusPartialSuccess {
 			state.completedNodes = append(state.completedNodes, nodeID)
 			state.nodeOutcomes[nodeID] = outcome
@@ -352,6 +356,12 @@ type runState struct {
 	retries             map[string]int
 	visits              map[string]int
 	shouldSkipCompleted bool
+	// lastOutcomes records EVERY node's most recent outcome, any status.
+	// The terminal goal-gate check (§3.4) folds over this — nodeOutcomes
+	// is success-only (it feeds resume skipping), so a gate node whose
+	// latest visit FAILED would otherwise be invisible to the check and a
+	// fail-edge route to exit would end the run SUCCESS.
+	lastOutcomes map[string]Outcome
 	// incomingEdge tracks the edge by which the engine arrived at the
 	// current cursor; used to resolve per-edge fidelity / thread_id
 	// overrides for the next handler invocation.
@@ -576,7 +586,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
 		e.emit(Event{Kind: EventStageStarted, Timestamp: e.now(), RunID: e.RunID, NodeID: node.ID, Attempt: attempt})
 		start := e.now()
-		outcome = handler.Execute(env)
+		outcome = e.executeHandler(handler, env)
 		outcome.Finalize()
 		dur := e.now().Sub(start)
 		switch outcome.Status {
@@ -630,6 +640,22 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 	return outcome, nil
 }
 
+// executeHandler runs one handler attempt, converting a panic into a
+// FAIL outcome (spec §4.12): a crashing handler must fail its node —
+// with the terminal pipeline event still emitted — not kill the
+// process and leave the run dir looking live forever.
+func (e *Engine) executeHandler(handler Handler, env HandlerEnv) (out Outcome) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = Outcome{
+				Status:        StatusFail,
+				FailureReason: fmt.Sprintf("handler panic on node %q: %v", env.Node.ID, r),
+			}
+		}
+	}()
+	return handler.Execute(env)
+}
+
 // advanceOrFail returns the next node ID and the edge used to reach
 // it (nil if the advance was via NextNode jump or retry_target). Empty
 // string signals "no further progress possible" — the caller decides
@@ -653,17 +679,22 @@ func (e *Engine) advanceOrFail(g *graph.Graph, node *graph.Node, outcome *Outcom
 // satisfied is false and jumpTarget is empty, no retry route exists and
 // the pipeline must fail.
 func (e *Engine) checkGoalGates(g *graph.Graph, state *runState) (string, string, bool) {
-	for _, id := range state.completedNodes {
-		node, ok := g.Nodes[id]
-		if !ok {
-			continue
-		}
+	for _, id := range g.NodeOrder {
+		node := g.Nodes[id]
 		if !node.Bool("goal_gate") {
 			continue
 		}
-		outcome, ok := state.nodeOutcomes[id]
+		// Fold over EVERY executed node's latest outcome (any status) —
+		// success-only maps made a failed gate invisible here (§3.4).
+		// A gate node never visited (e.g. on an untaken branch) is
+		// treated as satisfied under the checkpoint-resume fallback.
+		outcome, ok := state.lastOutcomes[id]
 		if !ok {
-			continue
+			if o, resumed := state.nodeOutcomes[id]; resumed {
+				outcome = o
+			} else {
+				continue
+			}
 		}
 		if outcome.Status == StatusSuccess || outcome.Status == StatusPartialSuccess {
 			continue
