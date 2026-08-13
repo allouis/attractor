@@ -6,18 +6,18 @@ import "time"
 // carries the event Kind plus a small payload of common fields; richer
 // data lives in the typed sub-fields.
 type Event struct {
-	Kind       EventKind         `json:"kind"`
-	Timestamp  time.Time         `json:"ts"`
-	RunID      string            `json:"run_id,omitempty"`
-	NodeID     string            `json:"node_id,omitempty"`
-	Status     string            `json:"status,omitempty"`
-	Message    string            `json:"message,omitempty"`
-	Attempt    int               `json:"attempt,omitempty"`
+	Kind      EventKind `json:"kind"`
+	Timestamp time.Time `json:"ts"`
+	RunID     string    `json:"run_id,omitempty"`
+	NodeID    string    `json:"node_id,omitempty"`
+	Status    string    `json:"status,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	Attempt   int       `json:"attempt,omitempty"`
 	// Visit is the 1-based count of engine visits to NodeID within this
 	// run incarnation (D3): span identity is (node_id, visit, attempt).
 	// Stamped by emit from the engine's visit bookkeeping; 0 on events
 	// with no node.
-	Visit int `json:"visit,omitempty"`
+	Visit      int               `json:"visit,omitempty"`
 	DelayMs    int               `json:"delay_ms,omitempty"`
 	Duration   time.Duration     `json:"duration_ns,omitempty"`
 	Detail     map[string]string `json:"detail,omitempty"`

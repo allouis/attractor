@@ -41,11 +41,11 @@ type Engine struct {
 	// visitsMu/visits mirror the run state's per-node visit counts for
 	// emit, which stamps Event.Visit (D3 span identity) and cannot see
 	// the run state directly (handlers call emit concurrently).
-	visitsMu sync.Mutex
-	visits   map[string]int
-	seq             atomic.Int64
-	initialContext  map[string]string
-	skipEventLog    bool
+	visitsMu       sync.Mutex
+	visits         map[string]int
+	seq            atomic.Int64
+	initialContext map[string]string
+	skipEventLog   bool
 }
 
 // Config configures a new Engine.

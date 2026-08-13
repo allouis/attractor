@@ -10,6 +10,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +34,7 @@ import (
 	"github.com/allouis/attractor/internal/lint"
 	"github.com/allouis/attractor/internal/render"
 	"github.com/allouis/attractor/internal/report"
+	"github.com/allouis/attractor/internal/runserver"
 	"github.com/allouis/attractor/internal/server"
 	"github.com/allouis/attractor/internal/setup"
 )
@@ -119,6 +122,8 @@ func Run(args []string) error {
 	baseDir := fs.String("base-dir", "", "directory @file prompts and child pipelines resolve against (default: the .dot file's directory)")
 	cwd := fs.String("cwd", "", "working tree the pipeline operates in (graph-level cwd default; report mode)")
 	noEventLog := fs.Bool("no-event-log", false, "do not write this run's own events.jsonl; the daemon persists events instead (report mode, used when the daemon shares this run's logs dir over rw 9p — ui-run-view-v3 P5c)")
+	ui := fs.Bool("ui", false, "serve this run's own read-only API + waterfall UI while it runs (local-first single-run server)")
+	uiAddr := fs.String("ui-addr", "127.0.0.1:0", "listen address for --ui (default: an ephemeral localhost port)")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	positional, err := parseFlexible(fs, args)
@@ -201,6 +206,23 @@ func Run(args []string) error {
 	}
 
 	iv := resolveInterviewer(*humanFlag)
+	if *ui {
+		srv := runserver.New(logsRoot)
+		// Gates are answered over the run's own /answer endpoint unless
+		// the user explicitly asked for a console/approve interviewer.
+		if !flagSet(fs, "human") {
+			gate := runserver.NewGate()
+			srv.Answer = gate.Answer
+			iv = gate
+		}
+		ln, err := net.Listen("tcp", *uiAddr)
+		if err != nil {
+			return fmt.Errorf("run: --ui listen: %w", err)
+		}
+		defer ln.Close()
+		go func() { _ = http.Serve(ln, srv.Handler()) }()
+		fmt.Fprintf(os.Stderr, "run: serving UI at http://%s/ui (API: /pipelines)\n", ln.Addr())
+	}
 	return runEngine(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars)
 }
 
