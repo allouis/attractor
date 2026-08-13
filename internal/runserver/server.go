@@ -35,6 +35,10 @@ type Server struct {
 	// Meta enriches spans with graph-derived node metadata (D5:
 	// self-describing spans). Optional.
 	Meta map[string]runview.NodeMeta
+	// Token, when set, requires `Authorization: Bearer <Token>` on every
+	// endpoint (local-first plan Phase 4: auth on the run server unlocks
+	// remote runners). Empty means open — the loopback default.
+	Token string
 }
 
 // New returns a Server rooted at the run's logs directory.
@@ -60,7 +64,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui", http.StatusFound)
 	})
-	return mux
+	if s.Token == "" {
+		return mux
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+s.Token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // manifest reads run.json. The zero Manifest (with empty RunID) means

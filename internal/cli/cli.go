@@ -27,6 +27,7 @@ import (
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/handler"
+	"github.com/allouis/attractor/internal/hub"
 	"github.com/allouis/attractor/internal/ingest"
 	"github.com/allouis/attractor/internal/interviewer"
 	"github.com/allouis/attractor/internal/items"
@@ -125,6 +126,8 @@ func Run(args []string) error {
 	noEventLog := fs.Bool("no-event-log", false, "do not write this run's own events.jsonl; the daemon persists events instead (report mode, used when the daemon shares this run's logs dir over rw 9p — ui-run-view-v3 P5c)")
 	ui := fs.Bool("ui", false, "serve this run's own read-only API + waterfall UI while it runs (local-first single-run server)")
 	uiAddr := fs.String("ui-addr", "127.0.0.1:0", "listen address for --ui (default: an ephemeral localhost port)")
+	announce := fs.String("announce", "", "hub base URL: register this run's --ui URL at start and ship the run-dir archive on completion (implies --ui)")
+	uiToken := fs.String("ui-token", "", "require `Authorization: Bearer <token>` on the run's own server (unlocks non-loopback --ui-addr); shared with the hub via announce")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	positional, err := parseFlexible(fs, args)
@@ -207,9 +210,11 @@ func Run(args []string) error {
 	}
 
 	iv := resolveInterviewer(*humanFlag)
-	if *ui {
+	localRunID := engine.NewRunID()
+	if *ui || *announce != "" {
 		srv := runserver.New(logsRoot)
 		srv.Meta = nodeMeta(g)
+		srv.Token = *uiToken
 		// Gates are answered over the run's own /answer endpoint unless
 		// the user explicitly asked for a console/approve interviewer.
 		if !flagSet(fs, "human") {
@@ -224,8 +229,23 @@ func Run(args []string) error {
 		defer ln.Close()
 		go func() { _ = http.Serve(ln, srv.Handler()) }()
 		fmt.Fprintf(os.Stderr, "run: serving UI at http://%s/ui (API: /pipelines)\n", ln.Addr())
+		if *announce != "" {
+			// One-shot registration (not telemetry): the hub pulls
+			// everything else from this run's own API.
+			if err := hub.Announce(*announce, localRunID, "http://"+ln.Addr().String(), *uiToken); err != nil {
+				fmt.Fprintf(os.Stderr, "run: hub announce failed (continuing standalone): %v\n", err)
+			}
+		}
 	}
-	return runEngine(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars)
+	runErr := runEngineWithID(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars, localRunID)
+	if *announce != "" {
+		// Archive-on-complete (any outcome): the tar IS the permanent
+		// record; ship before any teardown.
+		if err := hub.ShipArchive(*announce, localRunID, logsRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "run: hub archive failed (run dir remains at %s): %v\n", logsRoot, err)
+		}
+	}
+	return runErr
 }
 
 // nodeMeta extracts the per-node metadata the run server attaches to
@@ -295,7 +315,14 @@ func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
 // `automations run`. initialContext seeds the run's context with the
 // `-var`/automation vars so `$context.<var>` resolves at runtime (C3).
 func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string) error {
-	return runEngineReporting(prepared, cb, iv, logsRoot, jsonOut, initialContext, nil, false)
+	return runEngineWithID(prepared, cb, iv, logsRoot, jsonOut, initialContext, "")
+}
+
+// runEngineWithID is runEngine with an explicit run id, so the single-run
+// server and hub announce/archive speak the same id the engine stamps on
+// its events and run.json. Empty means mint one.
+func runEngineWithID(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, runID string) error {
+	return runEngineFull(prepared, cb, iv, logsRoot, jsonOut, initialContext, nil, false, runID)
 }
 
 // reportSink phones a run's activity home to a daemon (phone-home mode).
@@ -312,7 +339,13 @@ type reportSink struct {
 // suppresses the engine's own events.jsonl for a run whose logs dir the daemon
 // shares over rw 9p (P5c), keeping the daemon the single writer of that file.
 func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, rep *reportSink, skipEventLog bool) error {
-	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext, SkipEventLog: skipEventLog}
+	return runEngineFull(prepared, cb, iv, logsRoot, jsonOut, initialContext, rep, skipEventLog, "")
+}
+
+// runEngineFull is the one shared engine-run core: optional phone-home
+// reporting (rep) and an optional explicit run id.
+func runEngineFull(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, rep *reportSink, skipEventLog bool, runID string) error {
+	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext, SkipEventLog: skipEventLog, RunID: runID}
 	if rep != nil {
 		cfg.RunID = rep.runID
 	}

@@ -242,12 +242,25 @@ and already works.
 
 ### Phase 4 — Scale back up
 
-13. **Announce + hub scrape**: run registers its URL at start; hub = directory
-    + scraper + launcher. Same API schema either way.
-14. **Archive-on-complete**: tar run dir → ship before teardown.
-15. **VM launcher returns** under the pull model (D9); phone-home/report/ingest
-    code deleted.
-16. **Remote runners**: auth on the run server; any reachable machine works.
+13. **Announce + hub scrape** — done. `attractor hub` (internal/hub): runs
+    started with `run --announce <hub>` register once; the hub scrapes
+    `/pipelines/{id}` + `/events?since=` from the run's own server, proxies
+    questions/answers, and lists live + archived runs. Scrape failure is the
+    liveness signal. `POST /pipelines` on the hub spawns
+    `attractor run --announce` subprocesses (hub = directory + scraper +
+    launcher).
+14. **Archive-on-complete** — done. finish → tar.gz run dir → POST
+    /pipelines/{id}/archive → ack; the unpacked archive is the permanent
+    record, served through the same API schema as the live run.
+15. **VM launcher returns** under the pull model (D9) — **remaining**. The
+    guest just runs `attractor run --announce` with a forwarded port; then
+    phone-home/report/ingest and the legacy serve daemon's dual lifecycle are
+    deleted. Blocked on reworking the nix image + launcher; the legacy `serve`
+    path (frozen) still covers VM runs until then.
+16. **Remote runners** — done (mechanism). `run --ui-token` puts Bearer auth
+    on the run's own server; the token travels in the announce and the hub
+    presents it on every scrape/proxy, so a run on any reachable machine
+    works.
 
 ## Frozen (not deleted)
 
