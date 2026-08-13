@@ -66,12 +66,69 @@ type hubRunSummary struct {
 	LastSeen  time.Time `json:"last_seen,omitzero"`
 }
 
-// New returns a Hub rooted at dir.
+// New returns a Hub rooted at dir, reloading any announces persisted
+// by a previous incarnation — a hub restart must not forget live runs
+// (they only announce once). Reloaded runs start unreachable until the
+// next scrape proves otherwise.
 func New(dir string) *Hub {
-	return &Hub{
+	h := &Hub{
 		dir:    dir,
 		client: &http.Client{Timeout: 10 * time.Second},
 		live:   map[string]*liveRun{},
+	}
+	h.loadAnnounces()
+	return h
+}
+
+// announceRecord is the persisted form of one announce.
+type announceRecord struct {
+	RunID string `json:"run_id"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
+}
+
+func (h *Hub) announcesPath() string {
+	return filepath.Join(h.dir, "announces.json")
+}
+
+// loadAnnounces restores the live registry from disk. Best-effort: a
+// missing or corrupt file just means an empty registry.
+func (h *Hub) loadAnnounces() {
+	data, err := os.ReadFile(h.announcesPath())
+	if err != nil {
+		return
+	}
+	var recs []announceRecord
+	if json.Unmarshal(data, &recs) != nil {
+		return
+	}
+	for _, rec := range recs {
+		if rec.RunID == "" || rec.URL == "" {
+			continue
+		}
+		h.live[rec.RunID] = &liveRun{RunID: rec.RunID, URL: rec.URL, token: rec.Token}
+	}
+}
+
+// saveAnnounces persists the live registry (called with h.mu NOT held;
+// takes its own snapshot). The file carries run tokens, so owner-only.
+func (h *Hub) saveAnnounces() {
+	h.mu.Lock()
+	recs := make([]announceRecord, 0, len(h.live))
+	for _, lr := range h.live {
+		recs = append(recs, announceRecord{RunID: lr.RunID, URL: lr.URL, Token: lr.token})
+	}
+	h.mu.Unlock()
+	data, err := json.MarshalIndent(recs, "", "  ")
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(h.dir, 0o755); err != nil {
+		return
+	}
+	tmp := h.announcesPath() + ".tmp"
+	if os.WriteFile(tmp, data, 0o600) == nil {
+		_ = os.Rename(tmp, h.announcesPath())
 	}
 }
 
@@ -200,6 +257,7 @@ func (h *Hub) announce(w http.ResponseWriter, r *http.Request) {
 	}
 	h.live[body.RunID] = lr
 	h.mu.Unlock()
+	h.saveAnnounces()
 	// Scrape synchronously so the run is listed (with state) the moment
 	// the announce returns; one bounded GET.
 	h.scrape(lr)
@@ -421,6 +479,7 @@ func (h *Hub) archive(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	delete(h.live, id)
 	h.mu.Unlock()
+	h.saveAnnounces()
 	w.WriteHeader(http.StatusNoContent)
 }
 

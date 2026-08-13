@@ -307,3 +307,49 @@ func TestHub_ArchivedArtifactsListing(t *testing.T) {
 		t.Fatalf("archived listing missing tool call file: %v", files)
 	}
 }
+
+// Announces persist across hub restarts: the live registry was
+// in-memory only, so restarting the hub forgot every live run until
+// its archive landed (demonstrated 2026-08-13). A new Hub over the
+// same dir must reload announced runs and resume scraping them.
+func TestHub_AnnouncesSurviveRestart(t *testing.T) {
+	runURL, runID := startRun(t, "running")
+	dir := t.TempDir()
+	h1 := New(dir)
+	ts1 := httptest.NewServer(h1.Handler())
+	postJSON(t, ts1.URL+"/announce", map[string]string{"run_id": runID, "url": runURL, "token": "tok"})
+	ts1.Close()
+
+	// "Restart": fresh Hub over the same state dir.
+	h2 := New(dir)
+	ts2 := httptest.NewServer(h2.Handler())
+	t.Cleanup(ts2.Close)
+	h2.ScrapeAll()
+	list := getJSON[[]hubRunSummary](t, ts2.URL+"/runs")
+	if len(list) != 1 || list[0].RunID != runID {
+		t.Fatalf("restarted hub forgot the announce: %+v", list)
+	}
+	if !list[0].Reachable {
+		t.Fatalf("restarted hub did not resume scraping: %+v", list)
+	}
+	// The archive still clears the persisted announce.
+	rdir := t.TempDir()
+	writeRunDir(t, rdir, runID, "completed")
+	var buf bytes.Buffer
+	if err := TarRunDir(rdir, &buf); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest("POST", ts2.URL+"/pipelines/"+runID+"/archive", &buf)
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 204 {
+		t.Fatalf("archive: %v %v", err, resp)
+	}
+	h3 := New(dir)
+	ts3 := httptest.NewServer(h3.Handler())
+	t.Cleanup(ts3.Close)
+	list3 := getJSON[[]hubRunSummary](t, ts3.URL+"/runs")
+	for _, r := range list3 {
+		if r.RunID == runID && !r.Archived {
+			t.Fatalf("archived run still in the persisted live set: %+v", list3)
+		}
+	}
+}
