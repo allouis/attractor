@@ -132,7 +132,7 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 	response := result.ResponseText
 	_ = stage.Write("response.md", []byte(response))
-	return resolveTextOutcome(env, stage, response)
+	return h.enforceContracts(env, stage, resolveTextOutcome(env, stage, response), response)
 }
 
 // resolveTextOutcome resolves a text-only backend result into the stage

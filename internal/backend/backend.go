@@ -24,6 +24,16 @@ type CodergenBackend interface {
 	Run(env engine.HandlerEnv, prompt string) (Result, error)
 }
 
+// Continuer is an optional interface for backends that can send a
+// follow-up prompt into the session used by the node's immediately
+// preceding Run. The codergen handler uses it for in-session contract
+// corrections (local-first plan D2): a malformed result gets a
+// corrective turn in the same context window instead of a cold retry
+// that throws away everything the agent learned.
+type Continuer interface {
+	Continue(env engine.HandlerEnv, prompt string) (Result, error)
+}
+
 // Func is an adapter so plain functions satisfy CodergenBackend without
 // extra boilerplate.
 type Func func(env engine.HandlerEnv, prompt string) (Result, error)
