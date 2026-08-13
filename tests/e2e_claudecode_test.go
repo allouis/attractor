@@ -14,7 +14,6 @@ import (
 	"github.com/allouis/attractor/internal/engine"
 	graphpkg "github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/handler"
-	"github.com/allouis/attractor/internal/ingest"
 )
 
 func fakeClaude(t *testing.T, response string, isError bool) string {
@@ -66,40 +65,6 @@ func TestClaudeCode_ReportsIsError(t *testing.T) {
 	out := runOneNode(t, be, "x", t.TempDir())
 	if out.Status != engine.StatusFail {
 		t.Fatalf("expected FAIL on is_error=true, got %s", out.Status)
-	}
-}
-
-func TestClaudeCode_Tier2WithIngestForwardsHooks(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash unavailable")
-	}
-	shim := buildHookshim(t)
-	logsRoot := t.TempDir()
-
-	srv, err := ingest.Start(logsRoot, nil)
-	must(t, err)
-	t.Cleanup(func() { _ = srv.Close() })
-
-	dir := t.TempDir()
-	claudeBin := filepath.Join(dir, "claude")
-	script := "#!" + bashPath(t) + "\n" +
-		"echo '{\"hook\":\"post_tool\",\"tool\":\"Edit\"}' | \"" + shim + "\" post_tool\n" +
-		"echo '{\"type\":\"result\",\"result\":\"ok\",\"is_error\":false}'\n"
-	must(t, os.WriteFile(claudeBin, []byte(script), 0o755))
-
-	be := &claudecode.Backend{
-		ClaudeBin:   claudeBin,
-		HookShimBin: shim,
-		IngestURL:   srv.URL(),
-	}
-	out := runOneNode(t, be, "x", logsRoot)
-	if out.Status != engine.StatusSuccess {
-		t.Fatalf("status=%s", out.Status)
-	}
-	// Wait briefly for ingest to record the count.
-	deadline := waitFor(func() bool { return srv.Count() >= 1 })
-	if !deadline {
-		t.Fatalf("ingest never received hook payload: count=%d", srv.Count())
 	}
 }
 
@@ -165,19 +130,6 @@ func runOneNode(t *testing.T, be *claudecode.Backend, prompt string, logsRoot st
 	must(t, json.Unmarshal(data, &out))
 	out.Status = engine.ParseStatus(out.StatusString)
 	return out
-}
-
-func buildHookshim(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "hookshim")
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/allouis/attractor/hookshim")
-	cmd.Env = os.Environ()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Skipf("go build hookshim failed (no go in PATH?): %v: %s", err, out)
-	}
-	return bin
 }
 
 func esc(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }

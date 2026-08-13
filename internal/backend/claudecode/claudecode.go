@@ -1,8 +1,7 @@
 // Package claudecode implements the Claude Code CodergenBackend for
 // Attractor pipelines (codergen-backends-spec §4). The backend wraps the
-// `claude` CLI in its structured stream-JSON mode, parses events as
-// they arrive, and forwards lifecycle hooks to the engine's ingest
-// server for visibility and tool_hooks dispatch.
+// `claude` CLI in its structured stream-JSON mode and parses events as
+// they arrive.
 //
 // The package never speaks to the Anthropic API directly — provider
 // abstraction is delegated to the `claude` binary itself, matching the
@@ -31,19 +30,9 @@ type Backend struct {
 	// ClaudeBin is the path to the `claude` executable. Empty defaults to
 	// looking up the binary on PATH.
 	ClaudeBin string
-	// HookShimBin is the absolute path to the hookshim binary, used to
-	// build the per-stage settings file. Empty disables hook integration
-	// (the backend still works but emits no hook events).
-	HookShimBin string
 	// Timeout caps a single Run invocation. Zero means no per-call timeout
 	// beyond the node's own timeout attribute.
 	Timeout time.Duration
-	// IngestURL is the URL hookshims POST to. When non-empty, env vars
-	// are propagated to the claude subprocess (ATTRACTOR_INGEST etc).
-	IngestURL string
-	// FallbackDir is the local file fallback for hook payloads when the
-	// ingest URL is unreachable. Empty disables it.
-	FallbackDir string
 
 	// sessions tracks the claude session id observed for each thread_id
 	// resolved by the engine for full-fidelity stages (spec §5.4).
@@ -59,19 +48,7 @@ type Backend struct {
 // Run satisfies backend.CodergenBackend by invoking claude with
 // stream-json output and a generated hook settings file.
 func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, error) {
-	settingsPath := ""
-	if b.HookShimBin != "" {
-		path, err := b.writeSettingsFile(env)
-		if err != nil {
-			return backend.Result{}, err
-		}
-		defer func() { _ = env.Stage.Remove("claude.settings.json") }()
-		settingsPath = path
-	}
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose"}
-	if settingsPath != "" {
-		args = append(args, "--settings", settingsPath)
-	}
 	// Full-fidelity stages reuse the prior claude session via --resume
 	// so the agent continues the same conversation across stages
 	// (spec §5.4 session reuse). Fresh sessions (compact/summary/
@@ -220,57 +197,8 @@ func (b *Backend) prepareCmd(env engine.HandlerEnv, args []string) (*exec.Cmd, c
 		"ATTRACTOR_RUN_ID="+env.RunID,
 		"ATTRACTOR_STAGE_ID="+env.Node.ID,
 		"ATTRACTOR_STAGE_DIR="+filepath.Join(env.LogsRoot, env.Node.ID),
-		"ATTRACTOR_INGEST="+b.IngestURL,
-		"ATTRACTOR_FALLBACK_DIR="+b.FallbackDir,
 	)
 	return cmd, cancel, nil
-}
-
-// writeSettingsFile materialises a per-stage Claude Code settings file
-// that wires every hook to the hookshim binary. The file lives under
-// the stage's log directory so it can be inspected post-mortem.
-func (b *Backend) writeSettingsFile(env engine.HandlerEnv) (string, error) {
-	hooks := []struct {
-		Name string
-		Arg  string
-	}{
-		{"SessionStart", "session_start"},
-		{"UserPromptSubmit", "user_prompt"},
-		{"PreToolUse", "pre_tool"},
-		{"PostToolUse", "post_tool"},
-		{"Stop", "stop"},
-		{"SubagentStop", "subagent_stop"},
-		{"Notification", "notification"},
-		{"PreCompact", "pre_compact"},
-	}
-	cfg := map[string]any{
-		"hooks": map[string]any{},
-	}
-	for _, h := range hooks {
-		entry := map[string]any{
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": fmt.Sprintf("%s %s", b.HookShimBin, h.Arg),
-				},
-			},
-		}
-		if h.Name == "PreToolUse" || h.Name == "PostToolUse" {
-			entry["matcher"] = "*"
-		}
-		cfg["hooks"].(map[string]any)[h.Name] = []any{entry}
-	}
-	if env.Stage == nil {
-		return "", fmt.Errorf("claudecode: a logs root is required for the hook settings file")
-	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	if err := env.Stage.Write("claude.settings.json", data); err != nil {
-		return "", err
-	}
-	return env.Stage.Path("claude.settings.json")
 }
 
 func resultFromEnvelope(envelope map[string]any) backend.Result {

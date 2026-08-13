@@ -10,23 +10,6 @@ import (
 // engine writing its own events.jsonl (ui-run-view-v3 P5c): the reporting vm
 // child sets it so the daemon stays the single writer of the shared run dir's
 // events.jsonl. run.json (the child's identity record) is still written.
-func TestSkipEventLogSuppressesEventsFile(t *testing.T) {
-	logs := t.TempDir()
-	reg := NewRegistry()
-	reg.Register("start", okHandler{})
-	reg.Register("probe", okHandler{})
-	eng := New(Config{Registry: reg, LogsRoot: logs, RunID: "child", SkipEventLog: true})
-	if _, err := eng.Run(&PreparedGraph{Graph: buildGraph(t, splitGraph)}); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(logs, "events.jsonl")); !os.IsNotExist(err) {
-		t.Fatalf("events.jsonl exists with SkipEventLog set (err=%v)", err)
-	}
-	if _, err := os.Stat(filepath.Join(logs, "run.json")); err != nil {
-		t.Fatalf("run.json missing: %v", err)
-	}
-}
-
 const splitGraph = `digraph d {
 	start [shape=Mdiamond]
 	work [type="probe"]

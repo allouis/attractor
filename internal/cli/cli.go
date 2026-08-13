@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -27,11 +26,9 @@ import (
 	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/handler"
 	"github.com/allouis/attractor/internal/hub"
-	"github.com/allouis/attractor/internal/ingest"
 	"github.com/allouis/attractor/internal/interviewer"
 	"github.com/allouis/attractor/internal/lint"
 	"github.com/allouis/attractor/internal/render"
-	"github.com/allouis/attractor/internal/report"
 	"github.com/allouis/attractor/internal/runserver"
 	"github.com/allouis/attractor/internal/runview"
 	"github.com/allouis/attractor/internal/setup"
@@ -112,14 +109,9 @@ func Run(args []string) error {
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
 	backendFlag := fs.String("backend", "simulation", "codergen backend: claude | acp | simulation")
 	acpCmd := fs.String("acp-cmd", "", "ACP agent command for --backend acp (fallback when the graph sets no acp_command attribute)")
-	hookshim := fs.String("hookshim", "", "path to hookshim binary (default: sibling of attractor)")
 	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
-	reportTo := fs.String("report-to", "", "daemon base URL to phone home to (events + artifacts); enables report mode")
-	runID := fs.String("run-id", "", "run id the daemon assigned (report mode)")
-	reportToken := fs.String("report-token", "", "phone-home auth token for the run (report mode)")
 	baseDir := fs.String("base-dir", "", "directory @file prompts and child pipelines resolve against (default: the .dot file's directory)")
 	cwd := fs.String("cwd", "", "working tree the pipeline operates in (graph-level cwd default; report mode)")
-	noEventLog := fs.Bool("no-event-log", false, "do not write this run's own events.jsonl; the daemon persists events instead (report mode, used when the daemon shares this run's logs dir over rw 9p — ui-run-view-v3 P5c)")
 	ui := fs.Bool("ui", false, "serve this run's own read-only API + waterfall UI while it runs (local-first single-run server)")
 	uiAddr := fs.String("ui-addr", "127.0.0.1:0", "listen address for --ui (default: an ephemeral localhost port)")
 	announce := fs.String("announce", "", "hub base URL: register this run's --ui URL at start and ship the run-dir archive on completion (implies --ui)")
@@ -166,14 +158,13 @@ func Run(args []string) error {
 	// run-wide overrides (debugging) that bypass provider config;
 	// otherwise each codergen node is routed per its llm_provider /
 	// llm_model through ./.attractor/config.toml (service-spec §1).
-	var ingestSrv *ingest.Server
 	var codergenBackend backend.CodergenBackend
 	if flagSet(fs, "backend") || flagSet(fs, "acp-cmd") {
 		choice, err := parseBackendChoice(*backendFlag)
 		if err != nil {
 			return err
 		}
-		ingestSrv, codergenBackend, err = startCodergen(choice, g, logsRoot, *hookshim, *acpCmd)
+		codergenBackend, err = buildCodergen(choice, *acpCmd)
 		if err != nil {
 			return err
 		}
@@ -182,27 +173,6 @@ func Run(args []string) error {
 		if err != nil {
 			return err
 		}
-	}
-	if ingestSrv != nil {
-		defer ingestSrv.Close()
-	}
-
-	// Report mode: phone home to the daemon that launched us. There's no
-	// TTY in a subprocess/VM, so a wait.human gate is answered through the
-	// daemon: the PollInterviewer blocks until a human answers via the
-	// daemon's /questions surface (spec §6). `--human approve` forces
-	// non-interactive AutoApprove for unattended runs.
-	if *reportTo != "" {
-		if *runID == "" {
-			return fmt.Errorf("run: --report-to requires --run-id")
-		}
-		client := report.New(*reportTo, *runID, *reportToken)
-		var iv interviewer.Interviewer = report.NewPollInterviewer(client, 0)
-		if *humanFlag == "approve" {
-			iv = interviewer.AutoApprove{}
-		}
-		rep := &reportSink{client: client, runID: *runID}
-		return runEngineReporting(prepared, codergenBackend, iv, logsRoot, *jsonOut, vars, rep, *noEventLog)
 	}
 
 	iv := resolveInterviewer(*humanFlag)
@@ -318,61 +288,16 @@ func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv in
 // server and hub announce/archive speak the same id the engine stamps on
 // its events and run.json. Empty means mint one.
 func runEngineWithID(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, runID string) error {
-	return runEngineFull(prepared, cb, iv, logsRoot, jsonOut, initialContext, nil, false, runID)
+	return runEngineFull(prepared, cb, iv, logsRoot, jsonOut, initialContext, runID)
 }
 
-// reportSink phones a run's activity home to a daemon (phone-home mode).
-// nil means a standalone `attractor run` that only prints to stdout.
-type reportSink struct {
-	client *report.Client
-	runID  string
-}
-
-// runEngineReporting is runEngine plus optional phone-home reporting: when
-// rep is non-nil it stamps the daemon's run id on the engine, forwards
-// every event to the daemon as it happens, and uploads the run's stage
-// artifacts on completion (skipping files the daemon owns itself). skipEventLog
-// suppresses the engine's own events.jsonl for a run whose logs dir the daemon
-// shares over rw 9p (P5c), keeping the daemon the single writer of that file.
-func runEngineReporting(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, rep *reportSink, skipEventLog bool) error {
-	return runEngineFull(prepared, cb, iv, logsRoot, jsonOut, initialContext, rep, skipEventLog, "")
-}
-
-// runEngineFull is the one shared engine-run core: optional phone-home
-// reporting (rep) and an optional explicit run id.
-func runEngineFull(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, rep *reportSink, skipEventLog bool, runID string) error {
-	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext, SkipEventLog: skipEventLog, RunID: runID}
-	if rep != nil {
-		cfg.RunID = rep.runID
-	}
+// runEngineFull is the shared engine-run core.
+func runEngineFull(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string, runID string) error {
+	cfg := engine.Config{Registry: buildRegistryWith(handler.Codergen{Backend: cb}, iv), LogsRoot: logsRoot, InitialContext: initialContext, RunID: runID}
 	eng := engine.New(cfg)
 	done := make(chan struct{})
-	uploaded := false
 	go func() {
 		for ev := range eng.Events() {
-			// Upload the run's stage artifacts before forwarding the terminal
-			// event. The daemon marks the run terminal the moment it ingests
-			// pipeline_completed/failed (registry.finishFromEvent), so a run
-			// reported terminal must already carry its artifacts — the run-
-			// detail UI and the phone-home end-to-end contract read them as
-			// soon as status flips. Every node's status.json/prompt/response
-			// is flushed by now (the engine writes them before this event).
-			if rep != nil && !uploaded && isTerminalEvent(ev.Kind) {
-				_ = rep.client.UploadDir(logsRoot, daemonOwnedArtifact)
-				uploaded = true
-			}
-			// Per-stage sync: when a stage ends, upload just that node's dir
-			// (logsRoot/<node>/, nested child dirs included) before forwarding
-			// the event, so GET /stages/{node} serves the completed stage of a
-			// still-live run under every runner. Same goroutine as the event
-			// forward → race-free; best-effort since the terminal sweep above
-			// is the catch-all if a per-stage upload fails.
-			if rep != nil && isStageDoneEvent(ev.Kind) && ev.NodeID != "" {
-				_ = rep.client.UploadStageDir(logsRoot, ev.NodeID, daemonOwnedArtifact)
-			}
-			if rep != nil {
-				_ = rep.client.Event(ev)
-			}
 			if jsonOut {
 				_ = json.NewEncoder(os.Stdout).Encode(ev)
 				continue
@@ -384,11 +309,6 @@ func runEngineFull(prepared *engine.PreparedGraph, cb backend.CodergenBackend, i
 	}()
 	outcome, runErr := eng.Run(prepared)
 	<-done
-	// Fallback: a run that ended without a terminal event (an engine error
-	// before pipeline_completed) still uploads whatever it produced.
-	if rep != nil && !uploaded {
-		_ = rep.client.UploadDir(logsRoot, daemonOwnedArtifact)
-	}
 	fmt.Printf("\npipeline %s logs=%s\n", outcome.Status, logsRoot)
 	if runErr != nil {
 		return runErr
@@ -397,40 +317,6 @@ func runEngineFull(prepared *engine.PreparedGraph, cb backend.CodergenBackend, i
 		return fmt.Errorf("pipeline failed: %s", outcome.FailureReason)
 	}
 	return nil
-}
-
-// isTerminalEvent reports whether ev ends the run — the event whose ingest
-// flips the daemon's run to a terminal state (registry.finishFromEvent).
-func isTerminalEvent(k engine.EventKind) bool {
-	return k == engine.EventPipelineCompleted || k == engine.EventPipelineFailed
-}
-
-// isStageDoneEvent reports whether ev marks a node's dir final enough to
-// phone home incrementally. Successful stages key on checkpoint_saved —
-// the engine emits it only after writing status.json and mirroring the
-// visit dir to the node root (amendment A1), so the upload is
-// deterministic, not racing the mirror. A failed stage still has files
-// worth serving; its upload is best-effort early (the terminal sweep is
-// the catch-all).
-func isStageDoneEvent(k engine.EventKind) bool {
-	return k == engine.EventCheckpointSaved || k == engine.EventStageFailed
-}
-
-// daemonOwnedArtifact reports whether a run-dir file is one the daemon
-// writes itself and must not be overwritten by a phone-home upload: the
-// daemon builds events.jsonl from ingested events, and stamps
-// manifest.json / source.dot at run creation.
-//
-// run.json is deliberately NOT here: post-P5a it is the CHILD's identity
-// record (engine.writeManifest), disjoint from the daemon's manifest.json, so
-// uploading it is harmless and keeps the daemon's run dir a faithful copy of
-// the child's — consistent with every other child-owned artifact.
-func daemonOwnedArtifact(rel string) bool {
-	switch rel {
-	case "events.jsonl", "manifest.json", "source.dot":
-		return true
-	}
-	return false
 }
 
 // Render shells the input .dot file through graphviz to produce SVG.
@@ -511,53 +397,19 @@ func parseBackendChoice(raw string) (BackendChoice, error) {
 	return "", fmt.Errorf("run: unknown backend %q (valid: claude, acp, simulation)", raw)
 }
 
-// startCodergen constructs the codergen backend matching `choice`. For
-// the Claude path it also starts an ingest server scoped to the run so
-// hook events flow back into the engine and tool_hooks.pre/post fire.
-// The ACP path needs neither: tool visibility comes over the protocol
-// itself. The returned ingest.Server may be nil.
-func startCodergen(choice BackendChoice, g *graph.Graph, logsRoot, hookshimOverride, acpCmd string) (*ingest.Server, backend.CodergenBackend, error) {
-	if choice == BackendSimulation {
-		return nil, nil, nil
+// buildCodergen constructs the codergen backend matching `choice`. ACP
+// tool visibility comes over the protocol itself; the claude CLI wrap
+// needs no side channels either.
+func buildCodergen(choice BackendChoice, acpCmd string) (backend.CodergenBackend, error) {
+	switch choice {
+	case BackendSimulation:
+		return nil, nil
+	case BackendACP:
+		return &acpbackend.Backend{Command: acpCmd}, nil
+	case BackendClaude:
+		return &claudecode.Backend{}, nil
 	}
-	if choice == BackendACP {
-		return nil, &acpbackend.Backend{Command: acpCmd}, nil
-	}
-	shim := hookshimOverride
-	if shim == "" {
-		shim = findHookshim()
-	}
-	srv, err := ingest.StartWith(ingest.Config{
-		LogsRoot:    logsRoot,
-		PreToolCmd:  g.Attrs["tool_hooks.pre"],
-		PostToolCmd: g.Attrs["tool_hooks.post"],
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("ingest: %w", err)
-	}
-	be := &claudecode.Backend{
-		HookShimBin: shim,
-		IngestURL:   srv.URL(),
-		FallbackDir: filepath.Join(logsRoot, "_ingest_fallback"),
-	}
-	return srv, be, nil
-}
-
-// findHookshim looks for the hookshim binary sibling-of-attractor first
-// (the nix build places both in /bin), then on PATH. Returns the empty
-// string when not found; the Claude backend tolerates this with reduced
-// (no-hook) functionality.
-func findHookshim() string {
-	if exe, err := os.Executable(); err == nil {
-		sibling := filepath.Join(filepath.Dir(exe), "hookshim")
-		if _, err := os.Stat(sibling); err == nil {
-			return sibling
-		}
-	}
-	if p, err := exec.LookPath("hookshim"); err == nil {
-		return p
-	}
-	return ""
+	return nil, fmt.Errorf("run: unknown backend %q", choice)
 }
 
 func loadGraph(path string) (*graph.Graph, error) {
