@@ -227,5 +227,38 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.ServeFile(w, r, filepath.Join(s.logsRoot, filepath.FromSlash(rel)))
+	full := filepath.Join(s.logsRoot, filepath.FromSlash(rel))
+	// Per-visit layout (amendment A1): a stable {node}/{file} URL keeps
+	// working mid-visit by falling back to the latest v{N} copy when the
+	// completion-time root mirror hasn't landed yet.
+	if _, err := os.Stat(full); err != nil {
+		if p := latestVisitFile(filepath.Dir(full), filepath.Base(full)); p != "" {
+			full = p
+		}
+	}
+	http.ServeFile(w, r, full)
+}
+
+// latestVisitFile returns nodeDir/v{N}/name for the highest N where the
+// file exists, or "" when there is none.
+func latestVisitFile(nodeDir, name string) string {
+	entries, err := os.ReadDir(nodeDir)
+	if err != nil {
+		return ""
+	}
+	best, bestN := "", 0
+	for _, ent := range entries {
+		if !ent.IsDir() || !strings.HasPrefix(ent.Name(), "v") {
+			continue
+		}
+		n, err := strconv.Atoi(ent.Name()[1:])
+		if err != nil || n <= bestN {
+			continue
+		}
+		p := filepath.Join(nodeDir, ent.Name(), name)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			best, bestN = p, n
+		}
+	}
+	return best
 }
