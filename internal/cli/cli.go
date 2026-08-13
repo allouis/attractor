@@ -51,10 +51,13 @@ const (
 	BackendSimulation BackendChoice = "simulation"
 )
 
-// Validate parses and lints the supplied .dot file. Exit-code semantics:
-// any ERROR-severity diagnostic yields a non-nil error from this
-// function (and the binary exits 1). Warnings are printed but do not
-// cause failure.
+// Validate parses, transforms, and lints the supplied .dot file. The
+// standard transforms run first so validation sees what the engine
+// would execute: @file prompts are inlined (their $context.* references
+// count for the context_refs rule, and a missing prompt file fails
+// here instead of mid-run). Exit-code semantics: any ERROR-severity
+// diagnostic yields a non-nil error from this function (and the binary
+// exits 1). Warnings are printed but do not cause failure.
 func Validate(args []string) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -65,7 +68,15 @@ func Validate(args []string) error {
 	if len(positional) < 1 {
 		return fmt.Errorf("validate: expected a .dot path argument")
 	}
-	g, err := loadGraph(positional[0])
+	path := positional[0]
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	pg, err := setup.Prepare(setup.Options{
+		Source:  string(src),
+		BaseDir: filepath.Dir(path),
+	})
 	if err != nil {
 		return err
 	}
@@ -73,7 +84,7 @@ func Validate(args []string) error {
 	if err != nil {
 		return err
 	}
-	diags, err := lint.ValidateOrError(g, providerLintRules(cfg)...)
+	diags, err := lint.ValidateOrError(pg.Graph, providerLintRules(cfg)...)
 	printDiagnostics(os.Stdout, diags)
 	return err
 }

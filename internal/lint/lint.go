@@ -104,6 +104,7 @@ func BuiltIn() []Rule {
 		RetryTargetExistsRule{},
 		GoalGateHasRetryRule{},
 		FidelityValidRule{},
+		ContextRefsRule{},
 	}
 }
 

@@ -49,8 +49,11 @@ digraph implement {
     // engineering and refused (2026-08-12, run 4f0a9ed2). The plan travels
     // as context (plan_markdown from plan's status.json), not as session
     // history.
+    // outputs= documents the keys the plan agent sets via its status.json
+    // context_updates, for the context_refs lint and human readers.
     plan [llm_model="claude-fable-5[1m]", thread_id="plan",
-          fidelity="full", timeout="30m", prompt="@prompts/plan.md"]
+          fidelity="full", timeout="30m", prompt="@prompts/plan.md",
+          outputs="plan_markdown,review_base"]
 
     // Human check-in on the plan before any code gets written.
     plan_gate [shape=hexagon, label="Does the plan make sense?"]
