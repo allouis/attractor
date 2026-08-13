@@ -78,7 +78,6 @@ func runPrepared(t *testing.T, prepared *engine.PreparedGraph, be *fake.Backend,
 	registry.Register("tool", handler.Tool{})
 	registry.Register("parallel", handler.Parallel{})
 	registry.Register("parallel.fan_in", handler.FanIn{})
-	registry.Register("stack.manager_loop", handler.ManagerLoop{})
 	registry.SetDefault(handler.Codergen{Backend: be})
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: t.TempDir(), RunID: "test", InitialContext: initialContext})
 	done := make(chan struct{})

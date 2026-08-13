@@ -35,7 +35,6 @@ var bareRef = regexp.MustCompile(`(?:^|[^$.\w])context\.([a-zA-Z0-9_]+(?:\.[a-zA
 // hosting process at runtime; references into them are always legal.
 var runtimePrefixes = []string{
 	"graph.",    // graph attrs mirrored at run start
-	"stack.",    // manager_loop child telemetry
 	"human.",    // wait.human gate answers
 	"item.",     // intake item metadata seeded by the submitter
 	"check.",    // repo check commands seeded from config

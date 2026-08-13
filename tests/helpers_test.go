@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/allouis/attractor/internal/backend"
+	"github.com/allouis/attractor/internal/backend/fake"
 	"github.com/allouis/attractor/internal/dot"
 	"github.com/allouis/attractor/internal/engine"
 	graphpkg "github.com/allouis/attractor/internal/graph"
@@ -58,7 +59,6 @@ func runFixtureInSeeded(t *testing.T, src string, be backend.CodergenBackend, iv
 	registry.Register("tool", handler.Tool{})
 	registry.Register("parallel", handler.Parallel{})
 	registry.Register("parallel.fan_in", handler.FanIn{})
-	registry.Register("stack.manager_loop", handler.ManagerLoop{})
 	registry.SetDefault(handler.Codergen{Backend: be})
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, RunID: "test", InitialContext: seed})
 	events := make([]engine.Event, 0)
@@ -99,7 +99,6 @@ func runFixtureBaseDir(t *testing.T, src, baseDir string, be backend.CodergenBac
 	registry.Register("tool", handler.Tool{})
 	registry.Register("parallel", handler.Parallel{})
 	registry.Register("parallel.fan_in", handler.FanIn{})
-	registry.Register("stack.manager_loop", handler.ManagerLoop{})
 	registry.SetDefault(handler.Codergen{Backend: be})
 	eng := engine.New(engine.Config{Registry: registry, LogsRoot: logsRoot, RunID: "test"})
 	done := make(chan struct{})
@@ -134,4 +133,17 @@ func fileExists(t *testing.T, path string) bool {
 	t.Helper()
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// childPrompt returns the prompt the fake backend saw for a node, failing
+// the test if the node was never invoked.
+func childPrompt(t *testing.T, be *fake.Backend, nodeID string) string {
+	t.Helper()
+	for _, c := range be.Calls() {
+		if c.NodeID == nodeID {
+			return c.Prompt
+		}
+	}
+	t.Fatalf("node %q never invoked", nodeID)
+	return ""
 }

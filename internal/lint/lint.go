@@ -354,7 +354,7 @@ func (TypeKnownRule) Apply(g *graph.Graph) []Diagnostic {
 	known := map[string]struct{}{
 		"start": {}, "exit": {}, "codergen": {}, "wait.human": {},
 		"conditional": {}, "parallel": {}, "parallel.fan_in": {},
-		"tool": {}, "stack.manager_loop": {},
+		"tool": {},
 	}
 	var out []Diagnostic
 	for _, id := range g.NodeOrder {

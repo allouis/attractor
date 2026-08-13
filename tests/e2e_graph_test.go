@@ -115,9 +115,8 @@ func TestNodeShapeHandlerMapping(t *testing.T) {
 		fan   [shape=component]
 		join  [shape=tripleoctagon]
 		t1    [shape=parallelogram]
-		boss  [shape=house]
 		done  [shape=Msquare]
-		start -> gate -> fan -> join -> t1 -> boss -> done
+		start -> gate -> fan -> join -> t1 -> done
 	}`)
 	cases := []struct{ id, want string }{
 		{"start", "start"},
@@ -125,7 +124,6 @@ func TestNodeShapeHandlerMapping(t *testing.T) {
 		{"fan", "parallel"},
 		{"join", "parallel.fan_in"},
 		{"t1", "tool"},
-		{"boss", "stack.manager_loop"},
 		{"done", "exit"},
 	}
 	for _, c := range cases {

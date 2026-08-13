@@ -583,7 +583,6 @@ func buildRegistryWith(codergen handler.Codergen, iv interviewer.Interviewer) *e
 	r.Register("tool", handler.Tool{})
 	r.Register("parallel", handler.Parallel{})
 	r.Register("parallel.fan_in", handler.FanIn{})
-	r.Register("stack.manager_loop", handler.ManagerLoop{})
 	r.Register("codergen", codergen)
 	r.Register("codergen.claude", codergen)
 	r.Register("codergen.acp", codergen)

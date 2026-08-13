@@ -224,18 +224,18 @@ func TestParse_QuotedStringEscapes(t *testing.T) {
 func TestParse_QualifiedAttrKey(t *testing.T) {
 	src := `digraph g {
     start [shape=Mdiamond]
-    boss [type="stack.manager_loop", manager.poll_interval="30s", manager.actions="observe,steer,wait"]
+    boss [type="subgraph", graph_ref="child.dot", var.diff_cmd="jj diff"]
     done [shape=Msquare]
     start -> boss -> done
 }`
 	file, err := dot.Parse(src)
 	must(t, err)
 	boss := findNode(t, file, "boss")
-	if boss.Attrs["manager.poll_interval"] != "30s" {
-		t.Fatalf("manager.poll_interval = %q", boss.Attrs["manager.poll_interval"])
+	if boss.Attrs["graph_ref"] != "child.dot" {
+		t.Fatalf("graph_ref = %q", boss.Attrs["graph_ref"])
 	}
-	if boss.Attrs["manager.actions"] != "observe,steer,wait" {
-		t.Fatalf("manager.actions = %q", boss.Attrs["manager.actions"])
+	if boss.Attrs["var.diff_cmd"] != "jj diff" {
+		t.Fatalf("var.diff_cmd = %q", boss.Attrs["var.diff_cmd"])
 	}
 }
 

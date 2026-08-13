@@ -142,8 +142,8 @@ func (h Codergen) enforceContracts(env engine.HandlerEnv, stage *runstore.Dir, o
 // violation: a machinery-classed RETRY (loop-guards LG1). The engine
 // re-runs the node under its retry policy; exhausted, the run fails
 // with the violation message — never routing the harness error to a
-// fix agent. The message keeps the violation signature so consumers
-// (manager_loop's require_status-miss detection) still recognize it.
+// fix agent. The message keeps the violation signature (see
+// isRequireStatusMiss) so consumers still recognize a harness miss.
 func violationFail(env engine.HandlerEnv, v *Violation, response string) engine.Outcome {
 	return engine.Outcome{
 		Status:         engine.StatusRetry,

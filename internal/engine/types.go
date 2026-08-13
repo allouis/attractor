@@ -71,8 +71,8 @@ const FailureClassMachinery = "machinery"
 
 // Outcome is the return value of a handler. Fields mirror Attractor
 // Appendix C so an Outcome serializes verbatim into status.json. The
-// engine-only NextNode field lets composite handlers (parallel,
-// manager_loop) redirect traversal without owning their own edges.
+// engine-only NextNode field lets composite handlers (parallel)
+// redirect traversal without owning their own edges.
 type Outcome struct {
 	Status           Status            `json:"-"`
 	StatusString     string            `json:"outcome"`

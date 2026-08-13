@@ -14,8 +14,8 @@ import (
 // D6, spec §9.4's static-composition half): the referenced child
 // pipeline is inlined at load time, node IDs prefixed with the subgraph
 // node's ID, the child's start/exit spliced into the node's own edges.
-// Rule of thumb: child known at parse time → subgraph; child chosen at
-// runtime → stack.manager_loop.
+// Children must be known at parse time; there is no runtime dispatch
+// node.
 //
 //	review [type="subgraph", graph_ref="../review-core/pipeline.dot",
 //	        var.diff_cmd="jj diff"]

@@ -55,7 +55,7 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 		return nil, err
 	}
 	// Record where the pipeline was loaded from so runtime handlers can
-	// resolve relative references (e.g. a manager_loop child_dotfile)
+	// resolve relative references (e.g. a subgraph graph_ref)
 	// independent of the process cwd. Set after Prepare so transforms,
 	// which may rebuild the graph, cannot drop it.
 	pg.Graph.BaseDir = o.BaseDir

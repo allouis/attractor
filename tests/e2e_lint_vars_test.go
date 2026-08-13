@@ -82,13 +82,13 @@ func TestLintVars_NodeOutputsAreDeclarations(t *testing.T) {
 	}
 }
 
-// Runtime namespaces the engine/handlers own (graph.*, stack.*,
-// human.*, item.*, check.*, parallel.*) and the routing baggage keys
-// are always available; referencing them must not warn.
+// Runtime namespaces the engine/handlers own (graph.*, human.*,
+// item.*, check.*, parallel.*) and the routing baggage keys are always
+// available; referencing them must not warn.
 func TestLintVars_RuntimeKeysAllowed(t *testing.T) {
 	diags := varsDiags(t, `digraph g {
 		start [shape=Mdiamond]
-		fix [prompt="address $context.stack.child.failure_reason per $context.human.note, then run $context.check.test; last was $context.last_response"]
+		fix [prompt="address $context.failure_reason per $context.human.note, then run $context.check.test; last was $context.last_response"]
 		done [shape=Msquare]
 		start -> fix -> done
 	}`)

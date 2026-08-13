@@ -11,6 +11,7 @@ import (
 	"github.com/allouis/attractor/internal/engine"
 	graphpkg "github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/setup"
 )
 
 // implementPipelineSrc reads the shipped implement pipeline (router-spec R6).
@@ -185,39 +186,37 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	}
 }
 
-// TestImplementPipeline_FailRoutesBackThenPasses drives implement.dot end
-// to end (RV4): the first self-review returns a FAIL verdict, routing back
-// to `implement`; the second review passes and the run exits SUCCESS. The
-// child_dotfile is the real review-core pipeline via an absolute path (the
-// shipped relative path resolves against the pipeline's own dir, not the
-// test cwd).
+// TestImplementPipeline_FailRoutesBackThenPasses drives the review/fix
+// loop end to end (RV4, post-D6): review-core is INLINED via a subgraph
+// node, the first synth verdict FAILs and routes back to `implement`,
+// the second passes and the run exits SUCCESS.
 func TestImplementPipeline_FailRoutesBackThenPasses(t *testing.T) {
 	childPath, err := filepath.Abs("../pipelines/review-core/pipeline.dot")
 	must(t, err)
 	src := fmt.Sprintf(`digraph implement {
 		vars = "repo,identifier,url,title"
 		max_node_visits = 3
+		max_repeated_failures = 0
 		start [shape=Mdiamond]
 		implement [prompt="build the change"]
-		review_loop [type="stack.manager_loop",
-		             stack.child_dotfile="%s",
-		             stack.child.var.diff_cmd="jj diff",
-		             manager.poll_interval="10ms",
-		             manager.max_cycles=2000]
+		review_loop [type="subgraph", graph_ref="%s",
+		             var.diff_cmd="jj diff"]
 		done [shape=Msquare]
 		start -> implement
 		implement -> review_loop
 		review_loop -> implement [condition="outcome=fail"]
 		review_loop -> done      [condition="outcome=success"]
 	}`, childPath)
+	prepared, err := setup.Prepare(setup.Options{Source: src})
+	must(t, err)
 
 	be := fake.New()
 	be.SetText("implement", "implemented the change")
 	for _, lens := range reviewCoreLenses {
-		be.SetText(lens, "finding from "+lens)
+		be.SetText("review_loop."+lens, "finding from "+lens)
 	}
 	// First review blocks (FAIL -> back to implement); second passes.
-	be.SetSequence("synth",
+	be.SetSequence("review_loop.synth",
 		fake.Step{Outcome: &engine.Outcome{
 			Status:        engine.StatusFail,
 			FailureReason: "correctness lens found a blocking bug",
@@ -235,7 +234,7 @@ func TestImplementPipeline_FailRoutesBackThenPasses(t *testing.T) {
 		}},
 	)
 
-	out, _, _ := runFixtureSeeded(t, src, be, nil, map[string]string{
+	out := runPrepared(t, prepared, be, map[string]string{
 		"repo":       "owner/repo",
 		"identifier": "ENG-42",
 		"url":        "https://linear.app/eng-42",
@@ -246,23 +245,20 @@ func TestImplementPipeline_FailRoutesBackThenPasses(t *testing.T) {
 	}
 
 	// The FAIL verdict routed back to implement, which re-ran; the second
-	// review's synth then passed and the run exited. implement runs twice
-	// (initial + after the blocking review), synth runs twice (the two
-	// verdicts).
+	// review's synth then passed and the run exited.
 	if n := be.CallCount("implement"); n != 2 {
 		t.Fatalf("implement called %d times, want 2 (fail routed back)", n)
 	}
-	if n := be.CallCount("synth"); n != 2 {
+	if n := be.CallCount("review_loop.synth"); n != 2 {
 		t.Fatalf("synth called %d times, want 2 (fail then pass)", n)
 	}
-	// The first review fanned out to every lens over the agent's own
-	// uncommitted work: diff_cmd = jj diff.
+	// The review fanned out to every inlined lens with the seeded diff_cmd.
 	for _, lens := range reviewCoreLenses {
-		if be.CallCount(lens) < 1 {
+		if be.CallCount("review_loop."+lens) < 1 {
 			t.Fatalf("lens %q never ran, want the self-review to fan out to it", lens)
 		}
 	}
-	if got := childPrompt(t, be, "correctness"); !strings.Contains(got, "jj diff") {
+	if got := childPrompt(t, be, "review_loop.correctness"); !strings.Contains(got, "jj diff") {
 		t.Fatalf("lens prompt = %q, want it to contain `jj diff`", got)
 	}
 }

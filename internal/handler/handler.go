@@ -307,9 +307,9 @@ func pollAgentStatus(stage *runstore.Dir, window, interval time.Duration) (engin
 // requireStatusMissReason is the failure_reason a require_status node emits
 // when the agent's status.json never arrived within the grace window. It marks
 // a MACHINERY failure of the verdict harness (the verdict was never written) —
-// distinct from a FAIL verdict the agent authored. manager_loop keys on this
-// signature (via isRequireStatusMiss) so a harness miss is not fed to a fix
-// agent as if it were a review finding.
+// distinct from a FAIL verdict the agent authored. The (require_status node)
+// marker (see isRequireStatusMiss) keeps harness misses distinguishable from
+// review findings.
 func requireStatusMissReason(stage *runstore.Dir) string {
 	path := filepath.Join(stage.Root(), "status.json")
 	// Distinguish "never written" from "written but unreadable" — run
@@ -329,8 +329,7 @@ func requireStatusMissReason(stage *runstore.Dir) string {
 
 // isRequireStatusMiss reports whether a failure_reason carries the
 // require_status machinery-miss signature (as opposed to an agent-authored
-// verdict). The signature survives wrapping ("manager_loop: child failed — …"),
-// so it holds when the reason has bubbled up through nested manager loops.
+// verdict). The signature survives message wrapping.
 func isRequireStatusMiss(reason string) bool {
 	// All three miss variants (never written / invalid JSON / unknown
 	// outcome) end with this marker; agent-authored verdicts never carry it.

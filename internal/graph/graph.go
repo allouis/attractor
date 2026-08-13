@@ -24,8 +24,8 @@ type Graph struct {
 	Edges          []*Edge
 	edgesByFromIdx map[string][]int
 	// BaseDir is the directory the pipeline's .dot file was loaded from,
-	// used to resolve relative references (e.g. a stack.manager_loop
-	// child_dotfile) independent of the process working directory. Set by
+	// used to resolve relative references (e.g. a subgraph node's
+	// graph_ref) independent of the process working directory. Set by
 	// setup.Prepare; empty when the source has no on-disk location.
 	BaseDir string
 }
@@ -185,7 +185,7 @@ func (g *Graph) Attr(key string) string { return g.Attrs[key] }
 // DeclaredVars returns the names listed in the graph's `vars` attribute,
 // trimmed and with empties dropped. A graph with no `vars` attr yields
 // nil. It is the single parse of the input contract shared by run-start
-// validation and manager_loop's child prepare.
+// validation and subgraph var seeding.
 func (g *Graph) DeclaredVars() []string {
 	raw := strings.TrimSpace(g.Attrs["vars"])
 	if raw == "" {
@@ -351,8 +351,6 @@ func TypeFromShape(shape string) string {
 		return "parallel.fan_in"
 	case "parallelogram":
 		return "tool"
-	case "house":
-		return "stack.manager_loop"
 	}
 	return "codergen"
 }

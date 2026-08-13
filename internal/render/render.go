@@ -51,10 +51,10 @@ func SVG(dotSource []byte, engine string) ([]byte, error) {
 	return runDot(graphvizSafe(dotSource), engine)
 }
 
-// SVGExpanded renders like SVG but inlines each stack.manager_loop node's
-// child pipeline as a nested cluster subgraph, recursively, so the whole
+// SVGExpanded renders like SVG but inlines each subgraph node's child
+// pipeline as a nested cluster subgraph, recursively, so the whole
 // composed workflow is visible in one graph. baseDir is the directory the
-// pipeline was loaded from, used to resolve relative child_dotfile paths.
+// pipeline was loaded from, used to resolve relative graph_ref paths.
 func SVGExpanded(dotSource []byte, baseDir, engine string) ([]byte, error) {
 	return runDot(graphvizExpanded(dotSource, baseDir), engine)
 }
@@ -142,7 +142,7 @@ func graphvizSafe(src []byte) []byte {
 }
 
 // graphvizExpanded re-emits the pipeline like graphvizSafe, but expands
-// each stack.manager_loop node whose child_dotfile resolves into a nested
+// each subgraph node whose graph_ref resolves into a nested
 // cluster subgraph holding the child pipeline (recursively). Edges into or
 // out of an expanded node are redirected to the child's start / exit and
 // clipped at the cluster boundary (compound edges).
@@ -162,7 +162,7 @@ func graphvizExpanded(src []byte, baseDir string) []byte {
 	return []byte(b.String())
 }
 
-// expansion records how an expanded manager_loop node was inlined so edges
+// expansion records how an expanded subgraph node was inlined so edges
 // touching it can be redirected to the child's entry/exit and clipped at
 // the cluster.
 type expansion struct {
@@ -171,7 +171,7 @@ type expansion struct {
 	exit    string
 }
 
-// emitLevel writes one graph level: nodes (expanding manager_loop children
+// emitLevel writes one graph level: nodes (expanding subgraph children
 // into clusters) then edges (rewired around expanded nodes). prefix
 // namespaces node ids so nested start/done nodes don't collide.
 func emitLevel(b *strings.Builder, g *graph.Graph, prefix, baseDir string, depth int, stack map[string]bool) {
@@ -220,13 +220,13 @@ func emitLevel(b *strings.Builder, g *graph.Graph, prefix, baseDir string, depth
 	}
 }
 
-// childDotfile returns the resolved path to a manager_loop node's child
-// pipeline, or ok=false when the node is not a manager_loop or sets none.
+// childDotfile returns the resolved path to a subgraph node's child
+// pipeline, or ok=false when the node is not a subgraph or sets none.
 func childDotfile(n *graph.Node, baseDir string) (string, bool) {
-	if n.Type() != "stack.manager_loop" {
+	if n.Type() != "subgraph" {
 		return "", false
 	}
-	ref := n.Attrs["stack.child_dotfile"]
+	ref := n.Attrs["graph_ref"]
 	if ref == "" {
 		return "", false
 	}
@@ -318,8 +318,8 @@ func displayShape(n *graph.Node) string {
 		return "component"
 	case t == "parallel.fan_in":
 		return "tripleoctagon"
-	case t == "stack.manager_loop":
-		return "box3d" // a sub-pipeline: a "stacked" box
+	case t == "subgraph":
+		return "box3d" // an inlined sub-pipeline
 	case strings.HasPrefix(t, "codergen"):
 		return "box"
 	default:
