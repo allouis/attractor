@@ -7,13 +7,13 @@ Use `jj` for all VCS operations (never `git` directly).
 
 1. Commit any stray working-copy changes first (small, conventional
    message) so everything ships.
-2. Create a bookmark named after the issue, lowercased (e.g. `HKG-1914`
-   → `hkg-1914`), on the latest non-empty commit:
-   `jj bookmark create <name> -r @-` — if it already exists (a re-run),
-   move it with `jj bookmark move <name> --to @-` instead.
-3. Push it: `jj git push --allow-new --bookmark <name>`.
+2. Create a bookmark named `$context.branch` on the latest non-empty
+   commit: `jj bookmark create $context.branch -r @-` — if it already
+   exists (a re-run of THIS pipeline), move it with
+   `jj bookmark move $context.branch --to @-` instead.
+3. Push it: `jj git push --allow-new --bookmark $context.branch`.
 4. Open the draft PR unless one already exists for that branch:
-   `gh pr create --draft --head <name> --title "$context.identifier: $context.title" --body "<short summary of the change>. Refs $context.url"`
+   `gh pr create --draft --head $context.branch --title "$context.identifier: $context.title" --body "<short summary of the change>. Refs $context.url"`
    If a PR already exists, do not create a duplicate — reuse it.
 5. Do NOT mark the PR ready for review, do NOT merge, and do not push to
    any other branch.

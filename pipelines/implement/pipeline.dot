@@ -5,7 +5,7 @@
 // Runs standalone from the CLI against this var contract:
 //
 //   attractor run implement -var repo=owner/name -var identifier=ENG-42 \
-//     -var url=… -var title=…
+//     -var url=… -var title=… -var branch=eng-42
 //
 // Flow: a `baseline_*` chain runs the repo's deterministic checks FIRST,
 // proving the starting point is green — a baseline failure fails the run
@@ -27,7 +27,7 @@ digraph implement {
     // with backoff instead of killing the run.
     default_max_retries = 2
     goal = "Implement issue $context.identifier — \"$context.title\" — in $context.repo"
-    vars = "repo,identifier,url,title,body"
+    vars = "repo,identifier,url,title,body,branch"
     max_node_visits = 10
 
     start [shape=Mdiamond]
