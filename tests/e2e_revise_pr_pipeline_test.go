@@ -39,7 +39,7 @@ func TestRevisePRPipeline_LintsClean(t *testing.T) {
 }
 
 // TestRevisePRPipeline_RequiresWorkspaceRevision pins that workspace_revision
-// is a REQUIRED var: without it seeded the VM launcher would review the host's
+// is a REQUIRED var: without it seeded an external launcher would review the host's
 // @ instead of the PR branch, so a dispatch that forgets it must be rejected.
 func TestRevisePRPipeline_RequiresWorkspaceRevision(t *testing.T) {
 	g := buildRevisePRGraph(t)

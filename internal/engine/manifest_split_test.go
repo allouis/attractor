@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// TestSkipEventLogSuppressesEventsFile proves Config.SkipEventLog stops the
-// engine writing its own events.jsonl (ui-run-view-v3 P5c): the reporting vm
-// child sets it so the daemon stays the single writer of the shared run dir's
-// events.jsonl. run.json (the child's identity record) is still written.
 const splitGraph = `digraph d {
 	start [shape=Mdiamond]
 	work [type="probe"]

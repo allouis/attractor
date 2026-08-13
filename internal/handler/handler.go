@@ -144,13 +144,14 @@ func resolveTextOutcome(env engine.HandlerEnv, stage *runstore.Dir, response str
 	requireStatus := env.Node.Bool("require_status")
 	oc, ok := readAgentStatus(stage)
 	if !ok && requireStatus {
-		// A verdict node's agent may land its final status.json write shortly
-		// after the backend turn returns — in-guest that write races the last
-		// flush through the 9p mount by ~2s, so an honest verdict would be
-		// scored as missing. Poll a bounded window; a status that appears
-		// within it is used normally (including a FAIL). Only require_status
-		// nodes pay this cost — every other node keeps the single immediate
-		// check below, so there is no universal slowdown.
+		// A verdict node's agent may land its final status.json write
+		// shortly after the backend turn returns (slow filesystems and
+		// agent-side buffering both produce late writes), so an honest
+		// verdict would be scored as missing. Poll a bounded window; a
+		// status that appears within it is used normally (including a
+		// FAIL). Only require_status nodes pay this cost — every other
+		// node keeps the single immediate check, so there is no
+		// universal slowdown.
 		oc, ok = pollAgentStatus(stage, requireStatusGraceWindow, requireStatusPollInterval)
 	}
 	if ok {
@@ -277,11 +278,10 @@ func relocateLeakedStatus(stage *runstore.Dir, workStatus string, existedBefore 
 }
 
 // requireStatusGraceWindow / requireStatusPollInterval bound how long a
-// require_status node waits for the agent's status.json after the backend turn
-// ends, before failing as missing. In-guest the agent's final write can land
-// ~2s after the turn returns (it races the last flush through the 9p mount);
-// the window covers that without slowing any other node. Package vars so tests
-// can shrink them.
+// require_status node waits for the agent's status.json after the backend
+// turn ends, before failing as missing. An agent's final write can land a
+// couple of seconds after the turn returns; the window covers that without
+// slowing any other node. Package vars so tests can shrink them.
 var (
 	requireStatusGraceWindow  = 5 * time.Second
 	requireStatusPollInterval = 200 * time.Millisecond

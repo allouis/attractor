@@ -82,7 +82,7 @@ func TestRequireStatusMissIsMachineryRetry(t *testing.T) {
 }
 
 // A require_status node whose agent lands its status.json shortly AFTER the
-// backend turn returns (in-guest the write races the 9p mount by ~2s) must
+// backend turn returns (slow filesystems / agent-side buffering) must
 // honor that late verdict — including a FAIL — rather than score it as missing.
 func TestRequireStatusHonorsLateStatus(t *testing.T) {
 	shortGrace(t)
