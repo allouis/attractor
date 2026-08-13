@@ -132,7 +132,15 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 	response := result.ResponseText
 	_ = stage.Write("response.md", []byte(response))
+	return resolveTextOutcome(env, stage, response)
+}
 
+// resolveTextOutcome resolves a text-only backend result into the stage
+// outcome via the status-file contract (spec §4.5, Appendix C): the
+// agent's status.json wins when present and well-formed; a require_status
+// node with no readable status fails loud; anything else synthesises
+// SUCCESS from the response text.
+func resolveTextOutcome(env engine.HandlerEnv, stage *runstore.Dir, response string) engine.Outcome {
 	requireStatus := env.Node.Bool("require_status")
 	oc, ok := readAgentStatus(stage)
 	if !ok && requireStatus {
