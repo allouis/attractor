@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -411,13 +412,24 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (state *runState, fresh bool, e
 		if next == "" {
 			next = findStartNode(g)
 		}
+		// Re-derive per-node visit counters from the prior incarnation's
+		// event log (derived state over stored state): a resumed node
+		// continues numbering at max+1 instead of reusing v1 and
+		// overwriting the crashed incarnation's span dirs (A4).
+		visits := e.replayVisits()
+		e.visitsMu.Lock()
+		e.visits = map[string]int{}
+		for k, v := range visits {
+			e.visits[k] = v
+		}
+		e.visitsMu.Unlock()
 		return &runState{
 			cursor:              next,
 			completedNodes:      append([]string{}, ckpt.CompletedNodes...),
 			nodeOutcomes:        ckpt.NodeOutcomes,
 			context:             ctx,
 			retries:             ckpt.NodeRetries,
-			visits:              map[string]int{},
+			visits:              visits,
 			shouldSkipCompleted: true,
 		}, false, nil
 	}
@@ -501,6 +513,32 @@ func (e *Engine) archiveCurrentLogs() {
 		}
 		_ = os.Rename(filepath.Join(e.LogsRoot, name), filepath.Join(archive, name))
 	}
+}
+
+// replayVisits folds events.jsonl for the highest visit each node has
+// reached, so a resumed run continues span numbering.
+func (e *Engine) replayVisits() map[string]int {
+	visits := map[string]int{}
+	if e.LogsRoot == "" {
+		return visits
+	}
+	f, err := os.Open(filepath.Join(e.LogsRoot, "events.jsonl"))
+	if err != nil {
+		return visits
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		var ev Event
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		if ev.NodeID != "" && ev.Visit > visits[ev.NodeID] {
+			visits[ev.NodeID] = ev.Visit
+		}
+	}
+	return visits
 }
 
 func (e *Engine) resumeAfter(g *graph.Graph, ckpt *Checkpoint) string {

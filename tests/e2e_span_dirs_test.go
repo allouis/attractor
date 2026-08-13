@@ -282,3 +282,45 @@ func TestSpanBranches_RevisitIncrementsVisit(t *testing.T) {
 		t.Fatalf("lens events carry visits %v, want 1 and 2", visits)
 	}
 }
+
+// Stage D: a resumed run must continue visit numbering — reusing v1
+// would overwrite the crashed incarnation's evidence. Visit counters
+// are re-derived from events.jsonl (derived state, not stored state).
+func TestSpanDirs_ResumeContinuesVisitNumbering(t *testing.T) {
+	src := `digraph t {
+		start [shape=Mdiamond]
+		plan [prompt="p"]
+		impl [prompt="i"]
+		done [shape=Msquare]
+		start -> plan -> impl -> done
+	}`
+	logs := t.TempDir()
+	be1 := fake.New()
+	be1.SetText("plan", "PLAN")
+	be1.SetSequence("impl", fake.Step{Err: errors.New("crash: fatal auth")})
+	out1, _ := runFixtureIn(t, src, be1, nil, logs)
+	if out1.Status != engine.StatusFail {
+		t.Fatalf("first run should fail: %+v", out1)
+	}
+
+	be2 := fake.New()
+	be2.SetText("impl", "IMPL works now")
+	out2, _ := runFixtureIn(t, src, be2, nil, logs)
+	if out2.Status != engine.StatusSuccess {
+		t.Fatalf("resume failed: %+v", out2)
+	}
+
+	// First incarnation's failed span preserved; resume wrote v2.
+	d1, err := os.ReadFile(filepath.Join(logs, "impl@v1.a1", "status.json"))
+	must(t, err)
+	if !strings.Contains(string(d1), `"fail"`) {
+		t.Fatalf("crashed incarnation's evidence overwritten: %s", d1)
+	}
+	d2, err := os.ReadFile(filepath.Join(logs, "impl@v2.a1", "response.md"))
+	if err != nil {
+		t.Fatalf("resumed execution did not continue numbering (want impl@v2.a1): %v", err)
+	}
+	if string(d2) != "IMPL works now" {
+		t.Fatalf("v2 response = %q", d2)
+	}
+}
