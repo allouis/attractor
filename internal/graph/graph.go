@@ -142,6 +142,17 @@ func (b *builder) addEdge(s dot.EdgeStmt, defaults map[string]string) {
 	}
 }
 
+// SetEdges replaces the graph's edge list and rebuilds the from-index.
+// Transforms that rewrite topology (subgraph expansion) use it so edge
+// lookups stay consistent with the new list.
+func (g *Graph) SetEdges(edges []*Edge) {
+	g.Edges = edges
+	g.edgesByFromIdx = map[string][]int{}
+	for i, e := range edges {
+		g.edgesByFromIdx[e.From] = append(g.edgesByFromIdx[e.From], i)
+	}
+}
+
 // OutgoingEdges returns edges originating from the given node in
 // declaration order.
 func (g *Graph) OutgoingEdges(id string) []*Edge {

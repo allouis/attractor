@@ -11,6 +11,7 @@ import (
 	"github.com/allouis/attractor/internal/engine"
 	graphpkg "github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/lint"
+	"github.com/allouis/attractor/internal/setup"
 )
 
 // reviewPipelineSrc reads the shipped review pipeline (items-spec I5).
@@ -42,10 +43,10 @@ func TestReviewPipeline_LintsClean(t *testing.T) {
 }
 
 // TestReviewPipeline_CheckoutThenReviewLoop pins the RV3 contract, post
-// checkout-drop: the review is DIFF-BASED — the first stage IS the
-// `stack.manager_loop` running the shared review-core sub-pipeline with
-// diff_cmd = `gh pr diff …` (no local checkout, works under any runner),
-// and the loop flows to exit. The single-agent review node is gone.
+// checkout-drop and post-D6: the review is DIFF-BASED — the first stage
+// is a `subgraph` node inlining the shared review-core pipeline with
+// diff_cmd = `gh pr diff …` (no local checkout, works under any
+// runner), flowing to exit. The single-agent review node is gone.
 func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 	g := buildReviewGraph(t)
 
@@ -55,13 +56,13 @@ func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 	}
 	loopID := out[0].To
 	loop := g.Nodes[loopID]
-	if loop.Type() != "stack.manager_loop" {
-		t.Fatalf("review stage %q type=%q, want stack.manager_loop", loopID, loop.Type())
+	if loop.Type() != "subgraph" {
+		t.Fatalf("review stage %q type=%q, want subgraph (D6 static inline)", loopID, loop.Type())
 	}
-	if child := loop.Attrs["stack.child_dotfile"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
-		t.Fatalf("review_loop child_dotfile=%q, want suffix review-core/pipeline.dot", child)
+	if child := loop.Attrs["graph_ref"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
+		t.Fatalf("review_loop graph_ref=%q, want suffix review-core/pipeline.dot", child)
 	}
-	diffCmd := loop.Attrs["stack.child.var.diff_cmd"]
+	diffCmd := loop.Attrs["var.diff_cmd"]
 	for _, want := range []string{"gh pr diff", "$context.pr_number", "$context.repo"} {
 		if !strings.Contains(diffCmd, want) {
 			t.Fatalf("review_loop diff_cmd=%q, want it to contain %q", diffCmd, want)
@@ -89,23 +90,34 @@ func TestReviewPipeline_CheckoutThenReviewLoop(t *testing.T) {
 	}
 }
 
-// TestReviewPipeline_ExpandsItemVars confirms the diff command wires the
-// item's `repo`/`pr_number` vars — the exact keys a GitHub PR Item
-// supplies (internal/items/source/github.go) — into a concrete gh
-// invocation. The pipeline uses `$context.` syntax resolved at runtime
-// from the live context (spec §4.5) when the child review-core is seeded.
+// TestReviewPipeline_ExpandsItemVars confirms the load-time expansion
+// (D6) seeds the concrete diff command into the inlined lens prompts:
+// var.diff_cmd substitutes statically, and its embedded `$context.`
+// item keys (repo/pr_number, the exact keys a GitHub PR Item supplies)
+// resolve at runtime from the live context (spec §4.5).
 func TestReviewPipeline_ExpandsItemVars(t *testing.T) {
-	g := buildReviewGraph(t)
-	loop := g.Nodes[g.OutgoingEdges("start")[0].To]
-
+	baseDir, err := filepath.Abs("../pipelines/review-pr")
+	must(t, err)
+	prepared, err := setup.Prepare(setup.Options{
+		Source:  reviewPipelineSrc(t),
+		BaseDir: baseDir,
+	})
+	must(t, err)
+	lens := prepared.Graph.Nodes["review_loop.correctness"]
+	if lens == nil {
+		t.Fatalf("review-core not inlined; nodes: %v", prepared.Graph.NodeOrder)
+	}
+	if !strings.Contains(lens.Attrs["prompt"], "gh pr diff $context.pr_number --repo $context.repo") {
+		t.Fatalf("lens prompt not seeded with diff_cmd: %q", lens.Attrs["prompt"])
+	}
 	ctx := engine.NewContextFrom(map[string]string{
 		"repo":      "owner/repo",
 		"pr_number": "42",
 	})
-	got, err := ctx.Expand(loop.Attrs["stack.child.var.diff_cmd"])
+	got, err := ctx.Expand(lens.Attrs["prompt"])
 	must(t, err)
-	if got != "gh pr diff 42 --repo owner/repo" {
-		t.Fatalf("expanded diff command=%q", got)
+	if !strings.Contains(got, "gh pr diff 42 --repo owner/repo") {
+		t.Fatalf("runtime expansion wrong: %q", got)
 	}
 }
 

@@ -54,14 +54,11 @@ digraph build {
     verify [type="tool", timeout="20m",
             tool_command="cd /home/agent/attractor && nix develop -c go test ./... -race -count=1 && test -z \"$(nix develop -c gofmt -l . 2>/dev/null)\" && test -z \"$(jj resolve --list 2>/dev/null)\""]
 
-    // Multi-lens review of this milestone's change, run inline as a child
-    // pipeline. synth's PASS/FAIL verdict becomes this node's outcome.
-    // Absolute child path: manager_loop resolves stack.child_dotfile
-    // relative to the process cwd, so a repo-relative path would miss.
-    review_loop [type="stack.manager_loop",
-                 timeout="45m",
-                 stack.child_dotfile="/home/agent/attractor/pipelines/review-core/pipeline.dot",
-                 stack.child.var.diff_cmd="jj diff --from $context.review_base --to @"]
+    // Multi-lens review of this milestone's change, inlined at load
+    // time (D6): synth's PASS/FAIL verdict drives the outcome edges.
+    review_loop [type="subgraph",
+                 graph_ref="../review-core/pipeline.dot",
+                 var.diff_cmd="jj diff --from $context.review_base --to @"]
 
     // Reached only after a FAIL verdict, so the child's findings are set.
     fix [type="codergen.acp", thread_id="build", fidelity="full",

@@ -281,6 +281,11 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 		state.context.Apply(outcome.ContextUpdates)
 		state.context.Set("outcome", outcome.Status.String())
 		state.context.Set("preferred_label", outcome.PreferredLabel)
+		// Mirror the failure reason so a downstream node routed via an
+		// outcome=fail edge can read what failed ($context.failure_reason)
+		// — inlined review subgraphs route synth FAIL verdicts to fix
+		// nodes this way (D6).
+		state.context.Set("failure_reason", outcome.FailureReason)
 		if outcome.Status == StatusSuccess || outcome.Status == StatusPartialSuccess {
 			state.completedNodes = append(state.completedNodes, nodeID)
 			state.nodeOutcomes[nodeID] = outcome

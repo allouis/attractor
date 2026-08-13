@@ -72,9 +72,11 @@ digraph implement {
     // Adversarial self-review of everything since the plan's review_base
     // (implement commits as it goes, so a plain `jj diff` would miss the
     // committed work).
-    review_loop [type="stack.manager_loop", timeout="45m",
-                 stack.child_dotfile="../review-core/pipeline.dot",
-                 stack.child.var.diff_cmd="jj diff --from $context.review_base --to @"]
+    // Inlined at load time (D6): synth's verdict drives the outcome
+    // edges below directly.
+    review_loop [type="subgraph",
+                 graph_ref="../review-core/pipeline.dot",
+                 var.diff_cmd="jj diff --from $context.review_base --to @"]
 
     ship [shape=hexagon, label="Ship these changes? (checks + self-review passed)"]
 

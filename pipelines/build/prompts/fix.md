@@ -7,7 +7,7 @@ The change under review:
 
 The reviewers' blocking findings:
 
-$context.stack.child.failure_reason
+$context.failure_reason
 
 Address **every** blocking finding:
 

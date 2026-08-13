@@ -10,6 +10,12 @@ and an adversarial multi-lens review of your diff. **If you were routed
 back here** because a check or the review failed, fix exactly what was
 reported, then finish again.
 
+What failed on the previous round (empty on the first visit):
+
+---
+$context.failure_reason
+---
+
 Report your outcome via `{stage_dir}/status.json`: `success` when the fix
 is complete and the repro test passes, otherwise `fail` with a
 `failure_reason`.

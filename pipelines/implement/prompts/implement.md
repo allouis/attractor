@@ -40,6 +40,12 @@ multi-lens review of your diff. **If you were routed back here** because
 a check or the review failed, the failing output / findings are the
 thing to fix now: address exactly what was reported, then finish again.
 
+What failed on the previous round (empty on the first visit):
+
+---
+$context.failure_reason
+---
+
 Report your outcome by writing `{stage_dir}/status.json`: `success`
 when the change is complete and the tests pass, otherwise `fail` with a
 `failure_reason` describing what blocked you.

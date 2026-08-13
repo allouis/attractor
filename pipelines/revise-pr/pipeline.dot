@@ -56,9 +56,10 @@ digraph revise_pr {
     // stage's committed-but-unpushed work on re-review; `gh pr diff` would
     // only see what is already on the remote. synth's PASS/FAIL verdict
     // becomes this node's outcome.
-    review_loop [type="stack.manager_loop", timeout="45m",
-                 stack.child_dotfile="../review-core/pipeline.dot",
-                 stack.child.var.diff_cmd="jj diff --from 'trunk()' --to @"]
+    // Inlined at load time (D6).
+    review_loop [type="subgraph",
+                 graph_ref="../review-core/pipeline.dot",
+                 var.diff_cmd="jj diff --from 'trunk()' --to @"]
 
     // Reached only after a FAIL verdict, so the child's findings are set.
     // Its own thread (not review-core's): a fresh session that reads the

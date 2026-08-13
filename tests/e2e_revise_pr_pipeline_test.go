@@ -84,13 +84,13 @@ func TestRevisePRPipeline_Structure(t *testing.T) {
 	// The node the baseline chain lands on is the review loop.
 	loopID := cursor
 	loop := g.Nodes[loopID]
-	if loop.Type() != "stack.manager_loop" {
-		t.Fatalf("baseline chain should land on the review manager_loop, got %q (type %q)", loopID, loop.Type())
+	if loop.Type() != "subgraph" {
+		t.Fatalf("baseline chain should land on the review subgraph (D6), got %q (type %q)", loopID, loop.Type())
 	}
-	if child := loop.Attrs["stack.child_dotfile"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
-		t.Fatalf("review_loop child_dotfile=%q, want suffix review-core/pipeline.dot", child)
+	if child := loop.Attrs["graph_ref"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
+		t.Fatalf("review_loop graph_ref=%q, want suffix review-core/pipeline.dot", child)
 	}
-	diffCmd := loop.Attrs["stack.child.var.diff_cmd"]
+	diffCmd := loop.Attrs["var.diff_cmd"]
 	if !strings.Contains(diffCmd, "jj diff") {
 		t.Fatalf("review_loop diff_cmd=%q, want a local `jj diff` (unpushed work must be visible)", diffCmd)
 	}

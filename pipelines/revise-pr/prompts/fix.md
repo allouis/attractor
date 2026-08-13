@@ -10,7 +10,7 @@ The change under review:
 The reviewers' blocking findings:
 
 ---
-$context.stack.child.failure_reason
+$context.failure_reason
 ---
 
 Feedback the human left if they sent this back from the ship gate (empty

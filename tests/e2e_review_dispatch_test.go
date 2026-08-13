@@ -36,11 +36,13 @@ func TestReviewPipeline_DispatchExpandsDiffCmd(t *testing.T) {
 
 	// The daemon seeds the Item's vars into the run's initial context; do
 	// the same here so run-start `vars=` validation sees them (C3).
+	// review-core is inlined at load time (D6), so the lens/synth node
+	// IDs carry the subgraph node's prefix.
 	be := fake.New()
-	// synth is a require_status node now: without an explicit self-reported
-	// outcome the child review fails (by design — lost verdicts must not
+	// synth is a require_status node: without an explicit self-reported
+	// outcome the review fails (by design — lost verdicts must not
 	// default to success).
-	be.SetSequence("synth", fake.Step{Outcome: &engine.Outcome{
+	be.SetSequence("review_loop.synth", fake.Step{Outcome: &engine.Outcome{
 		Status:         engine.StatusSuccess,
 		ContextUpdates: map[string]string{"review.verdict": "pass"},
 	}})
@@ -54,11 +56,11 @@ func TestReviewPipeline_DispatchExpandsDiffCmd(t *testing.T) {
 		t.Fatalf("status=%s reason=%q", out.Status, out.FailureReason)
 	}
 	for _, lens := range reviewCoreLenses {
-		if be.CallCount(lens) < 1 {
+		if be.CallCount("review_loop."+lens) < 1 {
 			t.Fatalf("lens %q never ran, want the review to fan out to it", lens)
 		}
 	}
-	if got := childPrompt(t, be, "correctness"); !strings.Contains(got, "gh pr diff 42 --repo owner/repo") {
+	if got := childPrompt(t, be, "review_loop.correctness"); !strings.Contains(got, "gh pr diff 42 --repo owner/repo") {
 		t.Fatalf("lens prompt = %q, want the expanded `gh pr diff 42 --repo owner/repo`", got)
 	}
 }

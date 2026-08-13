@@ -48,6 +48,7 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 		g.Attrs["cwd"] = o.Cwd
 	}
 	pg, err := engine.Prepare(g,
+		transform.Subgraph{BaseDir: o.BaseDir},
 		transform.PromptFile{BaseDir: o.BaseDir},
 	)
 	if err != nil {

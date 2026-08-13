@@ -24,10 +24,9 @@ digraph review_record {
 
     start [shape=Mdiamond]
 
-    review_loop [type="stack.manager_loop",
-                 timeout="45m",
-                 stack.child_dotfile="/home/agent/attractor/pipelines/review-core/pipeline.dot",
-                 stack.child.var.diff_cmd="jj diff --from $context.review_base --to @"]
+    review_loop [type="subgraph",
+                 graph_ref="../review-core/pipeline.dot",
+                 var.diff_cmd="jj diff --from $context.review_base --to @"]
 
     fix [type="codergen.acp", thread_id="build", fidelity="full",
          timeout="120m", prompt="@prompts/fix.md"]

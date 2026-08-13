@@ -51,6 +51,7 @@ var runtimePrefixes = []string{
 var runtimeKeys = map[string]struct{}{
 	"outcome":            {},
 	"preferred_label":    {},
+	"failure_reason":     {},
 	"last_stage":         {},
 	"last_response":      {},
 	"current_node":       {},

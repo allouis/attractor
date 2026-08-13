@@ -125,21 +125,22 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 		t.Fatalf("want >=4 static-check tool nodes (deps/typecheck/lint/test), got %d", checkTools)
 	}
 
-	// The self-review loop: a manager_loop over review-core with jj diff.
+	// The self-review loop: a subgraph node inlining review-core (D6)
+	// with jj diff.
 	var loopID string
 	for id, n := range g.Nodes {
-		if n.Type() == "stack.manager_loop" {
+		if n.Type() == "subgraph" {
 			loopID = id
 		}
 	}
 	if loopID == "" {
-		t.Fatal("no stack.manager_loop self-review node")
+		t.Fatal("no subgraph self-review node")
 	}
 	loop := g.Nodes[loopID]
-	if child := loop.Attrs["stack.child_dotfile"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
-		t.Fatalf("review_loop child_dotfile=%q, want suffix review-core/pipeline.dot", child)
+	if child := loop.Attrs["graph_ref"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
+		t.Fatalf("review_loop graph_ref=%q, want suffix review-core/pipeline.dot", child)
 	}
-	if diffCmd := loop.Attrs["stack.child.var.diff_cmd"]; !strings.Contains(diffCmd, "jj diff") {
+	if diffCmd := loop.Attrs["var.diff_cmd"]; !strings.Contains(diffCmd, "jj diff") {
 		t.Fatalf("review_loop diff_cmd=%q, want it to contain `jj diff`", diffCmd)
 	}
 
