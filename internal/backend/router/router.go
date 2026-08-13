@@ -1,6 +1,6 @@
 // Package router provides a CodergenBackend that dispatches each
 // codergen node to a backend chosen from the provider config
-// (service-spec §1). Nodes declare intent (llm_provider / llm_model);
+// (docs/provider-config.md). Nodes declare intent (llm_provider / llm_model);
 // the router resolves that to a provider, constructs the matching
 // backend once per provider (cached, so ACP backends keep their
 // per-thread session maps), and injects llm_model via the provider's
@@ -67,7 +67,7 @@ func (r *Router) construct(name string) (backend.CodergenBackend, error) {
 	}
 	p, ok := r.cfg.Providers[name]
 	if !ok {
-		return nil, fmt.Errorf("router: provider %q not configured in ~/.attractor/config.toml or ./.attractor/config.toml", name)
+		return nil, fmt.Errorf("router: provider %q not configured in ~/.attractor/config.json", name)
 	}
 	switch p.Backend {
 	case "acp":

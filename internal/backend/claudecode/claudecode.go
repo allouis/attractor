@@ -46,21 +46,18 @@ type Backend struct {
 }
 
 // Run satisfies backend.CodergenBackend by invoking claude with
-// stream-json output and a generated hook settings file.
+// stream-json output.
 func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, error) {
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose"}
 	// Full-fidelity stages reuse the prior claude session via --resume
 	// so the agent continues the same conversation across stages
 	// (spec §5.4 session reuse). Fresh sessions (compact/summary/
 	// truncate) deliberately don't pass --resume.
-	resuming := false
 	if env.Fidelity == engine.FidelityFull && env.ThreadID != "" {
 		if sid := b.sessionFor(env.ThreadID); sid != "" {
 			args = append([]string{"--resume", sid}, args...)
-			resuming = true
 		}
 	}
-	_ = resuming // used below to decide whether to remember
 	return b.invoke(env, args)
 }
 
@@ -137,7 +134,7 @@ func (b *Backend) invoke(env engine.HandlerEnv, args []string) (backend.Result, 
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return backend.Result{}, backend.Transient(fmt.Errorf("claudecode tier2: read stream: %w", err))
+		return backend.Result{}, backend.Transient(fmt.Errorf("claudecode: read stream: %w", err))
 	}
 	if err := cmd.Wait(); err != nil {
 		// D1: the CLI started and then exited nonzero — transient unless
@@ -174,8 +171,8 @@ func (b *Backend) rememberSession(threadID, sessionID string) {
 	b.sessions.Store(threadID, sessionID)
 }
 
-// prepareCmd builds an *exec.Cmd with the correlation env vars set and
-// optional per-run timeout cancellation wired in.
+// prepareCmd builds an *exec.Cmd with optional per-run timeout
+// cancellation wired in.
 func (b *Backend) prepareCmd(env engine.HandlerEnv, args []string) (*exec.Cmd, context.CancelFunc, error) {
 	bin := b.ClaudeBin
 	if bin == "" {
@@ -193,11 +190,6 @@ func (b *Backend) prepareCmd(env engine.HandlerEnv, args []string) (*exec.Cmd, c
 	if env.Cwd != "" {
 		cmd.Dir = env.Cwd
 	}
-	cmd.Env = append(os.Environ(),
-		"ATTRACTOR_RUN_ID="+env.RunID,
-		"ATTRACTOR_STAGE_ID="+env.Node.ID,
-		"ATTRACTOR_STAGE_DIR="+filepath.Join(env.LogsRoot, env.Node.ID),
-	)
 	return cmd, cancel, nil
 }
 
@@ -260,8 +252,8 @@ func claudeErr(err error, stderr []byte) error {
 }
 
 // AvailableAuth reports whether the host has either ANTHROPIC_API_KEY in
-// the environment or a Claude OAuth credentials file. Engine startup
-// uses it for the codergen_subscription_auth lint diagnostic.
+// the environment or a Claude OAuth credentials file. Used by the
+// opt-in real-CLI test to skip cleanly on unauthenticated hosts.
 func AvailableAuth() bool {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		return true

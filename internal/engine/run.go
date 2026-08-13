@@ -53,9 +53,8 @@ type Config struct {
 	EventsBuf int
 	Now       func() time.Time
 	// InitialContext seeds the run's context at start (applied after
-	// MirrorGraph, before the first node). Lets the submit path feed Item
-	// vars + `item.*` metadata to the run's conditional edges
-	// (router-spec deviation B). Nil for runs with no seed.
+	// MirrorGraph, before the first node) — the CLI's -var values.
+	// Nil for runs with no seed.
 	InitialContext map[string]string
 }
 
@@ -284,9 +283,9 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 			if err := e.writeStatus(nodeID, state.visits[nodeID], outcome); err != nil {
 				return e.fail(fmt.Sprintf("write status.json: %v", err))
 			}
-			// Mirror before the checkpoint event: consumers keying on
-			// checkpoint_saved (the phone-home stage uploader) must see
-			// the node root already reflecting this visit.
+			// Mirror before the checkpoint event so any consumer keying
+			// on checkpoint_saved sees the node root already reflecting
+			// this visit.
 			e.mirrorStage(nodeID, state.visits[nodeID])
 			if err := e.saveCheckpoint(state); err != nil {
 				return e.fail(fmt.Sprintf("save checkpoint: %v", err))
@@ -336,8 +335,8 @@ func (e *Engine) Run(pg *PreparedGraph) (Outcome, error) {
 
 // missingDeclaredVar returns the first `vars=` key absent from ctx, or ""
 // when every declared input is present. The engine is the one run-start
-// validation site shared by all entry points (CLI, serve, automation,
-// cron); each seeds its vars into the initial context before Run.
+// validation site for every entry point; callers seed their vars into
+// the initial context before Run.
 func missingDeclaredVar(g *graph.Graph, ctx *Context) string {
 	for _, name := range g.DeclaredVars() {
 		if _, ok := ctx.Lookup(name); !ok {
@@ -729,12 +728,9 @@ func firstResolvedTarget(g *graph.Graph, node *graph.Node, keys ...string) strin
 	return ""
 }
 
-// writeManifest persists the engine's run identity record to run.json. It is
-// deliberately NOT manifest.json: on the direct runner the daemon owns
-// manifest.json (the fleet record, carrying the run id) in the same logs root,
-// and a shared filename made the two writers clobber each other for the whole
-// run window (ui-run-view-v3 P5a). Separate filenames give every run-dir path a
-// single writer. The JSON field names are unchanged, so old dirs still load.
+// writeManifest persists the engine's run identity record to run.json
+// (historically distinct from a daemon-owned manifest.json; the name
+// stuck and old run dirs still load — spec §5.6 amendment A1 notes it).
 func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
 	m := Manifest{
 		RunID:     e.RunID,
@@ -822,8 +818,7 @@ func (e *Engine) loadCheckpoint() (*Checkpoint, error) {
 }
 
 // openEventsFile (re)opens events.jsonl in append mode. Persistence
-// lives in the engine so both entry points — CLI `run` and the serve
-// daemon — record events, making any run replayable (service-spec §3).
+// lives in the engine so every run records events and is replayable.
 // A failure to open is non-fatal: the run proceeds without persistence.
 func (e *Engine) openEventsFile() {
 	e.closeEventsFile()
@@ -880,7 +875,7 @@ func (e *Engine) emit(ev Event) {
 	}
 	ev.Seq = e.seq.Add(1)
 	// Accumulate per-stage usage and attach the run rollup to the
-	// terminal pipeline event (service-spec §6). Guarded because parallel
+	// terminal pipeline event (docs/provider-config.md). Guarded because parallel
 	// handler branches may emit concurrently.
 	switch ev.Kind {
 	case EventUsage:

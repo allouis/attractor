@@ -10,7 +10,7 @@ import (
 
 // These two rules are config-aware, so they are not part of BuiltIn():
 // the CLI constructs them from the loaded provider config and passes
-// them to Validate as extra rules (service-spec §1).
+// them to Validate as extra rules (docs/provider-config.md).
 
 // ProviderKnownRule warns when a codergen node resolves to a provider
 // that the machine-local config does not define. It is a warning, not

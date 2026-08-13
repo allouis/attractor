@@ -4,8 +4,6 @@
 package cli
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,7 +19,6 @@ import (
 	"github.com/allouis/attractor/internal/backend/claudecode"
 	"github.com/allouis/attractor/internal/backend/router"
 	"github.com/allouis/attractor/internal/config"
-	"github.com/allouis/attractor/internal/dot"
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/graph"
 	"github.com/allouis/attractor/internal/handler"
@@ -33,9 +30,6 @@ import (
 	"github.com/allouis/attractor/internal/runview"
 	"github.com/allouis/attractor/internal/setup"
 )
-
-func cryptoRandRead(b []byte) (int, error) { return rand.Read(b) }
-func hexEncode(b []byte) string            { return hex.EncodeToString(b) }
 
 // BackendChoice selects the codergen backend wired into the CLI's
 // default handler set. Selection is always explicit: there is no
@@ -87,8 +81,8 @@ func Validate(args []string) error {
 	return err
 }
 
-// providerLintRules returns the config-aware lint rules (service-spec
-// §1). They are not part of lint.BuiltIn() because they depend on the
+// providerLintRules returns the config-aware lint rules. They are not
+// part of lint.BuiltIn() because they depend on the
 // machine-local provider config; callers pass them as extra rules.
 func providerLintRules(cfg config.Config) []lint.Rule {
 	return []lint.Rule{
@@ -98,7 +92,7 @@ func providerLintRules(cfg config.Config) []lint.Rule {
 }
 
 // Run executes a pipeline end-to-end. By default each codergen node is
-// routed to a backend via the provider config (service-spec §1); the
+// routed to a backend via the provider config (docs/provider-config.md); the
 // --backend / --acp-cmd flags are run-wide overrides that bypass it.
 // The positional argument is either a path to a .dot file or a pipeline
 // name that resolves via lookup (see resolvePipelinePath).
@@ -111,7 +105,7 @@ func Run(args []string) error {
 	acpCmd := fs.String("acp-cmd", "", "ACP agent command for --backend acp (fallback when the graph sets no acp_command attribute)")
 	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
 	baseDir := fs.String("base-dir", "", "directory @file prompts and child pipelines resolve against (default: the .dot file's directory)")
-	cwd := fs.String("cwd", "", "working tree the pipeline operates in (graph-level cwd default; report mode)")
+	cwd := fs.String("cwd", "", "working tree the pipeline operates in (graph-level cwd default)")
 	ui := fs.Bool("ui", false, "serve this run's own read-only API + waterfall UI while it runs (local-first single-run server)")
 	uiAddr := fs.String("ui-addr", "127.0.0.1:0", "listen address for --ui (default: an ephemeral localhost port)")
 	announce := fs.String("announce", "", "hub base URL: register this run's --ui URL at start and ship the run-dir archive on completion (implies --ui)")
@@ -157,7 +151,7 @@ func Run(args []string) error {
 	// Resolve the codergen backend. Explicit --backend / --acp-cmd are
 	// run-wide overrides (debugging) that bypass provider config;
 	// otherwise each codergen node is routed per its llm_provider /
-	// llm_model through ./.attractor/config.toml (service-spec §1).
+	// llm_model through ~/.attractor/config.json (see docs/provider-config.md).
 	var codergenBackend backend.CodergenBackend
 	if flagSet(fs, "backend") || flagSet(fs, "acp-cmd") {
 		choice, err := parseBackendChoice(*backendFlag)
@@ -247,8 +241,6 @@ func nodeMeta(g *graph.Graph) map[string]runview.NodeMeta {
 			class = "gate"
 		case strings.HasPrefix(typ, "parallel"):
 			class = "parallel"
-		case strings.HasPrefix(typ, "stack."):
-			class = "manager"
 		}
 		meta[id] = runview.NodeMeta{
 			Type:     typ,
@@ -261,7 +253,7 @@ func nodeMeta(g *graph.Graph) map[string]runview.NodeMeta {
 }
 
 // providerBackend builds the config-routed codergen backend used when no
-// --backend override is given (service-spec §1), surfacing config-aware
+// --backend override is given (docs/provider-config.md), surfacing config-aware
 // warnings (unknown provider, missing model_env) to stderr so --json
 // stdout stays clean.
 func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
@@ -372,9 +364,8 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-// loadProviderConfig reads the provider routing config, projected from
-// the daemon-owned ~/.attractor/config.json (config-screen-spec). The CLI
-// is a read-only consumer; the daemon owns the writes.
+// loadProviderConfig reads the provider routing config from
+// ~/.attractor/config.json (see docs/provider-config.md).
 func loadProviderConfig() (config.Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -409,18 +400,6 @@ func buildCodergen(choice BackendChoice, acpCmd string) (backend.CodergenBackend
 		return &claudecode.Backend{}, nil
 	}
 	return nil, fmt.Errorf("run: unknown backend %q", choice)
-}
-
-func loadGraph(path string) (*graph.Graph, error) {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	file, err := dot.Parse(string(src))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return graph.Build(file)
 }
 
 // buildRegistryWith wires every built-in handler, parameterised by the

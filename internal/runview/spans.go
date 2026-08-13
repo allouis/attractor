@@ -46,8 +46,8 @@ type NodeMeta struct {
 	ThreadID string
 }
 
-// GraphMeta extracts per-node metadata from graph node attributes.
-// Kept as a plain map so runview does not depend on the graph package.
+// AttachMeta stamps graph-derived node metadata onto spans. Kept as a
+// plain map so runview does not depend on the graph package.
 func AttachMeta(spans []Span, meta map[string]NodeMeta) {
 	for i := range spans {
 		if m, ok := meta[spans[i].NodeID]; ok {

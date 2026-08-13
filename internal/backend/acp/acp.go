@@ -2,9 +2,8 @@
 // It spawns an ACP agent process per stage (e.g. claude-agent-acp),
 // drives one prompt turn over newline-delimited JSON-RPC on the
 // process's stdio, and maps streamed session updates onto Attractor
-// progress events. Unlike the claudecode backend there is no hookshim:
-// tool visibility comes from the protocol's tool_call updates, which
-// are persisted under the stage log directory.
+// progress events. Tool visibility comes from the protocol's tool_call
+// updates, persisted under the stage log directory.
 package acp
 
 import (
@@ -49,7 +48,7 @@ type Backend struct {
 	// Timeout caps a single Run invocation. Zero means no timeout.
 	Timeout time.Duration
 	// StallTimeout kills the turn if the agent goes quiet — no
-	// session/update for this long (service-spec §6 stall watchdog). The
+	// session/update for this long. The
 	// node's `stall_timeout` attribute overrides it. Zero disables the
 	// watchdog.
 	StallTimeout time.Duration
@@ -333,7 +332,7 @@ func (t *turnState) onPermission(req acp.PermissionRequest, chosen string) {
 }
 
 // emitUsage emits the per-stage token total once the turn ends, so the
-// engine can roll it up per run (service-spec §6). No usage reported
+// engine can roll it up per run (docs/provider-config.md). No usage reported
 // (zero total) emits nothing.
 func (t *turnState) emitUsage() {
 	t.mu.Lock()
@@ -357,7 +356,7 @@ func (t *turnState) emit(ev engine.Event) {
 }
 
 // persistToolCall writes the raw update payload under the stage's
-// tool_calls directory, mirroring the hookshim ingest layout.
+// tool_calls directory.
 func (t *turnState) persistToolCall(u acp.SessionUpdate) {
 	if t.env.Stage == nil {
 		return

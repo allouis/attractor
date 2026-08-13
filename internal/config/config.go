@@ -1,5 +1,5 @@
 // Package config loads Attractor's machine-local provider routing
-// config (service-spec §1). The config maps a provider name to a
+// config (docs/provider-config.md). The config maps a provider name to a
 // backend mechanism (acp | claudecode | simulation), an agent command,
 // and the env var used to pass llm_model to the agent. Codergen nodes
 // declare intent (llm_provider / llm_model); the router resolves that
@@ -31,7 +31,7 @@ type Config struct {
 }
 
 // InferProvider guesses the provider from an llm_model prefix
-// (service-spec §1). Returns "" when the prefix is unrecognised.
+// (docs/provider-config.md). Returns "" when the prefix is unrecognised.
 func InferProvider(model string) string {
 	switch {
 	case strings.HasPrefix(model, "claude"):

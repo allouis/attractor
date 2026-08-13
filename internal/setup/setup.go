@@ -1,11 +1,9 @@
-// Package setup is the one shared pipeline preparation path used by both
-// entry points — the CLI `run` command and the HTTP `serve` daemon
-// (service-spec §2). It parses DOT source, applies the standard transforms
-// (@file prompt inlining, stylesheet), defaults the graph-level cwd, and
-// lints, returning a PreparedGraph ready for engine.Run. Keeping this in
-// one place is what gives run/serve parity: both accept @file prompts and
-// a cwd. Vars are seeded into the run context by the caller (C3), not here;
-// `$context.*` interpolates at runtime (spec §4.5).
+// Package setup is the one shared pipeline preparation path: it parses
+// DOT source, applies the standard transforms (subgraph inlining, @file
+// prompts, stylesheet), defaults the graph-level cwd, and lints,
+// returning a PreparedGraph ready for engine.Run. Vars are seeded into
+// the run context by the caller, not here; `$context.*` interpolates at
+// runtime (spec §4.5).
 package setup
 
 import (
@@ -21,12 +19,12 @@ import (
 type Options struct {
 	// Source is the raw DOT text of the pipeline.
 	Source string
-	// BaseDir resolves @file prompt references. The CLI passes the .dot
-	// file's directory; serve passes the submission cwd.
+	// BaseDir resolves @file prompt and graph_ref references — the .dot
+	// file's directory.
 	BaseDir string
-	// Cwd becomes the graph-level cwd default (service-spec §2): it is
-	// applied only when the graph declares no cwd, so node/graph attrs
-	// still win. Empty leaves the graph untouched.
+	// Cwd becomes the graph-level cwd default: applied only when the
+	// graph declares no cwd, so node/graph attrs still win. Empty leaves
+	// the graph untouched.
 	Cwd string
 }
 

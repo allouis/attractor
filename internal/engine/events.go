@@ -24,9 +24,9 @@ type Event struct {
 	QuestionID string            `json:"question_id,omitempty"`
 	Usage      *Usage            `json:"usage,omitempty"`
 	// Question carries the full human-gate question on an
-	// EventInterviewStarted (spec §9.6 InterviewStarted(question)), so a
-	// frontend consuming the event stream — including a phone-home daemon —
-	// can present the choices without a side channel.
+	// EventInterviewStarted (spec §9.6 InterviewStarted(question)), so any
+	// frontend consuming the event stream can present the choices without
+	// a side channel.
 	Question *InterviewQuestion `json:"question,omitempty"`
 	// Seq is a monotonic per-run sequence number stamped by emit. It lets
 	// SSE consumers resume with ?since=<seq> without duplicating events (T3).
@@ -34,7 +34,7 @@ type Event struct {
 }
 
 // Usage carries token accounting: per-stage on an EventUsage event, or
-// the per-run rollup on the terminal pipeline event (service-spec §6).
+// the per-run rollup on the terminal pipeline event (docs/provider-config.md).
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`

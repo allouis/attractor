@@ -1,13 +1,8 @@
-// Package version exposes the build's git revision so the daemon can warn
-// when a phone-home child (subprocess / VM image) is running a different
-// build than itself (docs/nix-vm-runner-spec.md — image/daemon skew).
+// Package version exposes the build's version and git revision for
+// `attractor version`.
 package version
 
 import "runtime/debug"
-
-// RevisionHeader carries a phone-home child's git revision so the daemon
-// can detect skew against its own build.
-const RevisionHeader = "X-Attractor-Revision"
 
 // Number is the human-facing release version, bumped by hand at release
 // time. Distinct from Revision, which is the exact build's git commit.

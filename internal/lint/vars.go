@@ -36,17 +36,16 @@ var bareRef = regexp.MustCompile(`(?:^|[^$.\w])context\.([a-zA-Z0-9_]+(?:\.[a-zA
 var runtimePrefixes = []string{
 	"graph.",    // graph attrs mirrored at run start
 	"human.",    // wait.human gate answers
-	"item.",     // intake item metadata seeded by the submitter
 	"check.",    // repo check commands seeded from config
 	"parallel.", // parallel handler fan-in results
 	"internal.", // engine bookkeeping
 }
 
 // runtimeKeys are individual keys the engine or the codergen handler
-// maintains on every run, plus declared inputs that machinery outside
-// the graph text consumes (the VM launcher reads workspace_revision to
-// pick the revision a run's workspace materializes at, so a pipeline
-// legitimately declares it without ever referencing it).
+// maintains on every run, plus declared inputs consumed by whatever
+// launches the run rather than by graph text (workspace_revision: an
+// external launcher materializes the workspace at that revision, so
+// revise-pr declares it without referencing it — local-first plan D9).
 var runtimeKeys = map[string]struct{}{
 	"outcome":            {},
 	"preferred_label":    {},

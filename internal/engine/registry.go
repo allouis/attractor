@@ -15,8 +15,7 @@ type Handler interface {
 }
 
 // HandlerEnv bundles everything a handler needs to do its work. Passing
-// a struct keeps the interface stable as new optional inputs are added
-// (event channels, ingest URL, etc).
+// a struct keeps the interface stable as new optional inputs are added.
 type HandlerEnv struct {
 	Node  *graph.Node
 	Graph *graph.Graph

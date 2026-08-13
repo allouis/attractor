@@ -224,9 +224,8 @@ type Checkpoint struct {
 	NodeOutcomes   map[string]Outcome `json:"node_outcomes"`
 }
 
-// Manifest is run-level metadata (spec §5.6) written once at start to the
-// engine's identity record run.json (ui-run-view-v3 P5a — the daemon owns the
-// sibling manifest.json).
+// Manifest is run-level metadata (spec §5.6) written once at start to
+// the run's identity record, run.json.
 type Manifest struct {
 	RunID     string    `json:"run_id"`
 	GraphName string    `json:"graph_name"`
