@@ -130,3 +130,31 @@ func TestRequireStatusHonorsAgentStatus(t *testing.T) {
 		t.Fatalf("agent FAIL verdict not honored: %+v", oc)
 	}
 }
+
+// All three require_status miss shapes carry the machinery marker and name
+// the actual problem — "wrote no" misdiagnosis cost run 9afacdba seven
+// review rounds whose verdicts were on disk but uppercase.
+func TestRequireStatusMissReasonVariants(t *testing.T) {
+	env, dir := codergenEnv(t, map[string]string{"prompt": "p", "require_status": "true"})
+	_ = dir
+	stage := env.Stage
+
+	if r := requireStatusMissReason(stage); !strings.Contains(r, "wrote no") || !isRequireStatusMiss(r) {
+		t.Fatalf("no-file variant wrong: %q", r)
+	}
+	stage.MkdirAll()
+	stage.Write("status.json", []byte("{not json"))
+	if r := requireStatusMissReason(stage); !strings.Contains(r, "not valid JSON") || !isRequireStatusMiss(r) {
+		t.Fatalf("bad-json variant wrong: %q", r)
+	}
+	stage.Write("status.json", []byte(`{"outcome":"maybe"}`))
+	if r := requireStatusMissReason(stage); !strings.Contains(r, `unrecognized outcome "maybe"`) || !isRequireStatusMiss(r) {
+		t.Fatalf("bad-outcome variant wrong: %q", r)
+	}
+	// And the historical trigger: an UPPERCASE outcome now parses fine, so
+	// it is NOT a miss at all.
+	stage.Write("status.json", []byte(`{"outcome":"FAIL","failure_reason":"real finding"}`))
+	if _, ok := readAgentStatus(stage); !ok {
+		t.Fatal("uppercase outcome must parse after the case-insensitivity fix")
+	}
+}

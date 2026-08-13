@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -43,7 +44,10 @@ func (s Status) String() string {
 // ParseStatus converts a canonical status string back into a Status
 // value. Unknown strings yield StatusUnknown.
 func ParseStatus(s string) Status {
-	switch s {
+	// Case-insensitive: agents echo the casing their prompts use ("outcome
+	// SUCCESS"), and rejecting "FAIL" for casing cost run 9afacdba seven
+	// review rounds whose verdicts were on disk, correct, and unread.
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "success":
 		return StatusSuccess
 	case "partial_success":

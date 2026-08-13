@@ -288,7 +288,20 @@ func pollAgentStatus(stage *runstore.Dir, window, interval time.Duration) (engin
 // signature (via isRequireStatusMiss) so a harness miss is not fed to a fix
 // agent as if it were a review finding.
 func requireStatusMissReason(stage *runstore.Dir) string {
-	return "agent wrote no " + filepath.Join(stage.Root(), "status.json") + " (require_status node)"
+	path := filepath.Join(stage.Root(), "status.json")
+	// Distinguish "never written" from "written but unreadable" — run
+	// 9afacdba burned seven review rounds because on-disk verdicts rejected
+	// for a parse detail were reported as "wrote no status.json" and
+	// everyone debugged the wrong layer.
+	data, err := stage.Read("status.json")
+	if err != nil {
+		return "agent wrote no " + path + " (require_status node)"
+	}
+	var oc engine.Outcome
+	if jerr := json.Unmarshal(data, &oc); jerr != nil {
+		return "agent's " + path + " is not valid JSON: " + jerr.Error() + " (require_status node)"
+	}
+	return "agent's " + path + " has unrecognized outcome " + strconv.Quote(oc.StatusString) + " (require_status node)"
 }
 
 // isRequireStatusMiss reports whether a failure_reason carries the
@@ -296,7 +309,9 @@ func requireStatusMissReason(stage *runstore.Dir) string {
 // verdict). The signature survives wrapping ("manager_loop: child failed — …"),
 // so it holds when the reason has bubbled up through nested manager loops.
 func isRequireStatusMiss(reason string) bool {
-	return strings.Contains(reason, "status.json (require_status node)")
+	// All three miss variants (never written / invalid JSON / unknown
+	// outcome) end with this marker; agent-authored verdicts never carry it.
+	return strings.Contains(reason, "(require_status node)")
 }
 
 // readAgentStatus reads the agent-authored status.json if present and
