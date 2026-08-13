@@ -444,7 +444,7 @@ func Serve(args []string) error {
 	authToken := fs.Bool("auth-token", false, "enable bearer-token auth (token at ~/.attractor/api-key, auto-generated on first use)")
 	insecure := fs.Bool("insecure", false, "allow non-loopback bind without auth (network layer is responsible)")
 	maxConcurrent := fs.Int("max-concurrent-runs", 4, "maximum runs executing at once; the rest queue FIFO")
-	runner := fs.String("runner", "direct", "where runs execute: direct (in-process) | local (subprocess) | vm (nixos VM)")
+	runner := fs.String("runner", "local", "where runs execute: local (subprocess) | vm (nixos VM)")
 	var vmRunners repeatedString
 	fs.Var(&vmRunners, "vm-runner", "run-nixos-vm boot script for --runner vm; `name=path` registers a named image, a bare path is the default image (repeatable; default: build .#vm-runner)")
 	vmDir := fs.String("vm-dir", "", "root for per-run VM disks + job dirs (--runner vm; default: <logs>/vms)")
@@ -563,9 +563,11 @@ func parseVMImages(flags []string) (map[string]string, error) {
 // and cliImages override by name; a missing "default" is filled by building
 // .#vm-runner (VM1).
 func resolveLaunchers(choice string, cliImages, configImages map[string]string, vmDir string) (def server.Launcher, all map[string]server.Launcher, err error) {
+	// The in-process `direct` launcher is retired (local-first plan
+	// P3.12): the daemon no longer embeds the engine for submitted runs —
+	// every run is a subprocess (or VM) speaking the same contract.
 	all = map[string]server.Launcher{
-		"direct": server.NewDirectLauncher(),
-		"local":  server.NewLocalLauncher(),
+		"local": server.NewLocalLauncher(),
 	}
 	if choice == "vm" || len(cliImages) > 0 {
 		images := make(map[string]string, len(configImages)+len(cliImages)+1)
@@ -589,7 +591,7 @@ func resolveLaunchers(choice string, cliImages, configImages map[string]string, 
 	}
 	def, ok := all[choice]
 	if !ok {
-		return nil, nil, fmt.Errorf("serve: unknown --runner %q (want direct | local | vm)", choice)
+		return nil, nil, fmt.Errorf("serve: unknown --runner %q (want local | vm)", choice)
 	}
 	return def, all, nil
 }

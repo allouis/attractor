@@ -72,14 +72,14 @@ func TestServeReposLoadsConfig(t *testing.T) {
 }
 
 // TestResolveLaunchersGatesOnExplicitIntent checks that config-supplied
-// vm_images alone do NOT activate the vm launcher: a `--runner direct`
+// vm_images alone do NOT activate the vm launcher: a `--runner local`
 // daemon with vm_images in config but no --runner vm / --vm-runner flag
 // gets no vm launcher (and never attempts a nix build), so a config edit
 // can't silently arm VMs or break serve startup (VM1 prod-safety).
 func TestResolveLaunchersGatesOnExplicitIntent(t *testing.T) {
 	vmDir := t.TempDir()
 	// Config-only images, no CLI intent → no vm launcher, no build, no error.
-	_, all, err := resolveLaunchers("direct", nil, map[string]string{"python": "/p"}, vmDir)
+	_, all, err := resolveLaunchers("local", nil, map[string]string{"python": "/p"}, vmDir)
 	if err != nil {
 		t.Fatalf("resolveLaunchers: %v", err)
 	}
@@ -88,12 +88,16 @@ func TestResolveLaunchersGatesOnExplicitIntent(t *testing.T) {
 	}
 	// A --vm-runner flag (here with a default supplied so no nix build is
 	// needed) is explicit intent → vm launcher present, config merged in.
-	_, all, err = resolveLaunchers("direct", map[string]string{"default": "/d"}, map[string]string{"python": "/p"}, vmDir)
+	_, all, err = resolveLaunchers("local", map[string]string{"default": "/d"}, map[string]string{"python": "/p"}, vmDir)
 	if err != nil {
 		t.Fatalf("resolveLaunchers (cli intent): %v", err)
 	}
 	if _, ok := all["vm"]; !ok {
 		t.Errorf("vm launcher not built despite --vm-runner intent")
+	}
+	// The retired in-process runner is rejected.
+	if _, _, err := resolveLaunchers("direct", nil, nil, vmDir); err == nil {
+		t.Error("--runner direct accepted; the in-process launcher is retired")
 	}
 }
 

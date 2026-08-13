@@ -91,7 +91,7 @@ func TestRunnerParity(t *testing.T) {
 			name:           "direct",
 			liveDiffStatus: diffStatusNotComputable,
 			config: func(t *testing.T, logsRoot string) Config {
-				return Config{Addr: "127.0.0.1:0", LogsRoot: logsRoot, Launcher: NewDirectLauncher()}
+				return Config{Addr: "127.0.0.1:0", LogsRoot: logsRoot, Launcher: directLauncher{}}
 			},
 		},
 		{

@@ -10,7 +10,7 @@ import (
 func placementLaunchers() map[string]Launcher {
 	vm := NewVMLauncherWithImages(map[string]string{"default": "/a", "node-ts": "/b"}, "default", "")
 	return map[string]Launcher{
-		"direct": NewDirectLauncher(),
+		"direct": directLauncher{},
 		"local":  NewLocalLauncher(),
 		"vm":     vm,
 	}

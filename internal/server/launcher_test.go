@@ -107,8 +107,8 @@ func TestSubmitResolvesRepoDeclaredPlacement(t *testing.T) {
 	rec := imageRecordingLauncher{got: &got}
 	srv := New(Config{
 		Addr: "127.0.0.1:0", LogsRoot: t.TempDir(),
-		Launcher:  NewDirectLauncher(),
-		Launchers: map[string]Launcher{"vm": rec, "direct": NewDirectLauncher()},
+		Launcher:  directLauncher{},
+		Launchers: map[string]Launcher{"vm": rec, "direct": directLauncher{}},
 	})
 	mustNil(t, srv.Start())
 	defer srv.Close()
@@ -136,8 +136,8 @@ func TestSubmitRejectsUnknownImage(t *testing.T) {
 	vm := NewVMLauncherWithImages(map[string]string{"default": "/a", "node-ts": "/b"}, "default", t.TempDir())
 	srv := New(Config{
 		Addr: "127.0.0.1:0", LogsRoot: tmp,
-		Launcher:  NewDirectLauncher(),
-		Launchers: map[string]Launcher{"vm": vm, "direct": NewDirectLauncher()},
+		Launcher:  directLauncher{},
+		Launchers: map[string]Launcher{"vm": vm, "direct": directLauncher{}},
 	})
 	_, err := srv.submit(doneGraphSrv, nil, tmp, "", "", "", "", "vm", "bogus")
 	if err == nil {
@@ -168,8 +168,8 @@ func TestPerRunImageCarriedToLauncher(t *testing.T) {
 	rec := imageRecordingLauncher{got: &got}
 	srv := New(Config{
 		Addr: "127.0.0.1:0", LogsRoot: tmp,
-		Launcher:  NewDirectLauncher(),
-		Launchers: map[string]Launcher{"vm": rec, "direct": NewDirectLauncher()},
+		Launcher:  directLauncher{},
+		Launchers: map[string]Launcher{"vm": rec, "direct": directLauncher{}},
 	})
 	if err := srv.Start(); err != nil {
 		t.Fatalf("start: %v", err)

@@ -16,7 +16,7 @@ import (
 // asserts it survives into the daemon's server-side event history.
 func TestAnsweredGateEventCarriesChoiceServerSide(t *testing.T) {
 	tmp := t.TempDir()
-	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp, Launcher: NewDirectLauncher()})
+	srv := New(Config{Addr: "127.0.0.1:0", LogsRoot: tmp, Launcher: directLauncher{}})
 	if err := srv.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}

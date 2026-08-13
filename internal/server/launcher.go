@@ -39,11 +39,12 @@ func (s *Server) launcherFor(placement string) Launcher {
 	return s.launcher
 }
 
-// NewDirectLauncher returns the in-process launcher (registry Run.execute).
-func NewDirectLauncher() Launcher { return directLauncher{} }
-
 // directLauncher runs the engine in-process (registry Run.execute). It is
-// the default so existing behavior and tests are unchanged (decision D5).
+// RETIRED as a user-selectable runner (local-first plan P3.12): serve no
+// longer offers it, so a daemon never embeds the engine for submitted
+// runs. It remains only as the server package's internal default so unit
+// tests exercise the run lifecycle without spawning subprocesses; it
+// goes entirely when Phase 4 replaces phone-home with hub scraping.
 type directLauncher struct{}
 
 func (directLauncher) Launch(run *Run, _ string) error {
