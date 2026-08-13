@@ -1,3 +1,9 @@
+> **Note (2026-08-13 strip):** the hook/ingest machinery this spec
+> describes for the claudecode backend (hookshim, settings file, ingest
+> server, `tool_hooks.*`) was deleted — the backend now wraps the CLI
+> with no side channels, and the ACP backend (tool visibility over the
+> protocol) is primary. Those sections are historical.
+
 # Codergen Backends Specification
 
 A specification for wiring existing agentic CLIs (Claude Code, pi, Codex CLI, etc.) as `CodergenBackend` implementations for an [Attractor](./spec/attractor.md) pipeline runner. This spec composes with — and is intentionally subordinate to — the [Attractor Specification](./spec/attractor.md). It does not require the [Coding Agent Loop Specification](./coding-agent-loop-spec.md) or the [Unified LLM Client Specification](./unified-llm-spec.md): those describe how to *build* an agent loop, while this spec describes how to *consume* an existing one.

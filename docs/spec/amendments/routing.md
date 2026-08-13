@@ -1,3 +1,9 @@
+> **SUPERSEDED (2026-08-13).** `stack.manager_loop`, the router pipeline,
+> and items intake were deleted in the strip (see
+> `../../local-first-plan.md`, postscript). Composition is now
+> `type="subgraph"` static inlining only (parse-time-known children).
+> Kept for history.
+
 # Router — spec (Phase 2 of items-spec)
 
 Routing = "given an Item, pick the workflow and run it." Attractor
