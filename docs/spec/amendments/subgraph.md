@@ -14,7 +14,11 @@ Appendix B maps shape `house` to it.
 
 ## What we do instead
 
-Composition is **load-time static inlining only**:
+Composition is **load-time static inlining only** — implemented as a
+graph transform, which is itself spec-sanctioned machinery (§9.1–§9.3
+define transforms and their custom-extension point; the deviation here
+is dropping the runtime manager-loop node, not the mechanism that
+replaces it):
 
 ```dot
 review [type="subgraph", graph_ref="../review-core/pipeline.dot",

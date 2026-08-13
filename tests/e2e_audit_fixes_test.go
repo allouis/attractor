@@ -168,3 +168,44 @@ func TestHandlerPanic_BecomesFailOutcome(t *testing.T) {
 		t.Fatal("no pipeline_failed terminal event after panic")
 	}
 }
+
+// The waterfall showed no lanes for parallel branch nodes: the parallel
+// handler executed branches without emitting stage events, so the span
+// fold (and any event consumer) never saw them. Branches must emit
+// stage_started/stage_completed like any other node execution.
+func TestParallel_BranchesEmitStageEvents(t *testing.T) {
+	src := `digraph t {
+		start [shape=Mdiamond]
+		fan [shape=component]
+		a [prompt="branch a"]
+		b [prompt="branch b"]
+		synth [prompt="merge"]
+		done [shape=Msquare]
+		start -> fan
+		fan -> a
+		fan -> b
+		a -> synth
+		b -> synth
+		synth -> done
+	}`
+	be := fake.New()
+	out, events, _ := runFixture(t, src, be, nil)
+	if out.Status != engine.StatusSuccess {
+		t.Fatalf("run failed: %+v", out)
+	}
+	started := map[string]bool{}
+	completed := map[string]bool{}
+	for _, ev := range events {
+		switch ev.Kind {
+		case engine.EventStageStarted:
+			started[ev.NodeID] = true
+		case engine.EventStageCompleted:
+			completed[ev.NodeID] = true
+		}
+	}
+	for _, id := range []string{"a", "b"} {
+		if !started[id] || !completed[id] {
+			t.Fatalf("branch %q missing stage events (started=%v completed=%v)", id, started[id], completed[id])
+		}
+	}
+}

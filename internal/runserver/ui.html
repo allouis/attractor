@@ -157,7 +157,9 @@ function renderQuestions() {
     note.placeholder = "optional note to the agent";
     for (const opt of q.question?.options || []) {
       const b = document.createElement("button");
-      b.textContent = "[" + opt.key + "] " + opt.label;
+      // Edge labels often embed their own accelerator ("[S] Ship") —
+      // don't prefix a second copy of the key.
+      b.textContent = opt.label.startsWith("[") ? opt.label : "[" + opt.key + "] " + opt.label;
       b.onclick = () => answer(q.id, opt.key, note.value);
       box.appendChild(b);
     }

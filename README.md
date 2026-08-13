@@ -46,8 +46,10 @@ matter day-to-day:
 - **Every visit to a node keeps its own directory** (`<node>/v1/`,
   `v2/`, …) so a review/fix loop never overwrites the evidence of
   earlier rounds.
-- **Sub-pipelines are inlined at load time** (`type="subgraph"`), not run
-  by a supervisor node at runtime.
+- **The spec's runtime manager-loop node is not implemented.**
+  Sub-pipelines are composed with `type="subgraph"` instead — a
+  load-time transform (transforms being the spec's own §9 extension
+  mechanism) that inlines the child pipeline into the parent graph.
 
 ## How it works
 
@@ -164,11 +166,15 @@ attractor run --ui --cwd /path/to/target-repo \
 - Bare pipeline names resolve under `./pipelines/` then
   `~/.attractor/pipelines/`.
 
-The `--ui` waterfall shows one lane per node with live spans, tool-call
-tick marks, token counts, and click-through to every stage's actual
-prompt, response, and status. The same data is served as JSON
-(`/pipelines/{id}`, `/events?since=N`, `/artifacts/…`) for scripts and
-agents.
+The `--ui` waterfall shows one lane per node with live spans (parallel
+branches run side by side), tool-call tick marks, token counts, and
+click-through to every stage's actual prompt, response, and status.
+Approval gates render as buttons — this run is paused at its ship gate:
+
+![The live waterfall, paused at a human gate](./docs/images/waterfall.png)
+
+The same data is served as JSON (`/pipelines/{id}`, `/events?since=N`,
+`/artifacts/…`) for scripts and agents.
 
 ### Shipped pipelines
 

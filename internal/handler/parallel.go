@@ -76,11 +76,14 @@ func (h Parallel) Execute(env engine.HandlerEnv) engine.Outcome {
 				}}
 				return
 			}
+			// Branches emit real stage events under their OWN node id —
+			// without these no span exists for a branch, so the waterfall
+			// showed a parallel fan-out as one opaque bar (2026-08-13).
 			emit(env, engine.Event{
-				Kind:    engine.EventStageProgress,
-				NodeID:  env.Node.ID,
-				Message: "branch_started",
-				Detail:  map[string]string{"branch": e.To},
+				Kind:    engine.EventStageStarted,
+				NodeID:  e.To,
+				Visit:   1,
+				Attempt: 1,
 			})
 			start := time.Now()
 			subEnv := env
@@ -97,14 +100,19 @@ func (h Parallel) Execute(env engine.HandlerEnv) engine.Outcome {
 			oc.Finalize()
 			dur := time.Since(start)
 			results[i] = branchResult{Branch: e.To, Outcome: oc, Dur: dur}
+			kind := engine.EventStageCompleted
+			msg := ""
+			if oc.Status == engine.StatusFail {
+				kind = engine.EventStageFailed
+				msg = oc.FailureReason
+			}
 			emit(env, engine.Event{
-				Kind:    engine.EventStageProgress,
-				NodeID:  env.Node.ID,
-				Message: "branch_completed",
-				Detail: map[string]string{
-					"branch": e.To,
-					"status": oc.Status.String(),
-				},
+				Kind:     kind,
+				NodeID:   e.To,
+				Visit:    1,
+				Attempt:  1,
+				Status:   oc.Status.String(),
+				Message:  msg,
 				Duration: dur,
 			})
 		}()
