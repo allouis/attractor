@@ -122,7 +122,7 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	result, err := h.Backend.Run(env, prompt)
 	relocateLeakedStatus(stage, workStatus, workStatusExisted)
 	if err != nil {
-		return engine.Outcome{Status: engine.StatusFail, FailureReason: err.Error()}
+		return backendErrOutcome(err)
 	}
 	if result.Outcome != nil {
 		if result.ResponseText != "" {
@@ -171,6 +171,17 @@ func (h Codergen) Execute(env engine.HandlerEnv) engine.Outcome {
 	}
 }
 
+// backendErrOutcome maps a backend error onto an outcome using its D1
+// classification: transient-marked errors become RETRY (the engine's
+// retry machinery re-runs the node with backoff), everything else FAIL.
+func backendErrOutcome(err error) engine.Outcome {
+	status := engine.StatusFail
+	if backend.IsTransient(err) {
+		status = engine.StatusRetry
+	}
+	return engine.Outcome{Status: status, FailureReason: err.Error()}
+}
+
 // runNoPersistence runs the backend without any artifact file I/O, for a
 // run that has no logs root (env.Stage == nil).
 func (h Codergen) runNoPersistence(env engine.HandlerEnv, prompt string) engine.Outcome {
@@ -180,7 +191,7 @@ func (h Codergen) runNoPersistence(env engine.HandlerEnv, prompt string) engine.
 	}
 	result, err := h.Backend.Run(env, prompt)
 	if err != nil {
-		return engine.Outcome{Status: engine.StatusFail, FailureReason: err.Error()}
+		return backendErrOutcome(err)
 	}
 	if result.Outcome != nil {
 		return *result.Outcome

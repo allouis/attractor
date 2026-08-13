@@ -132,10 +132,12 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return backend.Result{}, fmt.Errorf("claudecode tier2: read stream: %w", err)
+		return backend.Result{}, backend.Transient(fmt.Errorf("claudecode tier2: read stream: %w", err))
 	}
 	if err := cmd.Wait(); err != nil {
-		return backend.Result{}, claudeErr(err, stderr.Bytes())
+		// D1: the CLI started and then exited nonzero — transient unless
+		// the stderr tail is auth/config-shaped.
+		return backend.Result{}, backend.ClassifyTurn(claudeErr(err, stderr.Bytes()))
 	}
 	if finalEnvelope == nil {
 		return backend.Result{ResponseText: ""}, nil
@@ -250,10 +252,15 @@ func resultFromEnvelope(envelope map[string]any) backend.Result {
 	}
 	isErr, _ := envelope["is_error"].(bool)
 	if isErr {
-		o := engine.Outcome{
-			Status:        engine.StatusFail,
-			FailureReason: stringField(envelope, "error", "claude reported is_error"),
+		reason := stringField(envelope, "error", "claude reported is_error")
+		// D1: a provider-shaped failure inside the agent's own error
+		// envelope (rate limit, overloaded) is retryable; a task-shaped
+		// one is not.
+		status := engine.StatusFail
+		if backend.TransientMessage(reason) {
+			status = engine.StatusRetry
 		}
+		o := engine.Outcome{Status: status, FailureReason: reason}
 		res.Outcome = &o
 	}
 	return res

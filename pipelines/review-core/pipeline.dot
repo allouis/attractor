@@ -18,6 +18,9 @@
 // $context.parallel.results, so nothing is written into the repo cwd and the
 // diff under review stays clean.
 digraph review_core {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Multi-lens review of the change shown by $context.diff_cmd"
     vars = "diff_cmd"
     max_node_visits = 2

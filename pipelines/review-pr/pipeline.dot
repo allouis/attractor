@@ -19,6 +19,9 @@
 //   attractor run review -var repo=owner/name -var pr_number=42 \
 //     -var url=… -var title=…
 digraph review {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Review PR #$context.pr_number ($context.title) in $context.repo"
     vars = "repo,pr_number,url,title"
     max_node_visits = 2

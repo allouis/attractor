@@ -25,6 +25,9 @@
 // committed work plus any stray working-copy changes. A PASS reaches the
 // human ship gate; shipping opens a draft PR on the repo's GitHub remote.
 digraph implement {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Implement issue $context.identifier — \"$context.title\" — in $context.repo"
     vars = "repo,identifier,url,title,body"
     max_node_visits = 10

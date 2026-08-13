@@ -26,6 +26,9 @@
 // `jj diff --from $context.review_base --to @`.
 
 digraph build {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Implement the next todo milestone from $context.spec"
     cwd = "/home/agent/attractor"
     vars = "spec,review_base"

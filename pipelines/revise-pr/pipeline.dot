@@ -32,6 +32,9 @@
 // into review. Shipping pushes the existing bookmark, updating the PR in
 // place.
 digraph revise_pr {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Review PR #$context.pr_number in $context.repo and address its findings on branch $context.bookmark"
     vars = "repo,pr_number,bookmark,workspace_revision"
     max_node_visits = 10

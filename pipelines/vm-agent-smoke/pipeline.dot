@@ -9,6 +9,9 @@
 // The `agent` node reaching `completed` proves in-guest authentication; the
 // `check` tool node confirms the agent actually ran (wrote the sentinel).
 digraph vm_agent_smoke {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Prove the acp agent authenticates and runs inside the VM"
     acp_command = "claude-agent-acp"
     max_node_visits = 2

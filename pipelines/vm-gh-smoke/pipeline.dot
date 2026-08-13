@@ -9,6 +9,9 @@
 // requires network + a valid token — so `check` completing proves gh works
 // in-guest WITHOUT creating anything (read-only; no push, no PR).
 digraph vm_gh_smoke {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Prove gh is installed and authenticated inside the VM"
     max_node_visits = 1
 

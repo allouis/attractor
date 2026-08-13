@@ -12,6 +12,9 @@
 //
 //   POST /workflows/checks/run {"repo":"TryGhost/Ghost"}
 digraph checks {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Run the deterministic checks for $context.repo"
     vars = "repo"
     max_node_visits = 1

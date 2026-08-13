@@ -17,6 +17,9 @@
 //
 // child_dotfile paths are authored relative to this pipeline's directory.
 digraph router {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Route the item to the right work pipeline"
     max_node_visits = 2
 

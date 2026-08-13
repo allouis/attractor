@@ -12,6 +12,9 @@
 // review-core loop as implement. Failing checks / findings route back to
 // `fix`.
 digraph bug_fix {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
     goal = "Reproduce and fix the bug in $context.identifier — \"$context.title\" — in $context.repo"
     vars = "repo,identifier,url,title"
     max_node_visits = 6

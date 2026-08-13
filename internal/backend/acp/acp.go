@@ -148,13 +148,15 @@ func (b *Backend) Run(env engine.HandlerEnv, prompt string) (backend.Result, err
 	stop, err := b.runTurn(ctx, client, turn, prompt)
 	if err != nil {
 		if turn.wd != nil && turn.wd.fired.Load() {
-			return backend.Result{}, fmt.Errorf("acp: stalled: no activity for %s", stall)
+			return backend.Result{}, backend.Transient(fmt.Errorf("acp: stalled: no activity for %s", stall))
 		}
 		// Reap the process before reading stderr: cmd.Wait (inside
 		// teardown) joins the os/exec copier goroutine still writing the
 		// buffer, so stderr.Bytes() is race-free.
 		teardown()
-		return backend.Result{}, agentErr(err, stderr.Bytes())
+		// D1: a turn that made it past command startup died in flight —
+		// transport-shaped unless the message says otherwise (auth/config).
+		return backend.Result{}, backend.ClassifyTurn(agentErr(err, stderr.Bytes()))
 	}
 	turn.emitUsage()
 	return resultFromStop(stop, turn.text()), nil
