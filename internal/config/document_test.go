@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -24,15 +23,16 @@ func TestLoadDocumentMissingReturnsDefault(t *testing.T) {
 	}
 }
 
-// TestLoadDocumentParsesJSON: providers, the Linear key, and per-repo
-// nested path+checks all round-trip through the JSON schema.
+// TestLoadDocumentParsesJSON: the provider registry round-trips through
+// the JSON schema; unknown keys from richer historical configs (linear,
+// repos, vm_images) are ignored rather than erroring.
 func TestLoadDocumentParsesJSON(t *testing.T) {
 	home := t.TempDir()
 	writeConfigJSON(t, home, `{
 	  "default_provider": "anthropic",
 	  "providers": {"anthropic": {"backend": "acp", "command": "claude-agent-acp", "model_env": "ANTHROPIC_MODEL"}},
 	  "linear": {"api_key": "lin_abc"},
-	  "repos": {"TryGhost/Ghost": {"path": "/home/agent/Ghost", "checks": {"deps": "pnpm install", "test": "pnpm test"}}}
+	  "repos": {"TryGhost/Ghost": {"path": "/home/agent/Ghost"}}
 	}`)
 
 	doc, err := LoadDocument(home)
@@ -42,15 +42,8 @@ func TestLoadDocumentParsesJSON(t *testing.T) {
 	if doc.Providers["anthropic"].Command != "claude-agent-acp" {
 		t.Errorf("provider command = %q", doc.Providers["anthropic"].Command)
 	}
-	if doc.Linear.APIKey != "lin_abc" {
-		t.Errorf("linear api_key = %q", doc.Linear.APIKey)
-	}
-	repo, ok := doc.Repos["TryGhost/Ghost"]
-	if !ok {
-		t.Fatalf("repo missing: %#v", doc.Repos)
-	}
-	if repo.Path != "/home/agent/Ghost" || repo.Checks["deps"] != "pnpm install" || repo.Checks["test"] != "pnpm test" {
-		t.Errorf("repo not parsed: %#v", repo)
+	if doc.DefaultProvider != "anthropic" {
+		t.Errorf("default_provider = %q", doc.DefaultProvider)
 	}
 }
 
@@ -60,8 +53,6 @@ func TestSaveThenLoadRoundtrips(t *testing.T) {
 	want := Document{
 		DefaultProvider: "anthropic",
 		Providers:       map[string]Provider{"anthropic": {Backend: "acp", Command: "claude-agent-acp", ModelEnv: "ANTHROPIC_MODEL"}},
-		Linear:          LinearConfig{APIKey: "lin_xyz"},
-		Repos:           map[string]RepoConfig{"a/b": {Path: "/p", Checks: map[string]string{"lint": "golint"}}},
 	}
 	if err := want.Save(home); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -75,7 +66,8 @@ func TestSaveThenLoadRoundtrips(t *testing.T) {
 	}
 }
 
-// TestSavePermissions0600: the file holds secrets, so it is owner-only.
+// TestSavePermissions0600: owner-only, in case a provider entry ever
+// carries something sensitive.
 func TestSavePermissions0600(t *testing.T) {
 	home := t.TempDir()
 	if err := DefaultDocument().Save(home); err != nil {
@@ -100,65 +92,6 @@ func TestLoadDocumentMalformedErrors(t *testing.T) {
 	}
 }
 
-// TestLoadDocumentParsesRepoRunnerAndImage: a repo may declare its dev
-// environment — a named runner and, for a VM, a named image — and both
-// round-trip through the JSON schema (per-repo VM config, VM2).
-func TestLoadDocumentParsesRepoRunnerAndImage(t *testing.T) {
-	home := t.TempDir()
-	writeConfigJSON(t, home, `{
-	  "repos": {"TryGhost/Ghost": {"path": "/home/agent/Ghost", "runner": "vm", "vm": {"image": "node-ts"}}}
-	}`)
-
-	doc, err := LoadDocument(home)
-	if err != nil {
-		t.Fatalf("LoadDocument: %v", err)
-	}
-	repo := doc.Repos["TryGhost/Ghost"]
-	if repo.Runner != "vm" {
-		t.Errorf("Runner = %q, want vm", repo.Runner)
-	}
-	if repo.VM == nil || repo.VM.Image != "node-ts" {
-		t.Errorf("VM = %#v, want image node-ts", repo.VM)
-	}
-}
-
-// TestSaveOmitsUnsetRunnerAndVM: a repo declaring neither runner nor image
-// serializes without those keys, so existing config files stay byte-
-// unchanged (matches the vm_images omitempty precedent, VM2).
-func TestSaveOmitsUnsetRunnerAndVM(t *testing.T) {
-	home := t.TempDir()
-	doc := Document{Repos: map[string]RepoConfig{"a/b": {Path: "/p", Checks: map[string]string{"lint": "golint"}}}}
-	if err := doc.Save(home); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(home, ".attractor", "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := string(data); strings.Contains(s, "\"runner\"") || strings.Contains(s, "\"vm\"") {
-		t.Errorf("unset runner/vm leaked into serialized config:\n%s", s)
-	}
-}
-
-// TestSaveThenLoadRoundtripsRunnerImage: a declared runner + vm image
-// survive Save then LoadDocument unchanged.
-func TestSaveThenLoadRoundtripsRunnerImage(t *testing.T) {
-	home := t.TempDir()
-	want := Document{Repos: map[string]RepoConfig{
-		"a/b": {Path: "/p", Runner: "vm", VM: &VMConfig{Image: "node-ts"}},
-	}}
-	if err := want.Save(home); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	got, err := LoadDocument(home)
-	if err != nil {
-		t.Fatalf("LoadDocument: %v", err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("round-trip mismatch:\n got %#v\nwant %#v", got, want)
-	}
-}
-
 func writeConfigJSON(t *testing.T, home, body string) {
 	t.Helper()
 	dir := filepath.Join(home, ".attractor")
@@ -167,27 +100,5 @@ func writeConfigJSON(t *testing.T, home, body string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestLoadDocumentVMImages: a config.json with a vm_images block round-trips
-// through LoadDocument into the Document.VMImages registry (VM1).
-func TestLoadDocumentVMImages(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, ".attractor")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	body := `{"vm_images":{"default":".#vm-runner","python":"/nix/store/x-run-nixos-vm-python"}}`
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := LoadDocument(home)
-	if err != nil {
-		t.Fatalf("LoadDocument: %v", err)
-	}
-	want := map[string]string{"default": ".#vm-runner", "python": "/nix/store/x-run-nixos-vm-python"}
-	if !reflect.DeepEqual(doc.VMImages, want) {
-		t.Errorf("VMImages = %v, want %v", doc.VMImages, want)
 	}
 }

@@ -28,9 +28,6 @@ type Provider struct {
 type Config struct {
 	DefaultProvider string
 	Providers       map[string]Provider
-	// LinearAPIKey authenticates the Linear source (items-spec I2). The
-	// daemon can't borrow the session's MCP, so the key lives in config.
-	LinearAPIKey string
 }
 
 // InferProvider guesses the provider from an llm_model prefix
