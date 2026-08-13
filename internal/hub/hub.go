@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/runview"
+	"github.com/allouis/attractor/internal/webui"
 )
 
 // Hub tracks announced runs and archives. Dir is its state root:
@@ -81,13 +83,51 @@ func (h *Hub) Handler() http.Handler {
 	mux.HandleFunc("GET /pipelines/{id}", h.getPipeline)
 	mux.HandleFunc("GET /pipelines/{id}/events", h.proxyOrArchive("/events"))
 	mux.HandleFunc("GET /pipelines/{id}/questions", h.proxyOrArchive("/questions"))
+	mux.HandleFunc("GET /pipelines/{id}/artifacts", h.proxyOrArchive("/artifacts"))
+	mux.HandleFunc("GET /pipelines/{id}/artifacts/{path...}", h.artifact)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", h.answer)
 	mux.HandleFunc("POST /pipelines/{id}/archive", h.archive)
 	if h.Launcher != nil {
 		mux.HandleFunc("POST /pipelines", h.Launcher.handleLaunch)
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(webui.HubIndex)
+	})
+	mux.HandleFunc("GET /ui/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(webui.Waterfall)
+	})
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui", http.StatusFound)
+	})
 	return mux
+}
+
+// artifact serves one run-dir file: proxied from the live run, or read
+// from the unpacked archive for finished runs (same traversal guard as
+// the run server: '..' path segments are rejected).
+func (h *Hub) artifact(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rel := path.Clean("/" + r.PathValue("path"))
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == ".." {
+			http.NotFound(w, r)
+			return
+		}
+	}
+	if lr, ok := h.liveRun(id); ok && lr.URL != "" {
+		resp, err := h.runGet(lr, lr.URL+"/pipelines/"+id+"/artifacts"+rel)
+		if err == nil {
+			defer resp.Body.Close()
+			w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
+			return
+		}
+	}
+	http.ServeFile(w, r, filepath.Join(h.runDir(id), filepath.FromSlash(rel)))
 }
 
 // Run starts the background scrape loop until stop is closed.

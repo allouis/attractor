@@ -191,3 +191,85 @@ func getJSON[T any](t *testing.T, url string) T {
 	}
 	return out
 }
+
+// The hub serves a browser UI: an index listing runs, and the shared
+// waterfall page per run — the page drives off the same /pipelines API
+// the hub already exposes for live and archived runs alike.
+func TestHub_ServesUI(t *testing.T) {
+	_, ts := newHub(t)
+	for _, path := range []string{"/ui", "/ui/some-run"} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := new(bytes.Buffer)
+		body.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("GET %s: status %d", path, resp.StatusCode)
+		}
+		if !strings.Contains(body.String(), "<!doctype html>") {
+			t.Fatalf("GET %s: not a page: %.80s", path, body.String())
+		}
+	}
+	// / redirects to the index.
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.Request.URL.Path != "/ui" {
+		t.Fatalf("/ should land on /ui, landed on %s", resp.Request.URL.Path)
+	}
+}
+
+// The waterfall's detail panel fetches /pipelines/{id}/artifacts/…;
+// the hub proxies those to live runs and serves them from the archive
+// for finished ones.
+func TestHub_ArtifactsProxyAndArchive(t *testing.T) {
+	runURL, runID := startRun(t, "running")
+	_, ts := newHub(t)
+	postJSON(t, ts.URL+"/announce", map[string]string{"run_id": runID, "url": runURL})
+
+	// Live: proxied through to the run's own server.
+	resp, err := http.Get(ts.URL + "/pipelines/" + runID + "/artifacts/run.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := new(bytes.Buffer)
+	body.ReadFrom(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(body.String(), runID) {
+		t.Fatalf("live artifact proxy failed: %d %q", resp.StatusCode, body.String())
+	}
+
+	// Archived: served from the unpacked archive.
+	dir := t.TempDir()
+	writeRunDir(t, dir, "r7", "completed")
+	var buf bytes.Buffer
+	if err := TarRunDir(dir, &buf); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest("POST", ts.URL+"/pipelines/r7/archive", &buf)
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 204 {
+		t.Fatalf("archive upload: %v %v", err, resp)
+	}
+	resp2, err := http.Get(ts.URL + "/pipelines/r7/artifacts/run.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body2 := new(bytes.Buffer)
+	body2.ReadFrom(resp2.Body)
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 || !strings.Contains(body2.String(), "r7") {
+		t.Fatalf("archived artifact serve failed: %d %q", resp2.StatusCode, body2.String())
+	}
+	// Escapes rejected.
+	resp3, _ := http.Get(ts.URL + "/pipelines/r7/artifacts/../../etc/passwd")
+	if resp3 != nil {
+		resp3.Body.Close()
+		if resp3.StatusCode == 200 {
+			t.Fatal("artifact path escape served")
+		}
+	}
+}

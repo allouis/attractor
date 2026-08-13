@@ -14,6 +14,41 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, llm-agents }:
+    let
+      # Shared option set for the hub service (system + home-manager).
+      hubOptions = { lib, pkgs, defaultDir }: {
+        enable = lib.mkEnableOption "attractor hub (pull-based run directory + archive)";
+        package = lib.mkOption {
+          type = lib.types.package;
+          default = self.packages.${pkgs.system}.attractor;
+          description = "The attractor package to run.";
+        };
+        bind = lib.mkOption {
+          type = lib.types.str;
+          default = "127.0.0.1:7690";
+          description = "TCP bind address. Keep loopback and tunnel in (ssh -L / Tailscale); runs announce over loopback.";
+        };
+        dir = lib.mkOption {
+          type = lib.types.str;
+          default = defaultDir;
+          description = "State root: unpacked run archives under <dir>/runs, hub-launched run logs under <dir>/launched.";
+        };
+        extraArgs = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          example = [ "--scrape-interval" "5s" ];
+          description = "Extra flags appended to `attractor hub`.";
+        };
+      };
+      hubExecStart = lib: cfg: lib.concatStringsSep " " ([
+        "${cfg.package}/bin/attractor"
+        "hub"
+        "--bind"
+        cfg.bind
+        "--dir"
+        cfg.dir
+      ] ++ cfg.extraArgs);
+    in
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
@@ -118,5 +153,53 @@
             installPhase = "mkdir -p $out";
           };
         };
-      });
+      }) // {
+        # System service: `services.attractor-hub.enable = true;` on NixOS.
+        # The hub is the one long-running piece — runs are plain processes.
+        nixosModules.default = { config, lib, pkgs, ... }: {
+          options.services.attractor-hub = hubOptions {
+            inherit lib pkgs;
+            defaultDir = "/var/lib/attractor-hub";
+          };
+          config = lib.mkIf config.services.attractor-hub.enable {
+            environment.systemPackages = [ config.services.attractor-hub.package ];
+            systemd.services.attractor-hub = {
+              description = "Attractor hub (run directory + archive)";
+              after = [ "network-online.target" ];
+              wants = [ "network-online.target" ];
+              wantedBy = [ "multi-user.target" ];
+              serviceConfig = {
+                ExecStart = hubExecStart lib config.services.attractor-hub;
+                Restart = "on-failure";
+                RestartSec = 3;
+                DynamicUser = true;
+                StateDirectory = "attractor-hub";
+              };
+            };
+          };
+        };
+
+        # User service: `services.attractor-hub.enable = true;` in home-manager.
+        homeManagerModules.default = { config, lib, pkgs, ... }: {
+          options.services.attractor-hub = hubOptions {
+            inherit lib pkgs;
+            defaultDir = "%h/.attractor/hub";
+          };
+          config = lib.mkIf config.services.attractor-hub.enable {
+            home.packages = [ config.services.attractor-hub.package ];
+            systemd.user.services.attractor-hub = {
+              Unit = {
+                Description = "Attractor hub (run directory + archive)";
+                After = [ "network-online.target" ];
+              };
+              Service = {
+                ExecStart = hubExecStart lib config.services.attractor-hub;
+                Restart = "on-failure";
+                RestartSec = 3;
+              };
+              Install.WantedBy = [ "default.target" ];
+            };
+          };
+        };
+      };
 }

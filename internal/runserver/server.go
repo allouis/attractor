@@ -9,7 +9,6 @@ package runserver
 
 import (
 	"bufio"
-	_ "embed"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -20,10 +19,8 @@ import (
 
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/runview"
+	"github.com/allouis/attractor/internal/webui"
 )
-
-//go:embed ui.html
-var uiHTML []byte
 
 // Server serves one run from its logs directory.
 type Server struct {
@@ -57,10 +54,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /pipelines/{id}/questions", s.questions)
 	mux.HandleFunc("POST /pipelines/{id}/questions/{qid}/answer", s.answer)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
+	serveUI := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(uiHTML)
-	})
+		_, _ = w.Write(webui.Waterfall)
+	}
+	mux.HandleFunc("GET /ui", serveUI)
+	mux.HandleFunc("GET /ui/{id}", serveUI)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui", http.StatusFound)
 	})

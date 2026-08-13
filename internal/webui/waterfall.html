@@ -91,6 +91,13 @@
 let runId = null, lastSeq = -1, doc = null;
 const $ = id => document.getElementById(id);
 
+// On the hub, the page is served at /ui/{run_id}; on a single-run
+// server at /ui (run id resolved from the one-entry /pipelines list).
+{
+  const parts = location.pathname.split("/").filter(Boolean);
+  if (parts[0] === "ui" && parts[1]) runId = decodeURIComponent(parts[1]);
+}
+
 async function j(url, opts) {
   const r = await fetch(url, opts);
   if (!r.ok) throw new Error(url + ": " + r.status);

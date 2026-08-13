@@ -194,10 +194,29 @@ curl -X POST 127.0.0.1:7690/pipelines \
   -d '{"path":"bug-fix","cwd":"/work/repo","vars":{"repo":"o/r","identifier":"X-1"}}'
 ```
 
-`GET /runs` lists live + archived runs with reachability; everything
-else is the same per-run API, proxied or served from the archive. For
-runs on other machines, start them with `--ui-token <secret>` — the
-token travels in the announce and the hub uses it on every poll.
+The hub has its own UI at `/ui`: a run list (live + archived, with
+reachability), and the same waterfall page per run — proxied from live
+runs, served from the archive for finished ones, gates answerable
+either way:
+
+![The hub's run list](./docs/images/hub.png)
+
+`GET /runs` is the same data as JSON; everything else is the per-run
+API, proxied or served from the archive. For runs on other machines,
+start them with `--ui-token <secret>` — the token travels in the
+announce and the hub uses it on every poll.
+
+On a server, run the hub as the one long-lived service — the flake
+ships NixOS and home-manager modules:
+
+```nix
+# flake input `attractor`, then:
+services.attractor-hub.enable = true;   # binds 127.0.0.1:7690
+```
+
+Keep it loopback and tunnel in (`ssh -L 7690:127.0.0.1:7690 box`, or
+Tailscale): one forwarded port covers watching every run, answering
+every gate, and browsing every archive.
 
 ## Making changes
 

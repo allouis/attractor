@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>attractor hub</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #2a2f3a; --text: #d7dae0;
+    --dim: #8b93a1; --accent: #6ea8fe; --ok: #4cc38a; --warn: #e5c07b;
+    --bad: #e06c75;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { display: flex; gap: .75rem; align-items: baseline;
+           padding: .6rem 1rem; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 1rem; margin: 0; }
+  header .dim { color: var(--dim); }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .45rem .8rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 400; }
+  tr.run { cursor: pointer; }
+  tr.run:hover { background: var(--panel); }
+  a { color: var(--accent); text-decoration: none; }
+  .pill { border: 1px solid var(--line); border-radius: 999px; padding: .05rem .55rem;
+          background: var(--panel); white-space: nowrap; }
+  .running { color: var(--warn); } .completed { color: var(--ok); } .failed { color: var(--bad); }
+  .live { color: var(--ok); } .unreachable { color: var(--bad); } .archived { color: var(--dim); }
+  .goal { color: var(--dim); max-width: 48ch; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; }
+  #empty { padding: 2rem 1rem; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>attractor hub</h1>
+  <span class="dim" id="counts">…</span>
+</header>
+<table id="runs" style="display:none">
+  <thead><tr>
+    <th>run</th><th>pipeline</th><th>goal</th><th>status</th><th>where</th><th>started</th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<div id="empty" style="display:none">
+  No runs yet. Start one with
+  <code>attractor run --announce &lt;this hub&gt; …</code> or
+  <code>POST /pipelines</code>.
+</div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+async function j(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(url + ": " + r.status);
+  return r.json();
+}
+
+function fmtWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d) ? "" : d.toLocaleString();
+}
+
+async function tick() {
+  try {
+    // /runs carries reachability; /pipelines carries the doc summaries
+    // (goal, graph name, timestamps). Join on run_id.
+    const [runs, docs] = await Promise.all([j("/runs"), j("/pipelines")]);
+    const byID = {};
+    for (const d of docs) byID[d.run_id] = d;
+    const rows = $("rows");
+    rows.innerHTML = "";
+    for (const r of runs) {
+      const d = byID[r.run_id] || {};
+      const tr = document.createElement("tr");
+      tr.className = "run";
+      const where = r.archived ? ["archived", "archived"]
+                  : r.reachable ? ["live", "live"] : ["unreachable", "unreachable"];
+      tr.innerHTML =
+        `<td><a href="/ui/${encodeURIComponent(r.run_id)}">${r.run_id}</a></td>` +
+        `<td>${d.graph_name || ""}</td>` +
+        `<td class="goal" title="${(d.goal || "").replaceAll('"', "&quot;")}">${d.goal || ""}</td>` +
+        `<td><span class="pill ${r.status || d.status || ""}">${r.status || d.status || "?"}</span></td>` +
+        `<td><span class="pill ${where[0]}">${where[1]}</span></td>` +
+        `<td>${fmtWhen(d.started_at)}</td>`;
+      tr.onclick = ev => {
+        if (ev.target.tagName !== "A") location.href = "/ui/" + encodeURIComponent(r.run_id);
+      };
+      rows.appendChild(tr);
+    }
+    $("runs").style.display = runs.length ? "table" : "none";
+    $("empty").style.display = runs.length ? "none" : "block";
+    const live = runs.filter(r => !r.archived && r.reachable).length;
+    const arch = runs.filter(r => r.archived).length;
+    $("counts").textContent = `${runs.length} runs — ${live} live, ${arch} archived`;
+  } catch (e) { /* hub briefly unavailable; keep polling */ }
+  setTimeout(tick, 2000);
+}
+tick();
+</script>
+</body>
+</html>
