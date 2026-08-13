@@ -25,8 +25,6 @@ func main() {
 		exit(cli.Run(os.Args[2:]))
 	case "render":
 		exit(cli.Render(os.Args[2:]))
-	case "serve":
-		exit(cli.Serve(os.Args[2:]))
 	case "hub":
 		exit(cli.HubCmd(os.Args[2:]))
 	case "automations":
@@ -56,7 +54,6 @@ commands:
   run <file>       parse, validate, and execute a pipeline
   validate <file>  lint a pipeline without executing
   render <file>    render a pipeline graph as SVG
-  serve            run the HTTP pipeline server
   hub              run the pull-based run directory: announce + scrape + archive
   automations      list or run saved automations (list | run <name>)
   version          print version
