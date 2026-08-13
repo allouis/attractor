@@ -11,9 +11,14 @@ with additional style rules is present in your home dir it also applies,
 but it does not ship with this repo — this runbook is the source of truth
 for operating attractor.)
 
-attractor is a DOT-pipeline AI-workflow runner (Go). `attractor run`
-executes a pipeline in-process; `attractor serve` adds the daemon (registry
-+ web UI + item intake + VM launchers).
+attractor is a DOT-pipeline AI-workflow runner (Go). The unit of the
+system is a **self-contained run**: `attractor run --ui` executes a
+pipeline and serves its own live API + waterfall view; `attractor hub` is
+the optional pull-based directory (announce + scrape + archive + launch);
+`attractor serve` is the legacy daemon (registry + web UI + item intake +
+VM launchers). Read the README's "How a run works" section first — it is
+the mental model (run dir layout, engine loop, loop guards, agent
+status.json contract) everything here builds on.
 
 ## 1. Prerequisites / toolchain
 
@@ -200,9 +205,10 @@ the daemon. Start the daemon with a VM launcher:
 BOOT=$(nix build --no-link --print-out-paths .#vm-runner)/bin/run-nixos-vm
 source ~/.secrets.env
 ./result/bin/attractor serve --bind 127.0.0.1:7799 \
-  --runner direct --vm-runner "$BOOT" --vm-dir ~/.attractor/vms \
+  --runner local --vm-runner "$BOOT" --vm-dir ~/.attractor/vms \
   --logs ~/.attractor/runs
-# `--runner direct` keeps host runs default; the vm launcher is available
+# `--runner local` keeps host runs default (subprocess; the in-process
+# direct runner is retired); the vm launcher is available
 # for repos that declare `runner: vm` (e.g. Ghost) or a per-run override.
 ```
 

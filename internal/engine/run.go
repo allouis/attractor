@@ -563,18 +563,18 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		cwd = g.Attrs["cwd"]
 	}
 	env := HandlerEnv{
-		Node:      node,
-		Graph:     g,
-		Stage:     e.stageStore(node.ID, state.visits[node.ID]),
-		Context:   state.context,
-		LogsRoot:  e.LogsRoot,
-		RunID:     e.RunID,
-		Emit:      e.emit,
-		Registry:  e.Registry,
-		Fidelity:  fidelity,
-		ThreadID:  threadID,
-		Preamble:  preamble,
-		Cwd:       cwd,
+		Node:     node,
+		Graph:    g,
+		Stage:    e.stageStore(node.ID, state.visits[node.ID]),
+		Context:  state.context,
+		LogsRoot: e.LogsRoot,
+		RunID:    e.RunID,
+		Emit:     e.emit,
+		Registry: e.Registry,
+		Fidelity: fidelity,
+		ThreadID: threadID,
+		Preamble: preamble,
+		Cwd:      cwd,
 	}
 	handler, err := e.Registry.Resolve(node)
 	if err != nil {
