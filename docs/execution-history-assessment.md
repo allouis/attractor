@@ -1,3 +1,10 @@
+> **Outcome (2026-08-13):** implemented, with one design change — the
+> nested `{node}/v{N}/a{M}/` layout proposed here was replaced by flat
+> first-class span dirs `{node}@v{visit}.a{attempt}/` at the run root,
+> and parallel branches now run through the same engine executor as
+> every other node. See
+> [docs/spec/amendments/span-dirs.md](./spec/amendments/span-dirs.md) (A4).
+
 # Execution History and Handoff Assessment
 
 Date: 2026-08-13

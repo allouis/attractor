@@ -145,11 +145,12 @@ execution attempt is already bracketed in the event log (`stage_started` carries
 `Attempt`; closes at `stage_retrying`/`stage_completed`/`stage_failed`). Span
 identity is `(node_id, visit, attempt)`. We add an explicit `Visit` field to
 Event rather than inferring visit numbers by counting. Spans are a pure fold
-over events — no new storage. Per-visit stage directories
-(`{node_id}/v{N}/`, latest mirrored at the node root to preserve spec §5.6) are
-deferred but planned: opening a historical span and reading its prompt/response
-is necessary for debugging; it lands right after the waterfall exists (spec
-amendment required).
+over events — no new storage. Per-span stage directories are deferred but
+planned: opening a historical span and reading its prompt/response is
+necessary for debugging; it lands right after the waterfall exists (spec
+amendment required). *(Landed as flat `{node_id}@v{visit}.a{attempt}/`
+dirs — see `docs/spec/amendments/span-dirs.md`, which supersedes the
+per-visit layout sketched here.)*
 
 **D4 — API consolidation onto the spec surface (§9.5).** The enriched
 `GET /pipelines/{id}` absorbs the derived state document (summary + spans +

@@ -1,4 +1,8 @@
-# A1 — Per-visit stage directories
+# A1 — Per-visit stage directories *(superseded)*
+
+> **Superseded by [span-dirs.md](./span-dirs.md) (A4)**: spans are now
+> first-class — flat `{node_id}@v{visit}.a{attempt}/` dirs at the run
+> root, no mirrors, one executor for all nodes. Kept for history.
 
 Amends: `../attractor.md` §5.6 (Run Directory Structure).
 Introduced by the local-first plan (D3, Phase 2.8), 2026-08-13.

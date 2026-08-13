@@ -34,12 +34,16 @@ kinds. Derived views (runview) fold on these shapes.
   downstream node, reached via the engine-only `Outcome.NextNode`
   routing field (not in §5.2/Appendix C — engine-internal, never
   serialized).
+- Branch nodes run through the **same engine executor** as top-level
+  nodes (the parallel handler fans out via the engine-injected
+  `ExecuteNode` callback): identical retry policy, error
+  classification, panic recovery, visit counting, stage events, and
+  span storage. See [span-dirs.md](./span-dirs.md) — a branch span
+  writes the same `{node_id}@v{visit}.a{attempt}/` dir as any other.
 - `wait_all` with every branch failed yields FAIL (spec pseudocode
   says PARTIAL_SUCCESS; all-failed is not partial anything).
 - FanIn implements the heuristic selector only; §4.9's LLM-based
   evaluation of a `prompt` attr is not implemented.
-- Each branch gets its own stage dir under the parallel node's visit
-  dir (`{parallel}/v{N}/{branch}/`).
 
 ## §5.5 artifact store
 

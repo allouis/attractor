@@ -43,9 +43,9 @@ matter day-to-day:
 - **`$context.<key>` interpolation happens at runtime** against the live
   context, not as a parse-time substitution (undefined keys fail the
   node — typos surface instead of passing through).
-- **Every visit to a node keeps its own directory** (`<node>/v1/`,
-  `v2/`, …) so a review/fix loop never overwrites the evidence of
-  earlier rounds.
+- **Every execution attempt keeps its own directory** — one flat
+  `<node>@v<visit>.a<attempt>/` dir per attempt at the run root — so a
+  review/fix loop never overwrites the evidence of earlier rounds.
 - **The spec's runtime manager-loop node is not implemented.**
   Sub-pipelines are composed with `type="subgraph"` instead — a
   load-time transform (transforms being the spec's own §9 extension
@@ -71,11 +71,16 @@ attractor run --ui            # engine + the run's own read-only API/UI
 run.json           identity: run id, graph name, resolved goal
 events.jsonl       the source of truth: every engine event, one JSON per line
 checkpoint.json    resume point, rewritten after each completed node
-<node>/v1/         each visit's prompt.md, response.md, status.json, tool_calls/
-<node>/…           the latest visit mirrored at the node root (stable paths)
+<node>@v1.a1/      one dir per execution attempt: prompt.md, response.md,
+<node>@v2.a1/        status.json (engine-resolved), agent-status.json
+                     (the agent's verbatim self-report), tool_calls/
 ```
 
-To debug a run, read `events.jsonl` and the visit dirs — that is all
+A directory name IS the span identity — node, visit (which trip through
+the graph), attempt (retry within a visit) — and is always derived
+forward from that identity, never parsed back.
+
+To debug a run, read `events.jsonl` and the span dirs — that is all
 there is. Every view (the waterfall UI, the hub, the API documents) is
 derived from that event log, never stored separately.
 
@@ -174,9 +179,10 @@ Approval gates render as buttons — this run is paused at its ship gate:
 ![The live waterfall, paused at a human gate](./docs/images/waterfall.png)
 
 Clicking a span opens its full story — the agent's actual prompt,
-response, and status.json self-report, per-visit history when a node
-ran more than once, every tool call's payload, and live output while
-the span is still running. Header tabs switch to the rendered pipeline
+response, the engine-resolved status.json (plus the agent's own
+self-report), tabs for every execution when a node ran more than once,
+every tool call's payload, and live output while the span is still
+running. Header tabs switch to the rendered pipeline
 graph, the run's current context (every `$context.*` key), and a
 browser over the whole run directory:
 
