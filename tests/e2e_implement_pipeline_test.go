@@ -53,10 +53,15 @@ func TestImplementPipeline_LintsClean(t *testing.T) {
 func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	g := buildImplementGraph(t)
 
-	// start -> baseline_* (tool chain proving the starting point is green)
-	// -> plan (codergen) -> plan_gate (wait.human): a human approves the
-	// plan before any code is written, and can send it back to plan.
+	// start -> set_base (pins the review base with `jj new`) -> baseline_*
+	// (tool chain proving that base is green) -> plan (codergen) ->
+	// plan_gate (wait.human): a human approves the plan before any code is
+	// written, and can send it back to plan.
 	cursor := g.OutgoingEdges("start")[0].To
+	if n := g.Nodes[cursor]; n.Type() != "tool" || !strings.Contains(n.Attrs["tool_command"], "jj new $context.base") {
+		t.Fatalf("start should route to a set_base tool node pinning $context.base, got %q (%s)", cursor, g.Nodes[cursor].Type())
+	}
+	cursor = g.OutgoingEdges(cursor)[0].To
 	baselines := 0
 	baselineIDs := map[string]bool{}
 	for g.Nodes[cursor].Type() == "tool" {
@@ -83,22 +88,31 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	if gateID == "" {
 		t.Fatal("plan should route to a human plan gate")
 	}
-	var implementID string
-	backToPlan := false
+	// The gate has two codergen branches: approve -> implement (routes
+	// forward into the checks), revise -> revise_plan (a responder that
+	// carries the human's note and loops back to the gate for re-approval).
+	var implementID, reviseID string
 	for _, e := range g.OutgoingEdges(gateID) {
-		if e.To == planID {
-			backToPlan = true
+		if g.Nodes[e.To].Type() != "codergen" {
 			continue
 		}
-		if g.Nodes[e.To].Type() == "codergen" {
+		loopsBackToGate := false
+		for _, oe := range g.OutgoingEdges(e.To) {
+			if oe.To == gateID {
+				loopsBackToGate = true
+			}
+		}
+		if loopsBackToGate {
+			reviseID = e.To
+		} else {
 			implementID = e.To
 		}
 	}
 	if implementID == "" {
 		t.Fatal("plan gate should approve into a codergen implement stage")
 	}
-	if !backToPlan {
-		t.Error("plan gate should be able to route back to plan for a revise")
+	if reviseID == "" {
+		t.Error("plan gate should be able to route to a revise responder that re-gates")
 	}
 
 	// Static checks: tool nodes running the repo's configured commands
@@ -112,14 +126,17 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 			continue // baseline copies terminate the run, they don't gate implement
 		}
 		checkTools++
-		back := false
+		// On failure a check routes to a dedicated responder (fix_checks),
+		// NOT back into implement — the responder shares implement's thread
+		// so it already holds the context (commit 43995c9).
+		var failTarget string
 		for _, e := range g.OutgoingEdges(id) {
-			if strings.Contains(e.Attrs["condition"], "outcome=fail") && e.To == implementID {
-				back = true
+			if strings.Contains(e.Attrs["condition"], "outcome=fail") {
+				failTarget = e.To
 			}
 		}
-		if !back {
-			t.Errorf("check node %q does not route back to implement on failure", id)
+		if failTarget == "" || failTarget == implementID || g.Nodes[failTarget].Type() != "codergen" {
+			t.Errorf("check node %q should route on failure to a codergen responder, got %q", id, failTarget)
 		}
 	}
 	if checkTools < 4 {
@@ -145,35 +162,41 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 		t.Fatalf("review_loop diff_cmd=%q, want it to contain `jj diff`", diffCmd)
 	}
 
-	// review_loop -> implement on FAIL, -> a human ship gate on PASS.
-	var backToImplement bool
+	// review_loop -> a review responder (respond_to_review) on FAIL,
+	// -> a human ship gate on PASS.
+	var reviewResponder string
 	var shipID string
 	for _, e := range g.OutgoingEdges(loopID) {
 		cond := e.Attrs["condition"]
-		if strings.Contains(cond, "outcome=fail") && e.To == implementID {
-			backToImplement = true
+		if strings.Contains(cond, "outcome=fail") {
+			reviewResponder = e.To
 		}
 		if strings.Contains(cond, "outcome=success") && g.Nodes[e.To].Type() == "wait.human" {
 			shipID = e.To
 		}
 	}
-	if !backToImplement {
-		t.Error("review_loop should route back to implement on outcome=fail")
+	if reviewResponder == "" || reviewResponder == implementID || g.Nodes[reviewResponder].Type() != "codergen" {
+		t.Errorf("review_loop should route on failure to a codergen responder, got %q", reviewResponder)
 	}
 	if shipID == "" {
 		t.Fatal("review_loop should route to a human ship gate on outcome=success")
 	}
 
-	// The ship gate approves into a publish (draft-PR) codergen node,
-	// which reaches exit.
+	// The ship gate approves into a publish (draft-PR) codergen node that
+	// reaches exit; its other branch requests changes via the responder.
 	var publishID string
 	for _, e := range g.OutgoingEdges(shipID) {
-		if e.To != implementID && g.Nodes[e.To].Type() == "codergen" {
-			publishID = e.To
+		if g.Nodes[e.To].Type() != "codergen" {
+			continue
+		}
+		for _, oe := range g.OutgoingEdges(e.To) {
+			if g.Nodes[oe.To].Type() == "exit" {
+				publishID = e.To
+			}
 		}
 	}
 	if publishID == "" {
-		t.Fatal("ship gate should route to a publish node on approve")
+		t.Fatal("ship gate should route to a publish node that reaches exit on approve")
 	}
 	toExit := false
 	for _, e := range g.OutgoingEdges(publishID) {

@@ -5,32 +5,47 @@
 // Runs standalone from the CLI against this var contract:
 //
 //   attractor run implement -var repo=owner/name -var identifier=ENG-42 \
-//     -var url=… -var title=… -var branch=eng-42
+//     -var url=… -var title=… -var branch=eng-42 -var base=main
 //
-// Flow: a `baseline_*` chain runs the repo's deterministic checks FIRST,
-// proving the starting point is green — a baseline failure fails the run
-// (there is no agent yet to route to, and implementing on a broken base
-// makes every later check failure ambiguous: ours or pre-existing?).
-// `plan` then reads the issue and produces a plan — no code — and
-// self-reports `review_base` (the change id before any work) via its
-// status.json context_updates. A human approves the plan at `plan_gate`
-// (the run's own /questions surface under --ui, console from a TTY).
-// `implement` then works in small atomic jj commits; four deterministic
-// tool nodes run the repo's configured checks (seeded as
-// -var check.<name>=… on the CLI), each
-// routing back to `implement` on failure. `review_loop` runs the shared
-// review-core sub-pipeline against everything since review_base —
-// committed work plus any stray working-copy changes. A PASS reaches the
-// human ship gate; shipping opens a draft PR on the repo's GitHub remote.
+// The review base is deterministic: `base` is the target branch (the PR
+// base). `set_base` runs `jj new $context.base@origin` up front, so the
+// working copy sits on a fresh empty change atop a KNOWN revision — no
+// agent has to capture "whatever @ happened to be". Everything downstream
+// (the review diff, the PR base) references `$context.base@origin`.
+//
+// Flow: `set_base` positions the working copy on the base. A `baseline_*`
+// chain then runs the repo's deterministic checks on that base — proving
+// the starting point is green before any work (a baseline failure fails
+// the run: there is no agent yet to route to, and implementing on a
+// broken base makes every later check failure ambiguous: ours or
+// pre-existing?). `plan` reads the issue and produces a plan — no code. A
+// human approves the plan at `plan_gate` (the run's own /questions surface
+// under --ui, console from a TTY); a revise request routes to `revise_plan`
+// (which carries the human's note back into plan's session) and re-gates.
+// `implement` then works in small atomic
+// jj commits; four deterministic tool nodes run the repo's configured
+// checks (seeded as -var check.<name>=… on the CLI), each routing back to
+// `implement` on failure. `review_loop` runs the shared review-core
+// sub-pipeline against everything since `base` — committed work plus any
+// stray working-copy changes. A PASS reaches the human ship gate; shipping
+// opens a draft PR (base = $context.base) on the repo's GitHub remote.
 digraph implement {
     // D1: transient backend failures (429/5xx, stalls, network) retry
     // with backoff instead of killing the run.
     default_max_retries = 2
-    goal = "Implement issue $context.identifier — \"$context.title\" — in $context.repo"
-    vars = "repo,identifier,url,title,body,branch"
+    goal = ""
+    vars = "repo,identifier,url,title,body,branch,base"
     max_node_visits = 10
 
     start [shape=Mdiamond]
+
+    // Pin the review base deterministically: move the working copy onto a
+    // fresh empty change atop $context.base@origin (the target branch's
+    // remote tip). Everything downstream diffs from this same revision, so
+    // no agent has to capture it. Runs FIRST, before baseline, so the
+    // baseline checks validate the exact base we build on.
+    set_base [type="tool", timeout="5m",
+              tool_command="jj new $context.base@origin"]
 
     // Baseline: the same deterministic checks as the post-implement gate,
     // run BEFORE any work. Distinct nodes (not the gating ones below) so a
@@ -41,17 +56,29 @@ digraph implement {
     baseline_lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
     baseline_test      [type="tool", timeout="40m", tool_command="$context.check.test"]
 
-    // Each codergen stage gets its OWN thread: sharing one thread meant
-    // implement resumed plan's session and replayed its full transcript,
-    // which Fable 5's safeguards false-positive flagged as reverse
-    // engineering and refused (2026-08-12, run 4f0a9ed2). The plan travels
-    // as context (plan_markdown from plan's status.json), not as session
-    // history.
+    // The two ROLES — plan and build — each get their own thread; the
+    // stages WITHIN a role share it. Cross-role sharing meant implement
+    // resumed plan's session and replayed its full transcript, which Fable
+    // 5's safeguards false-positive flagged as reverse engineering and
+    // refused (2026-08-12, run 4f0a9ed2). So the plan travels to build as
+    // context (plan_markdown from plan's status.json), not as session
+    // history. Within a role, sharing the thread is the point: revise_plan
+    // continues plan's own session, and the build-side responders continue
+    // implement's.
     // outputs= documents the keys the plan agent sets via its status.json
     // context_updates, for the context_refs lint and human readers.
     plan [llm_model="claude-fable-5[1m]", thread_id="plan",
           fidelity="full", timeout="30m", prompt="@prompts/plan.md",
-          outputs="plan_markdown,review_base"]
+          outputs="plan_markdown"]
+
+    // Dedicated plan-revise responder: shares plan's thread so the resumed
+    // session still holds the plan just written, and carries ONLY the
+    // human's rejection note ($context.human.note) — mirroring the
+    // build-side responders. Re-emits plan_markdown for a fresh plan_gate.
+    revise_plan [llm_model="claude-fable-5[1m]", thread_id="plan",
+                 fidelity="full", timeout="30m",
+                 prompt="@prompts/revise-plan.md",
+                 outputs="plan_markdown"]
 
     // Human check-in on the plan before any code gets written.
     plan_gate [shape=hexagon, label="Does the plan make sense?"]
@@ -69,6 +96,7 @@ digraph implement {
     fix_checks [llm_model="claude-fable-5[1m]", thread_id="build",
                 fidelity="full", timeout="60m",
                 prompt="@prompts/fix-checks.md"]
+
     respond_to_review [llm_model="claude-fable-5[1m]", thread_id="build",
                        fidelity="full", timeout="60m",
                        prompt="@prompts/respond-review.md"]
@@ -80,14 +108,14 @@ digraph implement {
     lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
     test      [type="tool", timeout="40m", tool_command="$context.check.test"]
 
-    // Adversarial self-review of everything since the plan's review_base
+    // Adversarial self-review of everything since the base
     // (implement commits as it goes, so a plain `jj diff` would miss the
     // committed work).
     // Inlined at load time (D6): synth's verdict drives the outcome
     // edges below directly.
     review_loop [type="subgraph",
                  graph_ref="../review-core/pipeline.dot",
-                 var.diff_cmd="jj diff --from $context.review_base --to @"]
+                 var.diff_cmd="jj diff --from $context.base@origin --to @"]
 
     ship [shape=hexagon, label="Ship these changes? (checks + self-review passed)"]
 
@@ -97,14 +125,16 @@ digraph implement {
 
     done [shape=Msquare]
 
-    start -> baseline_deps
+    start -> set_base
+    set_base -> baseline_deps
     baseline_deps      -> baseline_typecheck
     baseline_typecheck -> baseline_lint
     baseline_lint      -> baseline_test
     baseline_test      -> plan
     plan -> plan_gate
-    plan_gate -> implement [label="[A] Approve plan"]
-    plan_gate -> plan      [label="[R] Revise plan"]
+    plan_gate   -> implement   [label="[A] Approve plan"]
+    plan_gate   -> revise_plan [label="[R] Revise plan"]
+    revise_plan -> plan_gate
     implement -> deps
     deps      -> typecheck   [condition="outcome=success"]
     deps      -> fix_checks  [condition="outcome=fail", label="Fix deps"]
