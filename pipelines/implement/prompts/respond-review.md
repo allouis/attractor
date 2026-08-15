@@ -25,4 +25,14 @@ Rules of engagement:
 - Do not push; publishing happens after the ship gate.
 
 Report via `{stage_dir}/status.json`: outcome `success` once every
-point is addressed and committed, otherwise `fail` with the reason.
+point is addressed and committed:
+
+```json
+{ "outcome": "success" }
+```
+
+otherwise `fail` with the reason:
+
+```json
+{ "outcome": "fail", "failure_reason": "finding #2 demands a rewrite that conflicts with the approved plan; needs a human decision" }
+```

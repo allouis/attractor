@@ -17,4 +17,14 @@ Fix the failure. Rules of engagement, same as before:
   repo's conventions.
 
 Report via `{stage_dir}/status.json`: outcome `success` once the fix is
-committed, otherwise `fail` with the reason.
+committed:
+
+```json
+{ "outcome": "success" }
+```
+
+otherwise `fail` with the reason:
+
+```json
+{ "outcome": "fail", "failure_reason": "test runner cannot launch a browser in this environment; not fixable from the repo" }
+```

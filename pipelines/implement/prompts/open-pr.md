@@ -13,12 +13,25 @@ Use `jj` for all VCS operations (never `git` directly).
    `jj bookmark move $context.branch --to @-` instead.
 3. Push it: `jj git push --allow-new --bookmark $context.branch`.
 4. Open the draft PR unless one already exists for that branch:
-   `gh pr create --draft --head $context.branch --title "$context.identifier: $context.title" --body "<short summary of the change>. Refs $context.url"`
+   `gh pr create --draft --base $context.base --head $context.branch --title "$context.identifier: $context.title" --body "<short summary of the change>. Refs $context.url"`
+   `--base` targets the same branch the work was built and reviewed on.
    If a PR already exists, do not create a duplicate — reuse it.
 5. Do NOT mark the PR ready for review, do NOT merge, and do not push to
    any other branch.
 
 Report via `{stage_dir}/status.json`: outcome `success` with
-`context_updates` `{"pr.url": "<the PR url>"}`; outcome `fail` with a
-`failure_reason` naming the exact command and error if the push or PR
-creation fails.
+`context_updates` carrying the PR url:
+
+```json
+{
+  "outcome": "success",
+  "context_updates": { "pr.url": "https://github.com/owner/name/pull/123" }
+}
+```
+
+outcome `fail` with a `failure_reason` naming the exact command and error
+if the push or PR creation fails:
+
+```json
+{ "outcome": "fail", "failure_reason": "`jj git push` rejected: remote denied push to protected branch" }
+```
