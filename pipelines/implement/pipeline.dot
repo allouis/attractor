@@ -60,6 +60,19 @@ digraph implement {
                fidelity="full", timeout="120m",
                prompt="@prompts/implement.md"]
 
+    // Failure responders. Both share implement's thread (fidelity=full),
+    // so the resumed agent session already holds the issue, the plan,
+    // and everything it did — each visit sends ONLY the small prompt
+    // plus the failure at hand. Routing failures back to `implement`
+    // re-sent its full prompt (issue body and all) into the same
+    // session on every loop iteration (run ghost-hkg-1914, 2026-08-15).
+    fix_checks [llm_model="claude-fable-5[1m]", thread_id="build",
+                fidelity="full", timeout="60m",
+                prompt="@prompts/fix-checks.md"]
+    respond_to_review [llm_model="claude-fable-5[1m]", thread_id="build",
+                       fidelity="full", timeout="60m",
+                       prompt="@prompts/respond-review.md"]
+
     // Deterministic checks — commands seeded as -var check.<name>. They run
     // in the run's cwd (the repo).
     deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
@@ -94,16 +107,18 @@ digraph implement {
     plan_gate -> plan      [label="[R] Revise plan"]
     implement -> deps
     deps      -> typecheck   [condition="outcome=success"]
-    deps      -> implement   [condition="outcome=fail", label="Fix deps"]
+    deps      -> fix_checks  [condition="outcome=fail", label="Fix deps"]
     typecheck -> lint        [condition="outcome=success"]
-    typecheck -> implement   [condition="outcome=fail", label="Fix types"]
+    typecheck -> fix_checks  [condition="outcome=fail", label="Fix types"]
     lint      -> test        [condition="outcome=success"]
-    lint      -> implement   [condition="outcome=fail", label="Fix lint"]
+    lint      -> fix_checks  [condition="outcome=fail", label="Fix lint"]
     test      -> review_loop  [condition="outcome=success"]
-    test      -> implement    [condition="outcome=fail", label="Fix tests"]
-    review_loop -> ship       [condition="outcome=success"]
-    review_loop -> implement  [condition="outcome=fail", label="Address findings"]
-    ship -> open_pr   [label="[S] Ship"]
-    ship -> implement [label="[C] Request changes"]
+    test      -> fix_checks   [condition="outcome=fail", label="Fix tests"]
+    fix_checks -> deps
+    review_loop -> ship              [condition="outcome=success"]
+    review_loop -> respond_to_review [condition="outcome=fail", label="Address findings"]
+    respond_to_review -> deps
+    ship -> open_pr           [label="[S] Ship"]
+    ship -> respond_to_review [label="[C] Request changes"]
     open_pr -> done
 }

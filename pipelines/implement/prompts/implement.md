@@ -36,15 +36,8 @@ $context.human.note
 
 After you finish, deterministic checks run — dependency install,
 typecheck, lint, and the test suite — followed by an adversarial
-multi-lens review of your diff. **If you were routed back here** because
-a check or the review failed, the failing output / findings are the
-thing to fix now: address exactly what was reported, then finish again.
-
-What failed on the previous round (empty on the first visit):
-
----
-$context.failure_reason
----
+multi-lens review of your diff. Failures come back to you in this same
+session as follow-up messages; you will not lose this context.
 
 Report your outcome by writing `{stage_dir}/status.json`: `success`
 when the change is complete and the tests pass, otherwise `fail` with a
