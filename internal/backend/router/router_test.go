@@ -60,6 +60,27 @@ func TestRouter_EmptyProviderSimulates(t *testing.T) {
 	}
 }
 
+func TestRouter_ModellessNodeFailsLoudWhenConfigured(t *testing.T) {
+	// A real config is present, but this node resolves to no provider
+	// (no llm_model, no llm_provider, no default_provider) — e.g. a
+	// class-tagged node run without the matching --stylesheet. It must
+	// error loudly rather than silently simulate.
+	r := NewStrict(config.Config{Providers: map[string]config.Provider{
+		"anthropic": {Backend: "acp", Command: "claude-agent-acp", ModelEnv: "ANTHROPIC_MODEL"},
+	}}, true)
+	_, err := r.backendFor(node(map[string]string{"class": "build"}))
+	if err == nil || !strings.Contains(err.Error(), "no model") {
+		t.Fatalf("expected fail-loud no-model error, got %v", err)
+	}
+	// Lenient (bare dev) router simulates the same node instead.
+	lenient := New(config.Config{Providers: map[string]config.Provider{
+		"anthropic": {Backend: "acp", Command: "claude-agent-acp", ModelEnv: "ANTHROPIC_MODEL"},
+	}})
+	if _, err := lenient.backendFor(node(map[string]string{"class": "build"})); err != nil {
+		t.Fatalf("lenient router should simulate a model-less node, got %v", err)
+	}
+}
+
 func TestRouter_UnconfiguredProviderErrors(t *testing.T) {
 	r := New(config.Config{DefaultProvider: "anthropic"}) // named but no table
 	_, err := r.backendFor(node(map[string]string{}))

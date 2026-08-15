@@ -160,11 +160,6 @@ func TestNodeDurationParsing(t *testing.T) {
 
 func TestStylesheetSpecificity(t *testing.T) {
 	g := buildGraph(t, `digraph g {
-		model_stylesheet = "
-			* { llm_model: claude-sonnet-4-5; llm_provider: anthropic; }
-			.code { llm_model: claude-opus-4-6; }
-			#critical_review { llm_model: gpt-5.2; llm_provider: openai; reasoning_effort: high; }
-		"
 		start [shape=Mdiamond]
 		plan [class="planning"]
 		implement [class="code"]
@@ -172,7 +167,12 @@ func TestStylesheetSpecificity(t *testing.T) {
 		done [shape=Msquare]
 		start -> plan -> implement -> critical_review -> done
 	}`)
-	g, err := transform.Apply(g, []transform.Transform{transform.Stylesheet{}})
+	sheet := `
+		* { llm_model: claude-sonnet-4-5; llm_provider: anthropic; }
+		.code { llm_model: claude-opus-4-6; }
+		#critical_review { llm_model: gpt-5.2; llm_provider: openai; reasoning_effort: high; }
+	`
+	g, err := transform.Apply(g, []transform.Transform{transform.Stylesheet{Source: sheet}})
 	must(t, err)
 	checks := []struct {
 		id           string

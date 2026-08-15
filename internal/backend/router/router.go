@@ -21,14 +21,27 @@ import (
 // Router implements backend.CodergenBackend by routing per node.
 type Router struct {
 	cfg config.Config
+	// strict fails loud on a model-less codergen node instead of
+	// simulating it. Set when the run clearly intends real agents (a
+	// --stylesheet was supplied or a default_provider is configured); off
+	// for a bare dev run, which may legitimately simulate everything.
+	strict bool
 
 	mu    sync.Mutex
 	cache map[string]backend.CodergenBackend
 }
 
-// New returns a Router that routes codergen nodes through cfg.
+// New returns a Router that routes codergen nodes through cfg. A
+// model-less node simulates (lenient — bare dev runs).
 func New(cfg config.Config) *Router {
 	return &Router{cfg: cfg, cache: map[string]backend.CodergenBackend{}}
+}
+
+// NewStrict returns a Router that fails loud (rather than simulating) on a
+// codergen node that resolves to no model — for runs that intend real
+// agents.
+func NewStrict(cfg config.Config, strict bool) *Router {
+	return &Router{cfg: cfg, strict: strict, cache: map[string]backend.CodergenBackend{}}
 }
 
 // Run satisfies backend.CodergenBackend: pick the backend for this node
@@ -44,6 +57,16 @@ func (r *Router) Run(env engine.HandlerEnv, prompt string) (backend.Result, erro
 // backendFor resolves and caches the backend for a node's provider.
 func (r *Router) backendFor(n *graph.Node) (backend.CodergenBackend, error) {
 	name := r.cfg.ResolveProvider(n)
+	// Fail loud instead of silently simulating an agent node. An empty
+	// name means no llm_provider, no recognised llm_model, and no
+	// default_provider resolved. In strict mode (a --stylesheet was passed
+	// or a default_provider is configured, so the run clearly intends real
+	// agents) that is almost always a missing `--stylesheet` or a forgotten
+	// `llm_model` — running it as [simulated] while its siblings hit real
+	// agents is the dangerous, invisible failure.
+	if name == "" && r.strict {
+		return nil, fmt.Errorf("router: node %q has no model — set llm_model on the node, tag it with a class matched by your --stylesheet, or set default_provider; refusing to silently simulate an agent node", n.ID)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if be, ok := r.cache[name]; ok {

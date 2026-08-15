@@ -1,0 +1,50 @@
+/* Example model stylesheet for attractor pipelines.
+ *
+ * Pipelines carry structure and role classes; models live here. Pass it:
+ *   attractor run implement --stylesheet pipelines/models.css -var ...
+ * Repeatable and cascading: a later --stylesheet overrides an earlier one.
+ *
+ * Selectors, lowest to highest specificity:
+ *   *            every node (catch-all default)
+ *   shape        by graphviz shape (e.g. hexagon for gates)
+ *   .class       by node `class=` (a node may carry several, comma-split)
+ *   #id          by node id, incl. inlined subgraph ids (#review_loop.synth)
+ * Higher specificity wins; equal specificity, later rule wins. An explicit
+ * `llm_model` on a node ALWAYS wins (mandatory pins like the codex review
+ * lens survive the sheet).
+ *
+ * Props: llm_model, llm_provider, reasoning_effort. Provider is inferred
+ * from the model prefix (claude*->anthropic, gpt*/o*->openai), so setting
+ * llm_model is usually enough; mixing providers is free.
+ */
+
+/* Catch-all default so no agent node is ever left model-less. */
+* { llm_model: claude-fable-5[1m] }
+
+/* Roles (aligned with the pipelines' thread_ids + review vocabulary). */
+.plan    { llm_model: claude-fable-5[1m] }   /* plan, revise_plan            */
+.build   { llm_model: claude-opus-4-8[1m] }  /* implement, fix_checks, respond_to_review */
+.review  { llm_model: claude-opus-4-8[1m] }  /* review-core lenses + synth   */
+.publish { llm_model: claude-fable-5[1m] }   /* open_pr, push_updates, record */
+
+/* Finer classes — nodes carry a second class you can target more tightly:
+ *   class="build, coder"      implement
+ *   class="build, fixer"      fix_checks
+ *   class="build, responder"  respond_to_review
+ *   class="plan, revise"      revise_plan
+ *   class="review, lens"      the five review lenses
+ *   class="review, synth"     the synth merger
+ * e.g. run the cheap check-fix loop on a smaller model while the initial
+ * implementation stays large:
+ *   .fixer { llm_model: claude-fable-5[1m] }
+ */
+
+/* Target a single inlined node by id (highest specificity). The synth
+ * merges five reviews, so it can warrant the biggest model: */
+#review_loop.synth { llm_model: claude-opus-4-8[1m] }
+
+/* The correctness lens is pinned to a non-Claude reviewer on the node
+ * itself (adversarial diversity), so it survives this sheet. To move it,
+ * restate it by id:
+ *   #review_loop.correctness { llm_provider: codex; llm_model: gpt-5.6-sol[high] }
+ */

@@ -9,14 +9,13 @@ type Transform interface {
 }
 
 // BuiltIn returns the parse-time transforms applied to every pipeline.
-// Order matches spec §9.2: stylesheet first so explicit overrides remain
-// authoritative. Variable substitution is no longer a transform — nodes
-// interpolate `$context.*`/`$goal` from the live context at runtime
-// (spec §4.5), so there is nothing to expand at parse time.
+// The stylesheet is no longer here: it is external (fed from
+// `--stylesheet` via setup as an explicit transform) and must run AFTER
+// subgraph inlining so it can target inlined nodes. Variable
+// substitution is no longer a transform either — nodes interpolate
+// `$context.*`/`$goal` from the live context at runtime (spec §4.5).
 func BuiltIn() []Transform {
-	return []Transform{
-		Stylesheet{},
-	}
+	return nil
 }
 
 // Apply runs the supplied transforms in order, threading the graph

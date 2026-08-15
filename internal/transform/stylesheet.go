@@ -8,17 +8,25 @@ import (
 	"github.com/allouis/attractor/internal/graph"
 )
 
-// Stylesheet applies CSS-like rules declared in the graph-level
-// `model_stylesheet` attribute (spec §8). Selectors match by shape,
-// class, or node ID; specificity orders the resolution.
-type Stylesheet struct{}
+// Stylesheet applies CSS-like rules from an EXTERNAL stylesheet
+// (`attractor run --stylesheet <file>`), not the graph itself — pipelines
+// carry structure and class tags, models live in the sheet. Selectors
+// match by shape, class, or node ID; specificity orders the resolution.
+// Applied after subgraph inlining, so a rule can target inlined nodes by
+// their prefixed ID (e.g. `#review_loop.synth`) or their class.
+type Stylesheet struct {
+	// Source is the raw stylesheet text (the concatenation of the
+	// --stylesheet files). Empty means no overlay.
+	Source string
+}
 
-// Apply parses the stylesheet attribute, then walks each node and
-// overlays property values for `llm_model`, `llm_provider`, and
+// Apply parses the stylesheet source, then walks each node and overlays
+// property values for `llm_model`, `llm_provider`, and
 // `reasoning_effort`. Explicit node attributes (already present) take
-// precedence and are never overwritten.
-func (Stylesheet) Apply(g *graph.Graph) (*graph.Graph, error) {
-	src := g.Attrs["model_stylesheet"]
+// precedence and are never overwritten, so a mandatory pin (e.g. the
+// codex review lens) survives the sheet.
+func (s Stylesheet) Apply(g *graph.Graph) (*graph.Graph, error) {
+	src := s.Source
 	if strings.TrimSpace(src) == "" {
 		return g, nil
 	}
@@ -107,6 +115,7 @@ func (r stylesheetRule) matches(n *graph.Node) bool {
 // parseStylesheet implements a small CSS-like parser. Tolerant of
 // extra whitespace and trailing semicolons; rejects invalid selectors.
 func parseStylesheet(src string) ([]stylesheetRule, error) {
+	src = stripComments(src)
 	var rules []stylesheetRule
 	i := 0
 	for i < len(src) {
@@ -175,6 +184,25 @@ func buildRule(selector, body string) (stylesheetRule, error) {
 		rule.props[key] = val
 	}
 	return rule, nil
+}
+
+// stripComments removes C-style /* ... */ comments so a stylesheet can
+// carry documentation. Unterminated comments run to end-of-input.
+func stripComments(src string) string {
+	var b strings.Builder
+	for i := 0; i < len(src); {
+		if i+1 < len(src) && src[i] == '/' && src[i+1] == '*' {
+			end := strings.Index(src[i+2:], "*/")
+			if end < 0 {
+				break
+			}
+			i += 2 + end + 2
+			continue
+		}
+		b.WriteByte(src[i])
+		i++
+	}
+	return b.String()
 }
 
 func skipWS(src string, i int) int {

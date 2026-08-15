@@ -26,6 +26,10 @@ type Options struct {
 	// graph declares no cwd, so node/graph attrs still win. Empty leaves
 	// the graph untouched.
 	Cwd string
+	// Stylesheet is the raw text of the external model stylesheet(s)
+	// (--stylesheet, concatenated). Applied after subgraph inlining so
+	// rules can target inlined nodes. Empty means no overlay.
+	Stylesheet string
 }
 
 // Prepare parses, transforms, and lints the pipeline source into a
@@ -48,6 +52,9 @@ func Prepare(o Options) (*engine.PreparedGraph, error) {
 	pg, err := engine.Prepare(g,
 		transform.Subgraph{BaseDir: o.BaseDir},
 		transform.PromptFile{BaseDir: o.BaseDir},
+		// Last: overlay the external stylesheet onto the fully-inlined
+		// graph, so `#review_loop.synth` and `.review` reach child nodes.
+		transform.Stylesheet{Source: o.Stylesheet},
 	)
 	if err != nil {
 		return nil, err

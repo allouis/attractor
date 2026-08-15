@@ -67,7 +67,7 @@ digraph implement {
     // implement's.
     // outputs= documents the keys the plan agent sets via its status.json
     // context_updates, for the context_refs lint and human readers.
-    plan [llm_model="claude-fable-5[1m]", thread_id="plan",
+    plan [class="plan", thread_id="plan",
           fidelity="full", timeout="30m", prompt="@prompts/plan.md",
           outputs="plan_markdown"]
 
@@ -75,7 +75,7 @@ digraph implement {
     // session still holds the plan just written, and carries ONLY the
     // human's rejection note ($context.human.note) — mirroring the
     // build-side responders. Re-emits plan_markdown for a fresh plan_gate.
-    revise_plan [llm_model="claude-fable-5[1m]", thread_id="plan",
+    revise_plan [class="plan, revise", thread_id="plan",
                  fidelity="full", timeout="30m",
                  prompt="@prompts/revise-plan.md",
                  outputs="plan_markdown"]
@@ -83,7 +83,7 @@ digraph implement {
     // Human check-in on the plan before any code gets written.
     plan_gate [shape=hexagon, label="Does the plan make sense?"]
 
-    implement [llm_model="claude-fable-5[1m]", thread_id="build",
+    implement [class="build, coder", thread_id="build",
                fidelity="full", timeout="120m",
                prompt="@prompts/implement.md"]
 
@@ -93,11 +93,11 @@ digraph implement {
     // plus the failure at hand. Routing failures back to `implement`
     // re-sent its full prompt (issue body and all) into the same
     // session on every loop iteration (run ghost-hkg-1914, 2026-08-15).
-    fix_checks [llm_model="claude-fable-5[1m]", thread_id="build",
+    fix_checks [class="build, fixer", thread_id="build",
                 fidelity="full", timeout="60m",
                 prompt="@prompts/fix-checks.md"]
 
-    respond_to_review [llm_model="claude-fable-5[1m]", thread_id="build",
+    respond_to_review [class="build, responder", thread_id="build",
                        fidelity="full", timeout="60m",
                        prompt="@prompts/respond-review.md"]
 
@@ -120,7 +120,7 @@ digraph implement {
     ship [shape=hexagon, label="Ship these changes? (checks + self-review passed)"]
 
     // Publish: push the committed work and open a draft PR for human review.
-    open_pr [llm_model="claude-fable-5[1m]", thread_id="publish",
+    open_pr [class="publish", thread_id="publish",
              fidelity="full", timeout="15m", prompt="@prompts/open-pr.md"]
 
     done [shape=Msquare]

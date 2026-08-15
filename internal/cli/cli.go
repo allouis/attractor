@@ -112,6 +112,8 @@ func Run(args []string) error {
 	uiToken := fs.String("ui-token", "", "require `Authorization: Bearer <token>` on the run's own server (unlocks non-loopback --ui-addr); shared with the hub via announce")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
+	var stylesheets stringListFlag
+	fs.Var(&stylesheets, "stylesheet", "external model stylesheet file (repeatable; later files cascade over earlier): --stylesheet models.css")
 	positional, err := parseFlexible(fs, args)
 	if err != nil {
 		return err
@@ -131,10 +133,15 @@ func Run(args []string) error {
 	if base == "" {
 		base = filepath.Dir(dotPath)
 	}
+	sheet, err := readStylesheets(stylesheets)
+	if err != nil {
+		return err
+	}
 	prepared, err := setup.Prepare(setup.Options{
-		Source:  string(src),
-		BaseDir: base,
-		Cwd:     *cwd,
+		Source:     string(src),
+		BaseDir:    base,
+		Cwd:        *cwd,
+		Stylesheet: sheet,
 	})
 	if err != nil {
 		return err
@@ -163,7 +170,7 @@ func Run(args []string) error {
 			return err
 		}
 	} else {
-		codergenBackend, err = providerBackend(g)
+		codergenBackend, err = providerBackend(g, len(stylesheets) > 0)
 		if err != nil {
 			return err
 		}
@@ -256,7 +263,7 @@ func nodeMeta(g *graph.Graph) map[string]runview.NodeMeta {
 // --backend override is given (docs/provider-config.md), surfacing config-aware
 // warnings (unknown provider, missing model_env) to stderr so --json
 // stdout stays clean.
-func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
+func providerBackend(g *graph.Graph, stylesheetProvided bool) (backend.CodergenBackend, error) {
 	cfg, err := loadProviderConfig()
 	if err != nil {
 		return nil, err
@@ -264,7 +271,11 @@ func providerBackend(g *graph.Graph) (backend.CodergenBackend, error) {
 	for _, rule := range providerLintRules(cfg) {
 		printDiagnostics(os.Stderr, rule.Apply(g))
 	}
-	return router.New(cfg), nil
+	// Strict when the run clearly intends real agents: a stylesheet was
+	// supplied, or a default_provider is configured. A bare dev run stays
+	// lenient so a model-less graph can still simulate.
+	strict := stylesheetProvided || strings.TrimSpace(cfg.DefaultProvider) != ""
+	return router.NewStrict(cfg, strict), nil
 }
 
 // runEngine wires the built-in handlers around a codergen backend and
@@ -484,6 +495,33 @@ func printDiagnostics(w io.Writer, diags []lint.Diagnostic) {
 // varFlags is a repeatable -var name=value flag. The CLI seeds this map
 // into the run's initial context, so `$context.<name>` interpolates at
 // runtime (spec §4.5).
+// stringListFlag is a repeatable string flag preserving order (used for
+// --stylesheet, where later files cascade over earlier ones).
+type stringListFlag []string
+
+func (s stringListFlag) String() string { return strings.Join(s, ",") }
+
+func (s *stringListFlag) Set(raw string) error {
+	*s = append(*s, raw)
+	return nil
+}
+
+// readStylesheets reads each --stylesheet file and concatenates them in
+// order (later files cascade over earlier ones at equal specificity),
+// returning the combined source. No files → empty (no overlay).
+func readStylesheets(paths []string) (string, error) {
+	var b strings.Builder
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return "", fmt.Errorf("stylesheet %q: %w", p, err)
+		}
+		b.Write(data)
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
+}
+
 type varFlags map[string]string
 
 // String returns a stable comma-joined form for `-h` help output.
