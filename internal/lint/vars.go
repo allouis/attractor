@@ -37,6 +37,7 @@ var runtimePrefixes = []string{
 	"graph.",    // graph attrs mirrored at run start
 	"human.",    // wait.human gate answers
 	"check.",    // repo check commands seeded from config
+	"tool.",     // tool handler output/exit_code/stderr
 	"parallel.", // parallel handler fan-in results
 	"internal.", // engine bookkeeping
 }
