@@ -55,7 +55,9 @@ while :; do
   fi
 
   echo "question $qid pending — review at http://$(hostname):$PORT"
-  result=$(mktemp --suffix=.json)
+  # plannotator refuses a --result-file that already exists; -u names
+  # the path without creating it.
+  result=$(mktemp -u --suffix=.json)
   PLANNOTATOR_REMOTE=1 PLANNOTATOR_PORT=$PORT BROWSER=none \
     "$PLANNOTATOR" annotate "$plan_md" --gate --json --result-file "$result" || true
 
