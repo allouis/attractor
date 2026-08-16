@@ -38,8 +38,12 @@ Address **every** blocking finding:
 After you finish, the deterministic checks re-run — dependency install,
 typecheck, lint, and the test suite — then the review re-runs on your
 updated diff, and this loop repeats until no blocking findings remain. **If
-you were routed back here** by a failed check, the failing output is the
-thing to fix now.
+you were routed back here** by a failed check, its output is the thing to
+fix now:
+
+---
+$context.tool.output
+---
 
 Report your outcome by writing `{stage_dir}/status.json`: `success` when
 the findings are addressed and the checks pass, otherwise `fail` with a

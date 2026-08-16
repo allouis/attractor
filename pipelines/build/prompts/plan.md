@@ -11,5 +11,5 @@ spec `$context.spec`. Write no code and make no commits in this stage.
 
 State clearly which milestone you selected. If no milestone is eligible
 (all done, or dependencies unmet), write status.json in your stage
-directory with {"status": "fail", "failure_reason": "no eligible
+directory with {"outcome": "fail", "failure_reason": "no eligible
 milestone"} and stop.

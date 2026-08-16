@@ -27,5 +27,5 @@ Address **every** blocking finding:
 The review will re-run on your updated change and this loop repeats
 until no blocking findings remain. If the findings reveal the whole
 approach is wrong (not just fixable defects), write status.json in your
-stage directory with {"status": "fail", "failure_reason": "<why>"} so
+stage directory with {"outcome": "fail", "failure_reason": "<why>"} so
 the pipeline replans.

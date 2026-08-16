@@ -10,7 +10,16 @@ and an adversarial multi-lens review of your diff. **If you were routed
 back here** because a check or the review failed, fix exactly what was
 reported, then finish again.
 
-What failed on the previous round (empty on the first visit):
+What failed on the previous round (both empty on the first visit; only
+the one that sent you back is populated):
+
+A deterministic check that failed leaves its output here:
+
+---
+$context.tool.output
+---
+
+The adversarial review's blocking findings, if the review sent you back:
 
 ---
 $context.failure_reason

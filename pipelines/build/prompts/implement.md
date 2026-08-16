@@ -14,5 +14,5 @@ Rules:
   test ./... -race -count=1 && nix build .#attractor`.
 
 If you cannot complete the milestone, write status.json in your stage
-directory with {"status": "fail", "failure_reason": "<what blocked
+directory with {"outcome": "fail", "failure_reason": "<what blocked
 you>"} so the pipeline can replan.
