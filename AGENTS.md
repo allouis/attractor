@@ -4,13 +4,6 @@ This file makes the repo self-sufficient: an agent (or human) with just a
 clone can build attractor, run pipelines, and work the self-dev loop that
 builds attractor with attractor.
 
-**VCS rule (important):** use **`jj` (Jujutsu), never `git` directly**, for
-all version-control operations in this repo and in the repos pipelines
-operate on. Small, atomic, reviewable commits. (If a personal `CLAUDE.md`
-with additional style rules is present in your home dir it also applies,
-but it does not ship with this repo — this runbook is the source of truth
-for operating attractor.)
-
 attractor is a DOT-pipeline AI-workflow runner (Go). The unit of the
 system is a **self-contained run**: `attractor run --ui` executes a
 pipeline and serves its own live API + waterfall view; `attractor hub` is
@@ -18,7 +11,7 @@ the optional pull-based directory (announce + scrape + archive + launch).
 There is no daemon: anything that orchestrates runs (VMs, cron, CI, work
 intake) lives OUTSIDE this tool and just invokes `attractor run`.
 
-Read the README's "How a run works" section first — it is the mental
+Read the README's "How it works" section first — it is the mental
 model (run dir layout, engine loop, loop guards, agent status.json
 contract) everything here builds on.
 
@@ -65,7 +58,7 @@ Notes:
   providers in `~/.attractor/config.json`, and pass `--stylesheet
   pipelines/models.css` (see docs/provider-config.md).
 - `check.*` seeds are the repo's deterministic check commands the
-  implement/revise-pr tool nodes run. Make them PRINT their diagnostics
+  plan-build-review/revise-pr tool nodes run. Make them PRINT their diagnostics
   (a silent `test -z "$(gofmt -l .)"` leaves the fix agent blind).
 - `--human approve` auto-approves gates for unattended runs; `--ui`
   answers gates from the browser; a TTY gets a console prompt.
@@ -91,7 +84,7 @@ the announce and the hub authenticates with it.
 
 ## 5. Self-dev loop (dogfooding)
 
-Dogfood attractor on itself with the `implement` pipeline: hand it a
+Dogfood attractor on itself with the `plan-build-review` pipeline: hand it a
 `brief` describing the change (a spec milestone works well), pointed at
 this repo. It plans, human-gates, implements in small jj commits, runs
 the checks + five-lens review, and opens a draft PR for you to merge.

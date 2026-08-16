@@ -36,9 +36,10 @@ ACP adapters, `jj`, and `graphviz` resolve on PATH.
 attractor run <name-or-path> [flags]
 ```
 
-- **Name resolution.** A bare `implement` resolves to
-  `./pipelines/plan-build-review/pipeline.dot`,
-  then `~/.attractor/pipelines/…`. A path containing `/` or `.dot` is used
+- **Name resolution.** A bare `plan-build-review` resolves to
+  `./pipelines/plan-build-review/pipeline.dot`, then
+  `./pipelines/plan-build-review.dot`, then `~/.attractor/pipelines/…`. A
+  path containing `/` or `.dot` is used
   verbatim.
 - **Backend rule (the #1 gotcha).** With **no** `--backend`/`--acp-cmd`,
   each codergen node is routed per its model through
@@ -79,7 +80,7 @@ their diagnostics to stdout/stderr — the fix agent is handed that output.
 | `review-core` | `diff_cmd` | Shared subgraph: the five-lens review. Needs `anthropic` **and** `codex` providers. |
 | `review-pr` | `repo,pr_number,title` | Diff-based via `gh pr diff`; no checkout. |
 | `revise-pr` | `repo,pr_number,bookmark,workspace_revision` | `workspace_revision` must be the PR bookmark. Baseline checks + review + fix loop + ship→push. |
-| `implement` | `brief,base` + `check.*` | plan (human gate) → implement → checks → review → ship → draft PR. `brief` is the freeform task; `base` = target branch. |
+| `plan-build-review` | `brief,base` + `check.*` | plan (human gate) → implement → checks → review → ship → draft PR. `brief` is the freeform task; `base` = target branch. |
 
 ## Models
 
@@ -91,7 +92,7 @@ attractor run plan-build-review --stylesheet pipelines/models.css …
 ```
 
 Selectors cascade `* < shape < .class < #id`; a node's explicit
-`llm_model` still wins (mandatory pins like the codex review lens).
+`llm_model` still wins over the sheet (for a node that must use a specific model).
 Provider is inferred from the model prefix. Role classes: `.plan`,
 `.build`, `.review`, `.publish` (plus finer `.coder/.fixer/.responder/
 .revise/.lens/.synth`). Copy `pipelines/models.css` and edit it to mix and
@@ -131,8 +132,8 @@ attempt named `<node>@v<visit>.a<attempt>/` holding `prompt.md`,
 
 ## Human gates
 
-`wait.human` nodes (implement's `plan_gate` + `ship`, revise-pr's
-ship gates) block until answered:
+`wait.human` nodes (plan-build-review's `plan_gate` + `ship`, revise-pr's
+ship gate) block until answered:
 
 - `--human console` — prompt on the TTY (choice + optional note).
 - `--human approve` — auto-approve the first option (unattended runs).
@@ -147,7 +148,7 @@ An unattended dispatch of a gated pipeline needs `--human approve` or a
 - **Auth.** `claude-agent-acp` reads `~/.claude/.credentials.json` (from a
   `claude` login) or `ANTHROPIC_API_KEY`; `codex-acp` needs its own auth.
   Auth/config errors fail the run immediately (not retried).
-- **External side-effects are real.** `implement`'s `open_pr` opens a draft
+- **External side-effects are real.** `plan-build-review`'s `open_pr` opens a draft
   PR; `revise-pr` pushes the branch. These fire when the ship gate passes —
   shipping a run performs a GitHub write.
 - **Review pipelines need a `codex` provider** in the config (the

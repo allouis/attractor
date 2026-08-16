@@ -2,7 +2,6 @@
 
 Amends: `../attractor.md` §5.6 (Run Directory Structure), §4.8–4.9
 (parallel execution), §4.7 (retries).
-Supersedes: [visit-dirs.md](./visit-dirs.md) (A1).
 Introduced 2026-08-13.
 
 ## The idea

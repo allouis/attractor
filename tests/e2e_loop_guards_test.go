@@ -8,8 +8,8 @@ import (
 	"github.com/allouis/attractor/internal/engine"
 )
 
-// Loop guards (docs/loop-guards-spec.md): kill futile runs early instead
-// of burning review/fix rounds on failures no agent can fix.
+// Loop guards: kill futile runs early instead of burning review/fix
+// rounds on failures no agent can fix.
 
 // LG1: a require_status miss is a MACHINERY failure. The node retries
 // (bounded by its retry policy) and then fails the RUN with the

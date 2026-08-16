@@ -1,10 +1,8 @@
 # A2 — Static subgraph inlining replaces the manager loop
 
 Amends: `../attractor.md` §4.11 (manager loop), §9.4 (sub-pipeline
-nodes), Appendix B (`house` shape). Supersedes
-[routing.md](./routing.md). Introduced by local-first plan D6; the
-2026-08-13 strip removed `stack.manager_loop` entirely (its last user
-was the deleted router).
+nodes), Appendix B (`house` shape). The `stack.manager_loop` node type is
+not implemented; sub-pipelines are composed by static inlining instead.
 
 ## What the core spec says
 

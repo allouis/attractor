@@ -1,7 +1,7 @@
 /* Example model stylesheet for attractor pipelines.
  *
  * Pipelines carry structure and role classes; models live here. Pass it:
- *   attractor run implement --stylesheet pipelines/models.css -var ...
+ *   attractor run plan-build-review --stylesheet pipelines/models.css -var ...
  * Repeatable and cascading: a later --stylesheet overrides an earlier one.
  *
  * Selectors, lowest to highest specificity:

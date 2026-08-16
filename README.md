@@ -168,7 +168,7 @@ attractor run --ui --cwd /path/to/target-repo --stylesheet pipelines/models.css 
 - `-var name=value` seeds the run's context; a graph's `vars="…"` list
   declares which are required (missing ones fail before any node runs).
 - `--cwd` is the working tree agents and tool commands operate in.
-- `--human console|approve` controls approval gates in a terminal;
+- `--human auto|console|approve` controls approval gates in a terminal;
   under `--ui` gates render as buttons in the browser.
 - Bare pipeline names resolve under `./pipelines/` then
   `~/.attractor/pipelines/`.
@@ -195,7 +195,7 @@ The same data is served as JSON (`/pipelines/{id}`, `/events?since=N`,
 
 ### Shipped pipelines
 
-Under `pipelines/`: `implement` (pictured above: plan → human gate →
+Under `pipelines/`: `plan-build-review` (pictured above: plan → human gate →
 implement → checks → review → draft PR), `review-pr`, `revise-pr`,
 `checks`, and two shared sub-pipelines the others embed via `subgraph` —
 `review-core` (the five-reviewer adversarial review) and `checks-core`
@@ -291,10 +291,8 @@ after a failure, `$context.failure_reason` carries what went wrong.
 |---|---|
 | [attractor spec](./docs/spec/attractor.md) | the upstream pipeline/engine spec (pristine) |
 | [amendments](./docs/spec/amendments/README.md) | every deliberate deviation from it |
-| [local-first plan](./docs/local-first-plan.md) | why the architecture is self-contained runs + a pull-based hub |
-| [loop-guards](./docs/loop-guards-spec.md) | the anti-futility guards' design |
-| [provider-config](./docs/provider-config.md) | routing nodes to backends/models |
-| [acp-backend](./docs/acp-backend.md) | the ACP transport in detail |
+| [running pipelines](./docs/running-pipelines.md) | dispatch runbook: run command, vars, models, events, gotchas |
+| [provider-config](./docs/provider-config.md) | the config file + routing nodes to backends/models |
 
 ## License
 

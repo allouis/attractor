@@ -9,12 +9,13 @@ Amends: `../attractor.md` §9.5 (API), §9.6 (events), §4.8–4.9
 Implemented: `GET /pipelines`, `GET /pipelines/{id}` (enriched doc:
 summary + spans + active nodes + pending questions + `last_seq`),
 `GET /pipelines/{id}/events?since=`, `GET /pipelines/{id}/artifacts`
-(+ per-file), `GET/POST questions|answer`, `GET /ui`, `GET /healthz`.
+(+ per-file), `GET /pipelines/{id}/graph`, `GET/POST questions|answer`,
+`GET /ui`, `GET /healthz`.
 
 Deliberately absent (vs §9.5): `/state` and `/nodes/{node}` (folded
 into the enriched doc, local-first plan D4), `POST /cancel` (stop the
 process; a cancellation primitive may return with evidence),
-`GET /graph`, `GET /checkpoint`, `GET /context` (read the run dir —
+`GET /checkpoint`, `GET /context` (read the run dir —
 `/artifacts/checkpoint.json` serves the latter two). `POST /pipelines`
 (submit) exists on the **hub** launcher, not on a run's own server.
 `/diff` is not implemented anywhere (the local-first plan D4 text

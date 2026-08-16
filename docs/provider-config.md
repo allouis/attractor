@@ -16,9 +16,10 @@ agent command, and the env var used to pass the model to the agent.
 ## Config file
 
 Read from `~/.attractor/config.json` (JSON, home only). Optional: with no
-file present a bare run falls back to simulation, and `attractor` writes a
-starter file (one `anthropic` provider, no `default_provider`) on first
-use.
+file present the in-memory default is a single `anthropic` provider (no
+`default_provider`), and a bare run with no model resolved falls back to
+simulation. Nothing is written to disk — create the file yourself to
+configure providers.
 
 ```json
 {
