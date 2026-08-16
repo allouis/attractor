@@ -47,14 +47,12 @@ digraph implement {
     set_base [type="tool", timeout="5m",
               tool_command="jj new $context.base@origin"]
 
-    // Baseline: the same deterministic checks as the post-implement gate,
-    // run BEFORE any work. Distinct nodes (not the gating ones below) so a
-    // baseline failure terminates the run with the check's output instead
-    // of routing to `implement`, and so gate-node visit counts stay clean.
-    baseline_deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
-    baseline_typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
-    baseline_lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
-    baseline_test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+    // Baseline: the repo's deterministic checks (checks-core) run BEFORE
+    // any work. A separate instance from the post-implement gate below, and
+    // wired to terminate on failure — `baseline -> plan` is unconditional,
+    // so an outcome=fail has no eligible edge and the run stops with the
+    // check's output, instead of routing to a fixer with no work to fix.
+    baseline [type="subgraph", graph_ref="../checks-core/pipeline.dot"]
 
     // The two ROLES — plan and build — each get their own thread; the
     // stages WITHIN a role share it. Cross-role sharing meant implement
@@ -101,12 +99,10 @@ digraph implement {
                        fidelity="full", timeout="60m",
                        prompt="@prompts/respond-review.md"]
 
-    // Deterministic checks — commands seeded as -var check.<name>. They run
-    // in the run's cwd (the repo).
-    deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
-    typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
-    lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
-    test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+    // Post-implement gate: the same checks-core sub-pipeline, but here a
+    // failure routes to the fix_checks responder (see edges). The failing
+    // check's output reaches the fixer via $context.tool.output.
+    checks [type="subgraph", graph_ref="../checks-core/pipeline.dot"]
 
     // Adversarial self-review of everything since the base
     // (implement commits as it goes, so a plain `jj diff` would miss the
@@ -126,28 +122,19 @@ digraph implement {
     done [shape=Msquare]
 
     start -> set_base
-    set_base -> baseline_deps
-    baseline_deps      -> baseline_typecheck
-    baseline_typecheck -> baseline_lint
-    baseline_lint      -> baseline_test
-    baseline_test      -> plan
+    set_base -> baseline
+    baseline -> plan            // fail is unrouted → terminates the run
     plan -> plan_gate
     plan_gate   -> implement   [label="[A] Approve plan"]
     plan_gate   -> revise_plan [label="[R] Revise plan"]
     revise_plan -> plan_gate
-    implement -> deps
-    deps      -> typecheck   [condition="outcome=success"]
-    deps      -> fix_checks  [condition="outcome=fail", label="Fix deps"]
-    typecheck -> lint        [condition="outcome=success"]
-    typecheck -> fix_checks  [condition="outcome=fail", label="Fix types"]
-    lint      -> test        [condition="outcome=success"]
-    lint      -> fix_checks  [condition="outcome=fail", label="Fix lint"]
-    test      -> review_loop  [condition="outcome=success"]
-    test      -> fix_checks   [condition="outcome=fail", label="Fix tests"]
-    fix_checks -> deps
+    implement         -> checks
+    fix_checks        -> checks
+    respond_to_review -> checks
+    checks -> review_loop        [condition="outcome=success"]
+    checks -> fix_checks         [condition="outcome=fail", label="Fix checks"]
     review_loop -> ship              [condition="outcome=success"]
     review_loop -> respond_to_review [condition="outcome=fail", label="Address findings"]
-    respond_to_review -> deps
     ship -> open_pr           [label="[S] Ship"]
     ship -> respond_to_review [label="[C] Request changes"]
     open_pr -> done

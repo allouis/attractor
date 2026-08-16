@@ -1,0 +1,41 @@
+// checks-core — the repo's deterministic check chain as a REUSABLE
+// sub-pipeline, so the four checks live in one place instead of being
+// copy-pasted into every pipeline that gates on them.
+//
+// Runs deps -> typecheck -> lint -> test from the seeded $context.check.*
+// commands, early-exiting on the first failure. The inlining parent sees a
+// single outcome on the subgraph node: `success` iff all four pass,
+// otherwise `fail` (the failing check's output is left in
+// $context.tool.output for a downstream fix responder).
+//
+// The PARENT decides what a failure means, by how it wires the subgraph
+// node's outgoing edges:
+//   gate     -> next       [condition="outcome=success"]
+//   gate     -> fix_checks [condition="outcome=fail"]      // route to a fixer
+// or, to make a failure terminate the run (a pre-work baseline):
+//   baseline -> next                                       // unconditional;
+//   // an outcome=fail has no eligible edge, so the run stops with the
+//   // check's output (edge-selection: on fail only outcome=fail edges
+//   // are eligible).
+digraph checks_core {
+    default_max_retries = 2
+
+    start [shape=Mdiamond]
+
+    deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
+    typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
+    lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
+    test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+
+    done [shape=Msquare]
+
+    start -> deps
+    deps      -> typecheck [condition="outcome=success"]
+    deps      -> done      [condition="outcome=fail"]
+    typecheck -> lint      [condition="outcome=success"]
+    typecheck -> done      [condition="outcome=fail"]
+    lint      -> test      [condition="outcome=success"]
+    lint      -> done      [condition="outcome=fail"]
+    test      -> done      [condition="outcome=success"]
+    test      -> done      [condition="outcome=fail"]
+}

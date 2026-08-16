@@ -61,31 +61,24 @@ func TestRevisePRPipeline_RequiresWorkspaceRevision(t *testing.T) {
 func TestRevisePRPipeline_Structure(t *testing.T) {
 	g := buildRevisePRGraph(t)
 
-	// start -> a chain of baseline tool nodes running configured checks,
-	// each with a single outgoing edge (a failure terminates the run — no
-	// fail edge routes it onward), ending at review_loop.
+	// start -> baseline (a checks-core subgraph) -> review_loop. baseline
+	// routes onward unconditionally, so a red baseline (no outcome=fail
+	// edge) terminates the run instead of routing to a fixer.
 	cursor := g.OutgoingEdges("start")[0].To
-	baselineIDs := map[string]bool{}
-	for g.Nodes[cursor].Type() == "tool" {
-		if !strings.Contains(g.Nodes[cursor].Attrs["tool_command"], "$context.check.") {
-			t.Fatalf("baseline node %q does not run a configured check", cursor)
-		}
-		out := g.OutgoingEdges(cursor)
-		if len(out) != 1 {
-			t.Fatalf("baseline node %q has %d outgoing edges; a red baseline must terminate, not route onward", cursor, len(out))
-		}
-		baselineIDs[cursor] = true
-		cursor = out[0].To
+	baselineID := cursor
+	if b := g.Nodes[cursor]; b.Type() != "subgraph" || !strings.HasSuffix(b.Attrs["graph_ref"], "checks-core/pipeline.dot") {
+		t.Fatalf("start should route to a checks-core baseline subgraph, got %q (%s)", cursor, g.Nodes[cursor].Type())
 	}
-	if len(baselineIDs) < 4 {
-		t.Fatalf("want >=4 baseline check nodes before review, got %d", len(baselineIDs))
+	bEdges := g.OutgoingEdges(cursor)
+	if len(bEdges) != 1 || strings.TrimSpace(bEdges[0].Attrs["condition"]) != "" {
+		t.Fatalf("baseline must route onward unconditionally (a red baseline terminates), got %d edge(s)", len(bEdges))
 	}
 
-	// The node the baseline chain lands on is the review loop.
-	loopID := cursor
+	// The node the baseline lands on is the review loop.
+	loopID := bEdges[0].To
 	loop := g.Nodes[loopID]
 	if loop.Type() != "subgraph" {
-		t.Fatalf("baseline chain should land on the review subgraph (D6), got %q (type %q)", loopID, loop.Type())
+		t.Fatalf("baseline should land on the review subgraph (D6), got %q (type %q)", loopID, loop.Type())
 	}
 	if child := loop.Attrs["graph_ref"]; !strings.HasSuffix(child, "review-core/pipeline.dot") {
 		t.Fatalf("review_loop graph_ref=%q, want suffix review-core/pipeline.dot", child)
@@ -116,42 +109,32 @@ func TestRevisePRPipeline_Structure(t *testing.T) {
 		t.Fatal("review_loop should route to a codergen fix node on outcome=fail")
 	}
 
-	// fix -> a deterministic check chain, each check routing back to fix on
-	// failure; the terminal check routes back into review_loop on success.
-	checkTools := 0
-	for id, n := range g.Nodes {
-		if n.Type() != "tool" || baselineIDs[id] || !strings.Contains(n.Attrs["tool_command"], "$context.check.") {
-			continue
-		}
-		checkTools++
-		back := false
-		for _, e := range g.OutgoingEdges(id) {
-			if strings.Contains(e.Attrs["condition"], "outcome=fail") && e.To == fixID {
-				back = true
-			}
-		}
-		if !back {
-			t.Errorf("check node %q does not route back to fix on failure", id)
+	// fix -> checks (a SECOND checks-core subgraph, distinct from baseline):
+	// a failure routes back to fix, success re-enters the review loop,
+	// closing the fix -> checks -> review cycle.
+	var checksID string
+	for _, e := range g.OutgoingEdges(fixID) {
+		if to := g.Nodes[e.To]; to.Type() == "subgraph" && strings.HasSuffix(to.Attrs["graph_ref"], "checks-core/pipeline.dot") {
+			checksID = e.To
 		}
 	}
-	if checkTools < 4 {
-		t.Fatalf("want >=4 post-fix check nodes (deps/typecheck/lint/test), got %d", checkTools)
+	if checksID == "" || checksID == baselineID {
+		t.Fatal("fix should route into a post-fix checks-core gate distinct from baseline")
 	}
-	// Some check routes back into the review loop on success (closing the
-	// fix -> checks -> review cycle).
-	reenters := false
-	for id, n := range g.Nodes {
-		if n.Type() != "tool" || baselineIDs[id] {
-			continue
+	var backToFixOnCheck, reenters bool
+	for _, e := range g.OutgoingEdges(checksID) {
+		if strings.Contains(e.Attrs["condition"], "outcome=fail") && e.To == fixID {
+			backToFixOnCheck = true
 		}
-		for _, e := range g.OutgoingEdges(id) {
-			if strings.Contains(e.Attrs["condition"], "outcome=success") && e.To == loopID {
-				reenters = true
-			}
+		if strings.Contains(e.Attrs["condition"], "outcome=success") && e.To == loopID {
+			reenters = true
 		}
+	}
+	if !backToFixOnCheck {
+		t.Error("checks gate should route back to fix on failure")
 	}
 	if !reenters {
-		t.Error("no post-fix check re-enters review_loop on success; the fix/review cycle is broken")
+		t.Error("checks gate should re-enter review_loop on success; the fix/review cycle is broken")
 	}
 
 	// The ship gate: a [P] push branch to the publish node and a [C] change

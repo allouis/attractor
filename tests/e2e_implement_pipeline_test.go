@@ -61,21 +61,19 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 	if n := g.Nodes[cursor]; n.Type() != "tool" || !strings.Contains(n.Attrs["tool_command"], "jj new $context.base") {
 		t.Fatalf("start should route to a set_base tool node pinning $context.base, got %q (%s)", cursor, g.Nodes[cursor].Type())
 	}
+	// set_base -> baseline (a checks-core subgraph) -> plan. baseline routes
+	// to plan unconditionally, so a check failure (which has no outcome=fail
+	// edge) terminates the run rather than routing to a fixer.
 	cursor = g.OutgoingEdges(cursor)[0].To
-	baselines := 0
-	baselineIDs := map[string]bool{}
-	for g.Nodes[cursor].Type() == "tool" {
-		baselineIDs[cursor] = true
-		if !strings.Contains(g.Nodes[cursor].Attrs["tool_command"], "$context.check.") {
-			t.Fatalf("baseline node %q does not run a configured check", cursor)
-		}
-		baselines++
-		cursor = g.OutgoingEdges(cursor)[0].To
+	baselineID := cursor
+	if b := g.Nodes[cursor]; b.Type() != "subgraph" || !strings.HasSuffix(b.Attrs["graph_ref"], "checks-core/pipeline.dot") {
+		t.Fatalf("set_base should route to a checks-core baseline subgraph, got %q (%s)", cursor, g.Nodes[cursor].Type())
 	}
-	if baselines < 4 {
-		t.Fatalf("want >=4 baseline check nodes before plan, got %d", baselines)
+	baselineEdges := g.OutgoingEdges(cursor)
+	if len(baselineEdges) != 1 || strings.TrimSpace(baselineEdges[0].Attrs["condition"]) != "" {
+		t.Fatalf("baseline should route to plan unconditionally (fail terminates), got %d edge(s)", len(baselineEdges))
 	}
-	planID := cursor
+	planID := baselineEdges[0].To
 	if p := g.Nodes[planID]; p.Type() != "codergen" {
 		t.Fatalf("post-baseline stage %q type=%q, want codergen", planID, p.Type())
 	}
@@ -115,39 +113,48 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 		t.Error("plan gate should be able to route to a revise responder that re-gates")
 	}
 
-	// Static checks: tool nodes running the repo's configured commands
-	// ($context.check.*), each routing back to implement on failure.
-	checkTools := 0
+	// Post-implement gate: a SECOND checks-core subgraph (distinct from the
+	// baseline). implement and both responders feed it; on success it routes
+	// to the self-review, on failure to a codergen fix responder.
+	var checksID string
 	for id, n := range g.Nodes {
-		if n.Type() != "tool" || !strings.Contains(n.Attrs["tool_command"], "$context.check.") {
-			continue
-		}
-		if baselineIDs[id] {
-			continue // baseline copies terminate the run, they don't gate implement
-		}
-		checkTools++
-		// On failure a check routes to a dedicated responder (fix_checks),
-		// NOT back into implement — the responder shares implement's thread
-		// so it already holds the context (commit 43995c9).
-		var failTarget string
-		for _, e := range g.OutgoingEdges(id) {
-			if strings.Contains(e.Attrs["condition"], "outcome=fail") {
-				failTarget = e.To
-			}
-		}
-		if failTarget == "" || failTarget == implementID || g.Nodes[failTarget].Type() != "codergen" {
-			t.Errorf("check node %q should route on failure to a codergen responder, got %q", id, failTarget)
+		if id != baselineID && n.Type() == "subgraph" && strings.HasSuffix(n.Attrs["graph_ref"], "checks-core/pipeline.dot") {
+			checksID = id
 		}
 	}
-	if checkTools < 4 {
-		t.Fatalf("want >=4 static-check tool nodes (deps/typecheck/lint/test), got %d", checkTools)
+	if checksID == "" {
+		t.Fatal("want a post-implement checks-core gate subgraph distinct from baseline")
+	}
+	fedByImplement := false
+	for _, e := range g.OutgoingEdges(implementID) {
+		if e.To == checksID {
+			fedByImplement = true
+		}
+	}
+	if !fedByImplement {
+		t.Error("implement should route into the checks gate")
+	}
+	var checksFail, checksOK string
+	for _, e := range g.OutgoingEdges(checksID) {
+		if strings.Contains(e.Attrs["condition"], "outcome=fail") {
+			checksFail = e.To
+		}
+		if strings.Contains(e.Attrs["condition"], "outcome=success") {
+			checksOK = e.To
+		}
+	}
+	if checksFail == "" || g.Nodes[checksFail].Type() != "codergen" {
+		t.Errorf("checks gate should route on failure to a codergen responder, got %q", checksFail)
+	}
+	if checksOK == "" {
+		t.Error("checks gate should route to the self-review on success")
 	}
 
 	// The self-review loop: a subgraph node inlining review-core (D6)
 	// with jj diff.
 	var loopID string
 	for id, n := range g.Nodes {
-		if n.Type() == "subgraph" {
+		if n.Type() == "subgraph" && strings.HasSuffix(n.Attrs["graph_ref"], "review-core/pipeline.dot") {
 			loopID = id
 		}
 	}

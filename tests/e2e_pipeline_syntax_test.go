@@ -19,6 +19,7 @@ import (
 var shippedPipelineFiles = []string{
 	"../pipelines/review-pr/pipeline.dot",
 	"../pipelines/review-core/pipeline.dot",
+	"../pipelines/checks-core/pipeline.dot",
 	"../pipelines/revise-pr/pipeline.dot",
 	"../pipelines/revise-pr/prompts/fix.md",
 	"../pipelines/revise-pr/prompts/push-updates.md",
@@ -32,10 +33,6 @@ var shippedPipelineFiles = []string{
 	"../pipelines/build/prompts/implement.md",
 	"../pipelines/build/prompts/fix.md",
 	"../pipelines/build/prompts/record.md",
-	"../pipelines/bug-fix/pipeline.dot",
-	"../pipelines/bug-fix/prompts/understand.md",
-	"../pipelines/bug-fix/prompts/reproduce.md",
-	"../pipelines/bug-fix/prompts/fix.md",
 }
 
 // bareVarRe matches a `$` that begins an identifier — a bare variable
