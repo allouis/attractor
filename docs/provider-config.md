@@ -15,24 +15,34 @@ agent command, and the env var used to pass the model to the agent.
 
 ## Config file
 
-Read from `~/.attractor/config.toml`, then overlaid by
-`./.attractor/config.toml` (the working-directory file wins key by
-key). Both are optional: with neither present, a run falls back to
-simulation.
+Read from `~/.attractor/config.json` (JSON, home only). Optional: with no
+file present a bare run falls back to simulation, and `attractor` writes a
+starter file (one `anthropic` provider, no `default_provider`) on first
+use.
 
-```toml
-default_provider = "anthropic"
-
-[providers.anthropic]
-backend   = "acp"                  # acp | simulation (claudecode: use --backend claude)
-command   = "claude-agent-acp"     # agent command line (node/graph acp_command still win)
-model_env = "ANTHROPIC_MODEL"      # llm_model is injected through this env var
-
-[providers.openai]
-backend   = "acp"
-command   = "codex-acp"
-model_env = "CODEX_MODEL"
+```json
+{
+  "default_provider": "anthropic",
+  "providers": {
+    "anthropic": {
+      "backend": "acp",
+      "command": "claude-agent-acp",
+      "model_env": "ANTHROPIC_MODEL"
+    },
+    "codex": {
+      "backend": "acp",
+      "command": "codex-acp",
+      "model_env": "CODEX_MODEL"
+    }
+  }
+}
 ```
+
+`backend` is `acp` or `simulation` (for `claudecode`, run with `--backend
+claude`). `command` is the agent command line (node/graph `acp_command`
+still win). `model_env` is the env var the resolved `llm_model` is injected
+through. The shipped review pipelines route their `correctness` lens to a
+`codex` provider, so add one to run any review-bearing pipeline for real.
 
 ## Resolution per node
 
@@ -47,6 +57,24 @@ model_env = "CODEX_MODEL"
 Agent-command precedence is unchanged: node `acp_command` > graph
 `acp_command` > provider `command`. Model injection is orthogonal — it
 applies whichever command resolves.
+
+## Per-node models: stylesheets
+
+Pipelines carry structure and role classes, not models. The model each
+node uses comes from an external CSS-like **stylesheet**, passed at run
+time:
+
+```
+attractor run implement --stylesheet pipelines/models.css -var …
+```
+
+Selectors cascade `* < shape < .class < #id`; an explicit `llm_model` on
+the node still wins (mandatory pins). The provider is then inferred from
+the resolved model as above. See [running-pipelines.md](running-pipelines.md)
+for the full model-selection walkthrough and `pipelines/models.css` for a
+worked example. A node left with no model in a run that intends real
+agents (a stylesheet was passed, or `default_provider` is set) fails the
+run rather than silently simulating.
 
 ## Overrides
 
