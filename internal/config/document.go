@@ -38,9 +38,15 @@ func configPath(homeDir string) string {
 // a bare run with no provider selected falls back to simulation) rather
 // than spawning an agent the user has not installed.
 func DefaultDocument() Document {
+	// Both adapters ship on the wrapped binary's PATH (flake runtimeDeps),
+	// so both providers work with no config file: an all-Claude run needs
+	// nothing, and the review pipelines' cross-model `codex` lens resolves
+	// out of the box. A config file is only needed for custom providers,
+	// models, or a default_provider.
 	return Document{
 		Providers: map[string]Provider{
 			"anthropic": {Backend: "acp", Command: "claude-agent-acp", ModelEnv: "ANTHROPIC_MODEL"},
+			"codex":     {Backend: "acp", Command: "codex-acp", ModelEnv: "CODEX_MODEL"},
 		},
 	}
 }
