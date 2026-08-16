@@ -2,7 +2,7 @@
 
 How to dispatch an attractor pipeline and drive it to completion, whether
 by hand or from an agent (e.g. Claude Code). For the DOT authoring model
-see the spec; for model routing see [provider-config.md](provider-config.md).
+see the spec; for model routing see the [Models](#models) section below.
 
 ## Mental model
 
@@ -77,7 +77,7 @@ their diagnostics to stdout/stderr — the fix agent is handed that output.
 |---|---|---|
 | `checks` | `repo` + `check.{deps,typecheck,lint,test}` | No agent, no gates; a failing check ends the run. Thin wrapper over `checks-core`. |
 | `checks-core` | `check.{deps,typecheck,lint,test}` | Shared subgraph: the deps→typecheck→lint→test chain, embedded by the others. |
-| `review-core` | `diff_cmd` | Shared subgraph: the five-lens review. Needs `anthropic` **and** `codex` providers. |
+| `review-core` | `diff_cmd` | Shared subgraph: the five-lens review (uses the built-in `anthropic` + `codex` providers). |
 | `review-pr` | `repo,pr_number,title` | Diff-based via `gh pr diff`; no checkout. |
 | `revise-pr` | `repo,pr_number,bookmark,workspace_revision` | `workspace_revision` must be the PR bookmark. Baseline checks + review + fix loop + ship→push. |
 | `plan-build-review` | `brief,base` + `check.*` | plan (human gate) → implement → checks → review → ship → draft PR. `brief` is the freeform task; `base` = target branch. |
@@ -102,6 +102,20 @@ match — e.g. planner on Fable, implementer on Opus.
 passed, or `default_provider` is set in the config), a codergen node left
 with no model fails the run instead of silently simulating. A bare dev run
 with neither stays lenient and may simulate.
+
+**How a model resolves to an agent.** A node's provider is its
+`llm_provider`, else inferred from the model prefix (`claude*`→anthropic),
+else `default_provider`. The provider maps to an agent command and the env
+var the model is injected through. Two providers are **built in** —
+`anthropic` (claude-agent-acp) and `codex` (codex-acp) — so the shipped
+pipelines need no config. Other prefixes (`gpt*`/`o*`→openai,
+`gemini*`→google) infer a provider that is *not* built in: set
+`llm_provider` explicitly (the review correctness lens pins `codex` for its
+GPT model) or add the provider to `~/.attractor/config.json` (an optional,
+never-auto-written JSON file; format in the README). `--backend` /
+`--acp-cmd` override routing entirely (every node on one backend).
+`attractor validate` warns on a node whose provider isn't configured
+(`provider_known`) or whose provider has no `model_env` (`model_env_missing`).
 
 ## Watching a run
 
@@ -151,8 +165,8 @@ An unattended dispatch of a gated pipeline needs `--human approve` or a
 - **External side-effects are real.** `plan-build-review`'s `open_pr` opens a draft
   PR; `revise-pr` pushes the branch. These fire when the ship gate passes —
   shipping a run performs a GitHub write.
-- **Review pipelines need a `codex` provider** in the config (the
-  correctness lens), plus a `--stylesheet` covering `.review`.
+- **Review pipelines** run the correctness lens on the built-in `codex`
+  provider; just pass a `--stylesheet` covering `.review`.
 - **VM / isolation.** The pipeline runs wherever `attractor run` runs;
   `--cwd` sets the working tree. `review-pr` uses `gh pr diff` (no `.git`
   needed) on purpose for VM workspaces.

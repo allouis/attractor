@@ -54,9 +54,9 @@ Notes:
 - The task is one freeform `brief` (issue text, a spec milestone, or a
   plain paragraph); `base` is the target branch the PR lands on.
 - `--backend acp` runs every codergen node on the adapter's default
-  model. For per-node model control, drop `--backend`, configure
-  providers in `~/.attractor/config.json`, and pass `--stylesheet
-  pipelines/models.css` (see docs/provider-config.md).
+  model. For per-node model control, drop `--backend` and pass
+  `--stylesheet pipelines/models.css`; the `anthropic` + `codex` providers
+  are built in, so no config file is needed (see docs/running-pipelines.md).
 - `check.*` seeds are the repo's deterministic check commands the
   plan-build-review/revise-pr tool nodes run. Make them PRINT their diagnostics
   (a silent `test -z "$(gofmt -l .)"` leaves the fix agent blind).

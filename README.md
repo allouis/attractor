@@ -131,9 +131,12 @@ export ANTHROPIC_API_KEY=sk-ant-…
 ```
 
 That's it — `attractor run --backend acp --acp-cmd claude-agent-acp …`
-now runs real agents. To route different pipeline nodes to different
-agents/models without flags, write `~/.attractor/config.json`
-([full reference](./docs/provider-config.md)):
+runs real agents on the adapter's default model. To choose a model **per
+node**, drop `--backend` (so each node routes through the built-in
+providers) and pass `--stylesheet pipelines/models.css`. The bundled
+`anthropic` + `codex` providers mean no config file is needed; write
+`~/.attractor/config.json` only for custom providers/models (resolution
+rules: [running-pipelines.md](./docs/running-pipelines.md#models)):
 
 ```json
 {
@@ -252,7 +255,7 @@ nix develop --command go test ./...    # full suite, offline, ~20s
 **Use a different agent** — usually no Go needed. Any agent speaking the
 [Agent Client Protocol](https://agentclientprotocol.com) works as-is:
 point a node (`acp_command="my-agent"`), a graph, `--acp-cmd`, or a
-provider-config entry at its command line.
+provider entry at its command line.
 
 **Write a new codergen backend** — for agents that don't speak ACP,
 implement one interface in a subpackage of `internal/backend`:
@@ -267,7 +270,7 @@ Return the agent's text (wrapped into a success outcome) or an explicit
 `Outcome`; wrap transient errors with `backend.Transient(err)` so the
 engine's retry machinery engages. Optionally implement
 `Continue(env, prompt)` to support in-session corrections. Wire it into
-`internal/backend/router` (provider-config routing) and/or the
+`internal/backend/router` (provider routing) and/or the
 `--backend` flag in `internal/cli`. `internal/backend/claudecode` is a
 compact worked example (~250 lines); `internal/backend/fake` shows the
 test harness pattern.
@@ -292,7 +295,6 @@ after a failure, `$context.failure_reason` carries what went wrong.
 | [attractor spec](./docs/spec/attractor.md) | the upstream pipeline/engine spec (pristine) |
 | [amendments](./docs/spec/amendments/README.md) | every deliberate deviation from it |
 | [running pipelines](./docs/running-pipelines.md) | dispatch runbook: run command, vars, models, events, gotchas |
-| [provider-config](./docs/provider-config.md) | the config file + routing nodes to backends/models |
 
 ## License
 

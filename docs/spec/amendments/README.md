@@ -19,4 +19,4 @@ Everything not listed here follows `../attractor.md` unchanged.
 
 Docs that describe additions *layered on top of* the engine — not
 deviations from the spec — live in `docs/` (not here):
-`provider-config.md` and the `running-pipelines.md` runbook.
+the `running-pipelines.md` runbook.
