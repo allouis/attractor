@@ -26,10 +26,11 @@ attractor run --ui -var name=world hello.dot                   # real agent + li
 
 Pipelines are plain text: version them, diff them, render them. This is
 what a real one looks like (`attractor render` output of the shipped
-bug-fix pipeline — reproduce the bug, fix it, run the repo's checks, get
-a five-lens adversarial review, pass a human ship gate):
+implement pipeline — plan the change, human-gate the plan, implement in
+small jj commits, run the repo's checks, get a five-lens adversarial
+review, pass a human ship gate, open a draft PR):
 
-![The bug-fix pipeline](./docs/images/bug-fix-pipeline.svg)
+![The implement pipeline](./docs/images/implement-pipeline.svg)
 
 ## Relationship to the Attractor spec
 
@@ -158,9 +159,10 @@ attractor validate my-pipeline/pipeline.dot
 attractor run --backend simulation -var name=world my-pipeline/pipeline.dot
 
 # Real run with the live waterfall UI (URL printed at start):
-attractor run --ui --cwd /path/to/target-repo \
-  -var repo=owner/name -var identifier=BUG-1 -var title="…" -var url="…" \
-  pipelines/bug-fix/pipeline.dot
+attractor run --ui --cwd /path/to/target-repo --stylesheet pipelines/models.css \
+  -var brief="Fix BUG-1: …" -var base=main \
+  -var check.deps=… -var check.typecheck=… -var check.lint=… -var check.test=… \
+  pipelines/implement/pipeline.dot
 ```
 
 - `-var name=value` seeds the run's context; a graph's `vars="…"` list
@@ -193,11 +195,11 @@ The same data is served as JSON (`/pipelines/{id}`, `/events?since=N`,
 
 ### Shipped pipelines
 
-Under `pipelines/`: `bug-fix` (pictured above), `implement` (plan →
-human gate → implement → checks → review → draft PR), `review-pr`,
-`revise-pr`, `build` (spec-milestone self-development), `checks`, and
-`review-core` — the shared five-reviewer adversarial review that the
-others embed via `subgraph`.
+Under `pipelines/`: `implement` (pictured above: plan → human gate →
+implement → checks → review → draft PR), `review-pr`, `revise-pr`,
+`checks`, and two shared sub-pipelines the others embed via `subgraph` —
+`review-core` (the five-reviewer adversarial review) and `checks-core`
+(the deterministic deps/typecheck/lint/test chain).
 
 ### Many runs: the hub
 
@@ -206,7 +208,7 @@ attractor hub --bind 127.0.0.1:7690 --dir ~/.attractor/hub
 
 attractor run --announce http://127.0.0.1:7690 … pipeline.dot   # self-registers
 curl -X POST 127.0.0.1:7690/pipelines \
-  -d '{"path":"bug-fix","cwd":"/work/repo","vars":{"repo":"o/r","identifier":"X-1"}}'
+  -d '{"path":"implement","cwd":"/work/repo","vars":{"brief":"Fix X-1: …","base":"main"}}'
 ```
 
 The hub has its own UI at `/ui`: a run list (live + archived, with
@@ -272,7 +274,7 @@ test harness pattern.
 
 **Write a new pipeline** — a directory with a `pipeline.dot` (+
 `prompts/*.md` referenced as `prompt="@prompts/x.md"`). Start from
-`pipelines/bug-fix/`, and keep `attractor validate` green; the
+`pipelines/implement/`, and keep `attractor validate` green; the
 `context_refs` lint cross-checks every `$context.*` reference against
 declared vars and node outputs, so typos die before a run does.
 

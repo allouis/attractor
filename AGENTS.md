@@ -51,15 +51,21 @@ attractor run --backend simulation -var name=world path/to/pipeline.dot
 # Real agent + live waterfall UI:
 attractor run --backend acp --acp-cmd claude-agent-acp --ui \
   --cwd /path/to/target-repo --logs ~/.attractor/runs/my-run \
-  -var repo=owner/name -var identifier=X-1 -var title=... -var url=... \
+  -var brief="…the change to make…" -var base=main \
   -var "check.deps=..." -var "check.typecheck=..." \
   -var "check.lint=..." -var "check.test=..." \
-  pipelines/bug-fix/pipeline.dot
+  pipelines/implement/pipeline.dot
 ```
 
 Notes:
+- The task is one freeform `brief` (issue text, a spec milestone, or a
+  plain paragraph); `base` is the target branch the PR lands on.
+- `--backend acp` runs every codergen node on the adapter's default
+  model. For per-node model control, drop `--backend`, configure
+  providers in `~/.attractor/config.json`, and pass `--stylesheet
+  pipelines/models.css` (see docs/provider-config.md).
 - `check.*` seeds are the repo's deterministic check commands the
-  bug-fix/implement tool nodes run. Make them PRINT their diagnostics
+  implement/revise-pr tool nodes run. Make them PRINT their diagnostics
   (a silent `test -z "$(gofmt -l .)"` leaves the fix agent blind).
 - `--human approve` auto-approves gates for unattended runs; `--ui`
   answers gates from the browser; a TTY gets a console prompt.
@@ -74,7 +80,7 @@ attractor hub --bind 127.0.0.1:7690 --dir ~/.attractor/hub
 attractor run --announce http://127.0.0.1:7690 ... pipeline.dot
 # or let the hub spawn them:
 curl -X POST 127.0.0.1:7690/pipelines \
-  -d '{"path":"bug-fix","cwd":"/work/repo","vars":{"repo":"o/r","identifier":"X-1",...}}'
+  -d '{"path":"implement","cwd":"/work/repo","vars":{"brief":"…","base":"main"}}'
 ```
 
 The hub scrapes each live run's own API (`/pipelines/{id}`,
@@ -85,19 +91,25 @@ the announce and the hub authenticates with it.
 
 ## 5. Self-dev loop (dogfooding)
 
-The `build` pipeline implements the next `todo` milestone from a spec
-in this repo, gated by tests and the five-lens review:
+Dogfood attractor on itself with the `implement` pipeline: hand it a
+`brief` describing the change (a spec milestone works well), pointed at
+this repo. It plans, human-gates, implements in small jj commits, runs
+the checks + five-lens review, and opens a draft PR for you to merge.
 
 ```bash
-BASE=$(jj log -r @- --no-graph -T change_id | tr -d '[:space:]')
-./result/bin/attractor run --backend acp --acp-cmd claude-agent-acp \
-  --var spec=docs/<spec>.md --var review_base=$BASE \
-  --logs ~/.attractor/runs/<milestone> pipelines/build/pipeline.dot
+./result/bin/attractor run --backend acp --acp-cmd claude-agent-acp --ui \
+  --cwd $PWD --logs ~/.attractor/runs/<change> \
+  -var brief="Implement <milestone> from docs/<spec>.md: …" -var base=main \
+  -var "check.deps=nix develop -c true" \
+  -var "check.typecheck=nix develop -c go vet ./..." \
+  -var "check.lint=nix develop -c gofmt -l ." \
+  -var "check.test=nix develop -c go test ./... -race -count=1" \
+  pipelines/implement/pipeline.dot
 ```
 
-To debug any run: read `<logs>/events.jsonl` and the per-visit stage
-dirs (`<node>/v{N}/prompt.md`, `response.md`, `status.json`). The
-waterfall (`--ui`) shows the same data live.
+To debug any run: read `<logs>/events.jsonl` and the per-attempt stage
+dirs (`<node>@v<visit>.a<attempt>/prompt.md`, `response.md`,
+`status.json`). The waterfall (`--ui`) shows the same data live.
 
 ## 6. Repo layout
 

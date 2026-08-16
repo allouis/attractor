@@ -27,12 +27,6 @@ var shippedPipelineFiles = []string{
 	"../pipelines/implement/prompts/plan.md",
 	"../pipelines/implement/prompts/implement.md",
 	"../pipelines/implement/prompts/open-pr.md",
-	"../pipelines/build/pipeline.dot",
-	"../pipelines/build/review-record.dot",
-	"../pipelines/build/prompts/plan.md",
-	"../pipelines/build/prompts/implement.md",
-	"../pipelines/build/prompts/fix.md",
-	"../pipelines/build/prompts/record.md",
 }
 
 // bareVarRe matches a `$` that begins an identifier — a bare variable

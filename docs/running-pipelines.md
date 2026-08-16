@@ -22,8 +22,7 @@ nix build .#attractor          # wrapped binary: PATH carries claude-agent-acp, 
 ./result/bin/attractor run implement \
   --cwd /path/to/repo \
   --stylesheet pipelines/models.css \
-  -var repo=owner/name -var identifier=ENG-42 -var url=https://… \
-  -var title="Add X" -var body="…" -var branch=eng-42 -var base=main \
+  -var brief="Add X: …the change to make…" -var base=main \
   -var "check.deps=…" -var "check.typecheck=…" \
   -var "check.lint=…" -var "check.test=…"
 ```
@@ -75,13 +74,12 @@ their diagnostics to stdout/stderr — the fix agent is handed that output.
 
 | Pipeline | Required `-var` | Notes |
 |---|---|---|
-| `checks` | `repo` + `check.{deps,typecheck,lint,test}` | No agent, no gates; a failing check ends the run. |
-| `review-core` | `diff_cmd` | Standalone reviewer. Needs `anthropic` **and** `codex` providers. |
+| `checks` | `repo` + `check.{deps,typecheck,lint,test}` | No agent, no gates; a failing check ends the run. Thin wrapper over `checks-core`. |
+| `checks-core` | `check.{deps,typecheck,lint,test}` | Shared subgraph: the deps→typecheck→lint→test chain, embedded by the others. |
+| `review-core` | `diff_cmd` | Shared subgraph: the five-lens review. Needs `anthropic` **and** `codex` providers. |
 | `review-pr` | `repo,pr_number,title` | Diff-based via `gh pr diff`; no checkout. |
 | `revise-pr` | `repo,pr_number,bookmark,workspace_revision` | `workspace_revision` must be the PR bookmark. Baseline checks + review + fix loop + ship→push. |
-| `bug-fix` | `repo,identifier,url,title` + `check.*` | reproduce→fix (goal-gated) → checks → review → human ship. |
-| `implement` | `repo,identifier,url,title,body,branch,base` + `check.*` | plan (human gate) → implement → checks → review → ship → draft PR. `base` = target branch. |
-| `build` | `spec,review_base` | Self-dev/dogfood; `cwd` is pinned in the graph. |
+| `implement` | `brief,base` + `check.*` | plan (human gate) → implement → checks → review → ship → draft PR. `brief` is the freeform task; `base` = target branch. |
 
 ## Models
 
@@ -133,7 +131,7 @@ attempt named `<node>@v<visit>.a<attempt>/` holding `prompt.md`,
 
 ## Human gates
 
-`wait.human` nodes (implement's `plan_gate` + `ship`, bug-fix/revise-pr
+`wait.human` nodes (implement's `plan_gate` + `ship`, revise-pr's
 ship gates) block until answered:
 
 - `--human console` — prompt on the TTY (choice + optional note).
