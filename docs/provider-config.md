@@ -65,7 +65,7 @@ node uses comes from an external CSS-like **stylesheet**, passed at run
 time:
 
 ```
-attractor run implement --stylesheet pipelines/models.css -var …
+attractor run plan-build-review --stylesheet pipelines/models.css -var …
 ```
 
 Selectors cascade `* < shape < .class < #id`; an explicit `llm_model` on

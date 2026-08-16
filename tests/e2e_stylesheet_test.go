@@ -12,7 +12,7 @@ import (
 // external --stylesheet overlay reaches role classes AND inlined subgraph
 // nodes, while an explicit node pin (the codex lens) survives.
 func TestStylesheet_AppliesToImplementIncludingInlinedReview(t *testing.T) {
-	dir, err := filepath.Abs("../pipelines/implement")
+	dir, err := filepath.Abs("../pipelines/plan-build-review")
 	must(t, err)
 	src, err := os.ReadFile(filepath.Join(dir, "pipeline.dot"))
 	must(t, err)

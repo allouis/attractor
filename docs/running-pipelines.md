@@ -19,7 +19,7 @@ the terminal node is reached the run ends `success` or `failed`.
 
 ```bash
 nix build .#attractor          # wrapped binary: PATH carries claude-agent-acp, codex-acp, jj, graphviz
-./result/bin/attractor run implement \
+./result/bin/attractor run plan-build-review \
   --cwd /path/to/repo \
   --stylesheet pipelines/models.css \
   -var brief="Add X: …the change to make…" -var base=main \
@@ -37,7 +37,7 @@ attractor run <name-or-path> [flags]
 ```
 
 - **Name resolution.** A bare `implement` resolves to
-  `./pipelines/implement/pipeline.dot`, then `./pipelines/implement.dot`,
+  `./pipelines/plan-build-review/pipeline.dot`,
   then `~/.attractor/pipelines/…`. A path containing `/` or `.dot` is used
   verbatim.
 - **Backend rule (the #1 gotcha).** With **no** `--backend`/`--acp-cmd`,
@@ -87,7 +87,7 @@ Pipelines carry role **classes**, not models; models come from an external
 stylesheet:
 
 ```bash
-attractor run implement --stylesheet pipelines/models.css …
+attractor run plan-build-review --stylesheet pipelines/models.css …
 ```
 
 Selectors cascade `* < shape < .class < #id`; a node's explicit

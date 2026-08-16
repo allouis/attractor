@@ -14,10 +14,10 @@ import (
 	"github.com/allouis/attractor/internal/setup"
 )
 
-// implementPipelineSrc reads the shipped implement pipeline (router-spec R6).
+// implementPipelineSrc reads the shipped plan-build-review pipeline (router-spec R6).
 func implementPipelineSrc(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("../pipelines/implement/pipeline.dot")
+	b, err := os.ReadFile("../pipelines/plan-build-review/pipeline.dot")
 	must(t, err)
 	return string(b)
 }

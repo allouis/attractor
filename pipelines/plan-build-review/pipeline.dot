@@ -1,4 +1,4 @@
-// implement — build the change a brief asks for: plan (human-gated),
+// plan-build-review — build the change a brief asks for: plan (human-gated),
 // implement in small jj commits, deterministic static checks, an
 // adversarial self-review, a human ship gate, then a draft PR.
 //
@@ -9,7 +9,7 @@
 //
 // Runs standalone from the CLI against this var contract:
 //
-//   attractor run implement --stylesheet pipelines/models.css \
+//   attractor run plan-build-review --stylesheet pipelines/models.css \
 //     -var brief="…the change to make…" -var base=main \
 //     -var check.deps=… -var check.typecheck=… \
 //     -var check.lint=… -var check.test=…
@@ -36,7 +36,7 @@
 // sub-pipeline against everything since `base` — committed work plus any
 // stray working-copy changes. A PASS reaches the human ship gate; shipping
 // opens a draft PR (base = $context.base) on the repo's GitHub remote.
-digraph implement {
+digraph plan_build_review {
     // D1: transient backend failures (429/5xx, stalls, network) retry
     // with backoff instead of killing the run.
     default_max_retries = 2

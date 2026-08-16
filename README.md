@@ -26,11 +26,11 @@ attractor run --ui -var name=world hello.dot                   # real agent + li
 
 Pipelines are plain text: version them, diff them, render them. This is
 what a real one looks like (`attractor render` output of the shipped
-implement pipeline — plan the change, human-gate the plan, implement in
-small jj commits, run the repo's checks, get a five-lens adversarial
-review, pass a human ship gate, open a draft PR):
+plan-build-review pipeline — plan the change, human-gate the plan,
+implement in small jj commits, run the repo's checks, get a five-lens
+adversarial review, pass a human ship gate, open a draft PR):
 
-![The implement pipeline](./docs/images/implement-pipeline.svg)
+![The plan-build-review pipeline](./docs/images/plan-build-review-pipeline.svg)
 
 ## Relationship to the Attractor spec
 
@@ -162,7 +162,7 @@ attractor run --backend simulation -var name=world my-pipeline/pipeline.dot
 attractor run --ui --cwd /path/to/target-repo --stylesheet pipelines/models.css \
   -var brief="Fix BUG-1: …" -var base=main \
   -var check.deps=… -var check.typecheck=… -var check.lint=… -var check.test=… \
-  pipelines/implement/pipeline.dot
+  pipelines/plan-build-review/pipeline.dot
 ```
 
 - `-var name=value` seeds the run's context; a graph's `vars="…"` list
@@ -208,7 +208,7 @@ attractor hub --bind 127.0.0.1:7690 --dir ~/.attractor/hub
 
 attractor run --announce http://127.0.0.1:7690 … pipeline.dot   # self-registers
 curl -X POST 127.0.0.1:7690/pipelines \
-  -d '{"path":"implement","cwd":"/work/repo","vars":{"brief":"Fix X-1: …","base":"main"}}'
+  -d '{"path":"plan-build-review","cwd":"/work/repo","vars":{"brief":"Fix X-1: …","base":"main"}}'
 ```
 
 The hub has its own UI at `/ui`: a run list (live + archived, with
@@ -274,7 +274,7 @@ test harness pattern.
 
 **Write a new pipeline** — a directory with a `pipeline.dot` (+
 `prompts/*.md` referenced as `prompt="@prompts/x.md"`). Start from
-`pipelines/implement/`, and keep `attractor validate` green; the
+`pipelines/plan-build-review/`, and keep `attractor validate` green; the
 `context_refs` lint cross-checks every `$context.*` reference against
 declared vars and node outputs, so typos die before a run does.
 

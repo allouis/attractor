@@ -54,7 +54,7 @@ attractor run --backend acp --acp-cmd claude-agent-acp --ui \
   -var brief="…the change to make…" -var base=main \
   -var "check.deps=..." -var "check.typecheck=..." \
   -var "check.lint=..." -var "check.test=..." \
-  pipelines/implement/pipeline.dot
+  pipelines/plan-build-review/pipeline.dot
 ```
 
 Notes:
@@ -80,7 +80,7 @@ attractor hub --bind 127.0.0.1:7690 --dir ~/.attractor/hub
 attractor run --announce http://127.0.0.1:7690 ... pipeline.dot
 # or let the hub spawn them:
 curl -X POST 127.0.0.1:7690/pipelines \
-  -d '{"path":"implement","cwd":"/work/repo","vars":{"brief":"…","base":"main"}}'
+  -d '{"path":"plan-build-review","cwd":"/work/repo","vars":{"brief":"…","base":"main"}}'
 ```
 
 The hub scrapes each live run's own API (`/pipelines/{id}`,
@@ -104,7 +104,7 @@ the checks + five-lens review, and opens a draft PR for you to merge.
   -var "check.typecheck=nix develop -c go vet ./..." \
   -var "check.lint=nix develop -c gofmt -l ." \
   -var "check.test=nix develop -c go test ./... -race -count=1" \
-  pipelines/implement/pipeline.dot
+  pipelines/plan-build-review/pipeline.dot
 ```
 
 To debug any run: read `<logs>/events.jsonl` and the per-attempt stage
