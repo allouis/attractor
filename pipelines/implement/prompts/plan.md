@@ -1,15 +1,15 @@
-<issue>
-$context.title
-$context.body
-</issue>
+<brief>
+$context.brief
+</brief>
 
-Planning only — write no code, make no commits.
+Plan the change the brief above asks for. Planning only — write no code,
+make no commits.
 
 1. Build a strong understanding of the current system: read the modules
-   the issue touches, the existing patterns, and the existing test
+   the brief touches, the existing patterns, and the existing test
    coverage.
 2. Write a concise implementation plan:
-   - Scope: what the issue asks for, and explicitly what is out of scope.
+   - Scope: what the brief asks for, and explicitly what is out of scope.
    - Test seams: the boundary each new behaviour gets tested at. Prefer an
      existing seam, and the fewest possible — ideally one. The human
      approves these at the gate, so name them plainly.
@@ -42,9 +42,9 @@ pipeline. For example:
 }
 ```
 
-Outcome `fail` with a `failure_reason` if the issue is incomprehensible
+Outcome `fail` with a `failure_reason` if the brief is incomprehensible
 or the repo state blocks planning:
 
 ```json
-{ "outcome": "fail", "failure_reason": "issue body empty and title too vague to plan from" }
+{ "outcome": "fail", "failure_reason": "brief too vague to plan from — no acceptance criteria" }
 ```

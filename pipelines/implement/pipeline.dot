@@ -1,11 +1,18 @@
-// implement — build the change an Issue asks for: plan (human-gated),
+// implement — build the change a brief asks for: plan (human-gated),
 // implement in small jj commits, deterministic static checks, an
 // adversarial self-review, a human ship gate, then a draft PR.
 //
+// The task is a single freeform `brief` — the orchestrator assembles it
+// however it likes (an issue's title+body+url, a spec milestone, or a plain
+// paragraph). The pipeline is source-agnostic; it just builds what the
+// brief describes.
+//
 // Runs standalone from the CLI against this var contract:
 //
-//   attractor run implement -var repo=owner/name -var identifier=ENG-42 \
-//     -var url=… -var title=… -var branch=eng-42 -var base=main
+//   attractor run implement --stylesheet pipelines/models.css \
+//     -var brief="…the change to make…" -var base=main \
+//     -var check.deps=… -var check.typecheck=… \
+//     -var check.lint=… -var check.test=…
 //
 // The review base is deterministic: `base` is the target branch (the PR
 // base). `set_base` runs `jj new $context.base@origin` up front, so the
@@ -34,7 +41,7 @@ digraph implement {
     // with backoff instead of killing the run.
     default_max_retries = 2
     goal = ""
-    vars = "repo,identifier,url,title,body,branch,base"
+    vars = "brief,base"
     max_node_visits = 10
 
     start [shape=Mdiamond]

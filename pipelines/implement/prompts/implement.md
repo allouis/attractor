@@ -1,11 +1,9 @@
-Implement the change issue $context.identifier — "$context.title" — asks for, in $context.repo.
+Implement the change the brief below asks for. The repo is checked out in
+your working directory.
 
-The issue is at $context.url. The repo is checked out in your working
-directory. The issue body:
-
----
-$context.body
----
+<brief>
+$context.brief
+</brief>
 
 A planning stage already ran and a human approved its plan — follow it,
 including its test seams and slices; if reality forces a deviation, note
@@ -80,5 +78,5 @@ when every slice is committed and its focused test is green:
 otherwise `fail` with a `failure_reason` describing what blocked you:
 
 ```json
-{ "outcome": "fail", "failure_reason": "cannot satisfy the acceptance criteria without a schema migration the issue rules out of scope" }
+{ "outcome": "fail", "failure_reason": "cannot satisfy the acceptance criteria without a schema migration the brief rules out of scope" }
 ```
