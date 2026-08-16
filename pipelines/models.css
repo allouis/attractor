@@ -39,12 +39,10 @@
  *   .fixer { llm_model: claude-fable-5[1m] }
  */
 
+/* One review lens on a different model family, for adversarial diversity —
+ * portable across pipelines because it targets the class, not an inlined id. */
+.correctness { llm_provider: codex; llm_model: gpt-5.6-sol[high] }
+
 /* Target a single inlined node by id (highest specificity). The synth
  * merges five reviews, so it can warrant the biggest model: */
 #review_loop.synth { llm_model: claude-opus-4-8[1m] }
-
-/* The correctness lens is pinned to a non-Claude reviewer on the node
- * itself (adversarial diversity), so it survives this sheet. To move it,
- * restate it by id:
- *   #review_loop.correctness { llm_provider: codex; llm_model: gpt-5.6-sol[high] }
- */

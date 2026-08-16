@@ -32,11 +32,12 @@ digraph review_core {
     // directly — no fan_in, which would only pick a single winner.
     fan_out [shape=component]
 
-    // Models: four lenses + synth pin Opus 5 (1M) via the anthropic
-    // provider; correctness runs GPT-5.6-Sol on the codex provider so one
-    // lens reviews with a different model family entirely. Model strings
-    // are the values the ACP agents advertise in session/new.
-    correctness    [class="review, lens", llm_provider="codex", llm_model="gpt-5.6-sol[high]", output_key="review.correctness", timeout="30m", prompt="Run `$context.diff_cmd` to see the change under review. This code is broken. Find the bugs — edge cases, error paths, races. Review adversarially and list every concrete defect you can find."]
+    // Models come entirely from the stylesheet (no inline pins). The `.review`
+    // class covers all five lenses + synth; `correctness` also carries a
+    // `correctness` class so the sheet can put it on a different model family
+    // (e.g. a codex/GPT provider) for adversarial diversity — see
+    // pipelines/models.css.
+    correctness    [class="review, lens, correctness", output_key="review.correctness", timeout="30m", prompt="Run `$context.diff_cmd` to see the change under review. This code is broken. Find the bugs — edge cases, error paths, races. Review adversarially and list every concrete defect you can find."]
     design         [class="review, lens", output_key="review.design", timeout="30m", prompt="Run `$context.diff_cmd` to see the change under review. Review from a clean-code perspective; focus on the coupling and cohesion of the modules. Call out every design smell."]
     prod_safety    [class="review, lens", output_key="review.prod_safety", timeout="30m", prompt="Run `$context.diff_cmd` to see the change under review. Why should we *not* merge this to production? How does it break? Review adversarially and list every blocking risk."]
     simplification [class="review, lens", output_key="review.simplification", timeout="30m", prompt="Run `$context.diff_cmd` to see the change under review. How can we simplify this and make it less complected? List every concrete simplification."]

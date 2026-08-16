@@ -21,16 +21,15 @@ digraph checks {
 
     start [shape=Mdiamond]
 
-    deps      [type="tool", timeout="20m", tool_command="$context.check.deps"]
-    typecheck [type="tool", timeout="20m", tool_command="$context.check.typecheck"]
-    lint      [type="tool", timeout="20m", tool_command="$context.check.lint"]
-    test      [type="tool", timeout="40m", tool_command="$context.check.test"]
+    // The shared checks-core chain (deps → typecheck → lint → test). It
+    // early-exits and reports outcome=fail on the first failing check; the
+    // unconditional `gate -> done` then has no eligible edge for a failure,
+    // so the run fails with that check's output — the signal this pipeline
+    // exists to produce.
+    gate [type="subgraph", graph_ref="../checks-core/pipeline.dot"]
 
     done [shape=Msquare]
 
-    start -> deps
-    deps -> typecheck
-    typecheck -> lint
-    lint -> test
-    test -> done
+    start -> gate
+    gate -> done
 }
