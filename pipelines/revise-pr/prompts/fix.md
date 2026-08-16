@@ -29,8 +29,8 @@ Address **every** blocking finding:
   do NOT move or create bookmarks — publishing happens after the ship gate.
 - Keep to the scope of the findings — fix what was reported, don't
   gold-plate.
-- TDD where a finding is a missing/weak test or a bug: add or tighten the
-  test first, then make it pass.
+- Red/green where a finding is a bug or a missing/weak test: write the
+  failing test first, watch it fail for the right reason, then make it pass.
 - If a finding is a false positive, say why in the commit message rather
   than making a pointless change.
 - Run the project's tests and formatter before you finish.
@@ -46,5 +46,14 @@ $context.tool.output
 ---
 
 Report your outcome by writing `{stage_dir}/status.json`: `success` when
-the findings are addressed and the checks pass, otherwise `fail` with a
-`failure_reason` describing what blocked you.
+every finding is addressed and committed:
+
+```json
+{ "outcome": "success" }
+```
+
+otherwise `fail` with a `failure_reason` describing what blocked you:
+
+```json
+{ "outcome": "fail", "failure_reason": "finding #3 asks for a change that contradicts the PR's stated intent; needs a human decision" }
+```

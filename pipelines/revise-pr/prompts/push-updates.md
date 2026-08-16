@@ -25,6 +25,18 @@ Do **only** the push. Explicitly do NOT:
 - push any other bookmark or branch, or move the trunk.
 
 Report via `{stage_dir}/status.json`: outcome `success` with
-`context_updates` `{"pushed": "true"}` once the push succeeds; outcome
-`fail` with a `failure_reason` naming the exact command and error if the
-push fails.
+`context_updates` `{"pushed": "true"}` once the push succeeds:
+
+```json
+{
+  "outcome": "success",
+  "context_updates": { "pushed": "true" }
+}
+```
+
+outcome `fail` with a `failure_reason` naming the exact command and error
+if the push fails:
+
+```json
+{ "outcome": "fail", "failure_reason": "`jj git push --bookmark eng-42` rejected: non-fast-forward (remote moved)" }
+```
