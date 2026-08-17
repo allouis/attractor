@@ -82,8 +82,11 @@
           ldflags = [ "-X github.com/allouis/attractor/internal/version.Revision=${rev}" ];
           nativeBuildInputs = [ pkgs.makeWrapper ];
           postInstall = ''
+            mkdir -p $out/share/attractor
+            cp -r pipelines $out/share/attractor/pipelines
             wrapProgram $out/bin/attractor \
-              --prefix PATH : ${pkgs.lib.makeBinPath runtimeDeps}
+              --prefix PATH : ${pkgs.lib.makeBinPath runtimeDeps} \
+              --set-default ATTRACTOR_PIPELINES $out/share/attractor/pipelines
           '';
           meta = {
             description = "DOT-based pipeline runner for AI workflows";
