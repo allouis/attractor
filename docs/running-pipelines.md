@@ -60,9 +60,42 @@ attractor run <name-or-path> [flags]
 | `--acp-cmd <cmd>` | ACP agent command for `--backend acp`. |
 | `--human auto\|console\|approve` | How `wait.human` gates are answered. |
 | `--json` | Emit one JSON event per line on stdout (machine-drivable). |
-| `--ui` / `--ui-addr` | Serve the run's own read-only API + waterfall UI. |
+| `--ui` / `--ui-addr` | Serve the run's own read-only API + waterfall UI. See UI reachability. |
+| `--ui-token <tok>` | Require `Authorization: Bearer <tok>` on the loopback/public binds; mandatory for a public/LAN `--ui-addr`. |
 | `--announce <hub>` | Register the run with a hub and ship its archive on completion. |
 | `--logs <dir>` | Where run artefacts land (default under `~/.attractor/runs/<id>`). |
+
+### UI reachability
+
+With no explicit `--ui-addr`, `--ui` binds an ephemeral **loopback** port
+and, when this host has a **Tailscale** interface (an interface address in
+`100.64.0.0/10`), additionally binds that tailnet IP. Both URLs print to
+stderr. The tailnet bind is added only for `--ui`; `--announce` alone opens
+no extra port.
+
+- **No token (`--ui` alone):** loopback and tailnet are both served
+  without a bearer — a tailnet is already a private, authenticated
+  network, and a browser cannot send a bearer header.
+- **`--ui-token <tok>`:** the loopback bind (and any public/LAN bind)
+  enforces the token; the tailnet bind stays token-free. `--announce`
+  ships the token to the hub as before.
+
+The tokenless surface still guards its mutable endpoint against
+browser-borne attacks packet-auth cannot stop: a request whose `Host` is
+not an IP/localhost (DNS rebinding) or that carries a cross-origin `Origin`
+(CSRF) is refused. Use the printed IP URL, not a hostname.
+
+`--ui-addr <addr>` forces a single bind and suppresses the tailnet bind.
+Trust is decided from the address actually bound: if it is public or
+LAN-reachable (including `0.0.0.0` / `[::]`, or a `100.64/10` address that
+is **not** one of this host's detected tailnet interfaces), it **requires
+`--ui-token`** and errors at startup otherwise — previously such a bind
+started an open server.
+
+> Detection is range-based: **any** `100.64.0.0/10` interface yields an
+> open, tokenless tailnet bind. RFC 6598 is not Tailscale-exclusive
+> (carrier NAT, other overlay VPNs, some CNIs), so on such a network the
+> UI is reachable, unauthenticated, by that network's peers.
 
 ## Passing vars
 
