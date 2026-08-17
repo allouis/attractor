@@ -508,7 +508,11 @@ func (e *Engine) archiveCurrentLogs() {
 	}
 	for _, ent := range entries {
 		name := ent.Name()
-		if strings.HasPrefix(name, "_restart_") || name == "artifacts" {
+		// run.json (identity) and graph.dot (topology) are run-scoped, not
+		// per-incarnation: keep them at top level so a restarted run stays
+		// listable and viewable (attractor runs / view). Prior archives and
+		// the shared artifacts dir are likewise left in place.
+		if strings.HasPrefix(name, "_restart_") || name == "artifacts" || name == "run.json" || name == "graph.dot" {
 			continue
 		}
 		_ = os.Rename(filepath.Join(e.LogsRoot, name), filepath.Join(archive, name))
