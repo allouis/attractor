@@ -7,16 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 
-	"github.com/allouis/attractor/internal/runserver"
+	"github.com/allouis/attractor/internal/rundir"
 	"github.com/allouis/attractor/internal/runview"
 )
 
 // runSummary is one row of the `attractor runs` listing, folded from a
 // run dir's on-disk state (run.json + events.jsonl). No new bookkeeping.
 type runSummary struct {
+	// ID is the run directory name — the value `attractor view <dir>`
+	// consumes. It is NOT run.json's RunID: those can differ, so the
+	// listing keys off the directory to keep find->view working.
 	ID        string
 	Graph     string
 	Status    string // running | success | failed | unknown
@@ -24,7 +28,7 @@ type runSummary struct {
 }
 
 // listRuns folds every immediate subdirectory of root into a summary,
-// most-recent-first. It reuses the run server's tolerant readers, so a
+// most-recent-first. It reuses the tolerant run-dir readers, so a
 // half-written or malformed run dir degrades to a best-effort row
 // (status "unknown") rather than crashing the listing. A missing root
 // yields an empty listing, no error.
@@ -46,21 +50,30 @@ func listRuns(root string) []runSummary {
 	return out
 }
 
-// summarizeRun reads one run dir. A missing or unparseable run.json
-// leaves the id at the dir name, graph blank, and status "unknown"; a
-// zero started-at falls back to the dir's mtime so ordering stays useful.
+// summarizeRun reads one run dir. The id is always the directory name (so
+// it feeds `attractor view <dir>`). A run.json that is missing, malformed,
+// or unreadable — or an events.jsonl that is corrupt/unreadable — yields
+// status "unknown" rather than a misleading "running"; a zero started-at
+// falls back to the dir's mtime so ordering stays useful.
 func summarizeRun(dir, name string) runSummary {
-	m := runserver.ReadManifest(dir)
-	s := runSummary{ID: name, Graph: m.GraphName, StartedAt: m.StartedAt}
-	if m.RunID == "" {
-		// run.json missing or malformed: best-effort row.
+	s := runSummary{ID: name}
+	m, err := rundir.ReadManifest(dir)
+	if err != nil {
+		// run.json missing / malformed / unreadable: best-effort row.
 		s.Status = "unknown"
 	} else {
-		s.ID = m.RunID
-		s.Status = displayStatus(runview.Document(m, runserver.ReadEvents(dir, 0)).Status)
+		s.Graph = m.GraphName
+		s.StartedAt = m.StartedAt
+		if events, eerr := rundir.ReadEvents(dir, 0); eerr != nil {
+			// A corrupt/unreadable event log cannot be trusted to say the
+			// run is still running, so surface uncertainty as unknown.
+			s.Status = "unknown"
+		} else {
+			s.Status = displayStatus(runview.Document(m, events).Status)
+		}
 	}
 	if s.StartedAt.IsZero() {
-		if fi, err := os.Stat(dir); err == nil {
+		if fi, serr := os.Stat(dir); serr == nil {
 			s.StartedAt = fi.ModTime()
 		}
 	}
@@ -94,7 +107,9 @@ func Runs(args []string) error {
 }
 
 // printRuns formats one aligned line per run: id, graph, status,
-// started-at.
+// started-at. Fields read off disk (a run.json graph_name in particular)
+// are sanitized so a crafted value cannot inject control characters or
+// break the one-line-per-run layout.
 func printRuns(w io.Writer, runs []runSummary) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, r := range runs {
@@ -102,11 +117,22 @@ func printRuns(w io.Writer, runs []runSummary) {
 		if !r.StartedAt.IsZero() {
 			started = r.StartedAt.Format(time.RFC3339)
 		}
-		graph := r.Graph
+		graph := clean(r.Graph)
 		if graph == "" {
 			graph = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.ID, graph, r.Status, started)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", clean(r.ID), graph, r.Status, started)
 	}
 	_ = tw.Flush()
+}
+
+// clean strips control characters (newlines, tabs, terminal escapes) from
+// a field read off disk so it cannot corrupt the listing or the terminal.
+func clean(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
 }

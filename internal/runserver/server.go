@@ -8,7 +8,6 @@
 package runserver
 
 import (
-	"bufio"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/render"
+	"github.com/allouis/attractor/internal/rundir"
 	"github.com/allouis/attractor/internal/runview"
 	"github.com/allouis/attractor/internal/webui"
 )
@@ -140,50 +140,21 @@ func (s *Server) routes() *http.ServeMux {
 	return mux
 }
 
-// manifest reads run.json from the server's run dir.
-func (s *Server) manifest() engine.Manifest { return ReadManifest(s.logsRoot) }
-
-// readEvents streams the server's run dir events.jsonl (Seq > since).
-func (s *Server) readEvents(since int64) []engine.Event { return ReadEvents(s.logsRoot, since) }
-
-// ReadManifest reads run.json from a run directory. The zero Manifest
-// (with empty RunID) means the run dir is not readable yet or malformed —
-// the same tolerant read the server relies on per request, so callers
-// (e.g. the `runs` listing) share one reader instead of duplicating it.
-func ReadManifest(dir string) engine.Manifest {
-	var m engine.Manifest
-	data, err := os.ReadFile(filepath.Join(dir, "run.json"))
-	if err != nil {
-		return m
-	}
-	_ = json.Unmarshal(data, &m)
+// manifest reads run.json from the server's run dir. The server is
+// tolerant per request: a missing or malformed file yields the zero
+// Manifest (empty RunID = not readable yet), self-healing on the next
+// poll, so the read error is deliberately discarded here.
+func (s *Server) manifest() engine.Manifest {
+	m, _ := rundir.ReadManifest(s.logsRoot)
 	return m
 }
 
-// ReadEvents streams a run directory's events.jsonl, returning events
-// with Seq > since. A scanner error (an over-long line, torn read)
-// truncates the tail; the events read so far are still returned — the
-// poll model self-heals on the next request once the writer finishes the
-// line. Malformed lines are skipped.
-func ReadEvents(dir string, since int64) []engine.Event {
-	f, err := os.Open(filepath.Join(dir, "events.jsonl"))
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	var out []engine.Event
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		var ev engine.Event
-		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
-			continue
-		}
-		if ev.Seq > since {
-			out = append(out, ev)
-		}
-	}
-	return out
+// readEvents streams the server's run dir events.jsonl (Seq > since). A
+// torn or unreadable log yields the events read so far; the poll model
+// self-heals on the next request, so the read error is discarded.
+func (s *Server) readEvents(since int64) []engine.Event {
+	ev, _ := rundir.ReadEvents(s.logsRoot, since)
+	return ev
 }
 
 // checkID verifies the {id} path segment names this run. Empty RunID in
