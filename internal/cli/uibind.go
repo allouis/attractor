@@ -144,8 +144,8 @@ func boundIP(ln net.Listener) net.IP {
 // trust for every bind; addTailnet (the --ui flag) gates only the
 // automatic second bind, so an announce-only run classifies an explicit
 // tailnet --ui-addr the same as a --ui run while opening no extra port.
-func serveRunUI(srv *runserver.Server, uiAddr string, explicitSet, addTailnet bool, tailnet []net.IP, warn io.Writer) ([]net.Listener, net.Listener, error) {
-	return bindAndServe("run", srv, uiBinds(uiAddr, explicitSet, tailnet, addTailnet), tailnet, warn)
+func serveRunUI(prefix string, srv *runserver.Server, uiAddr string, explicitSet, addTailnet bool, tailnet []net.IP, warn io.Writer) ([]net.Listener, net.Listener, error) {
+	return bindAndServe(prefix, srv, uiBinds(uiAddr, explicitSet, tailnet, addTailnet), tailnet, warn)
 }
 
 // bindAndServe listens on every planned bind and serves srv on each. Trust
@@ -176,7 +176,7 @@ func bindAndServe(prefix string, srv *runserver.Server, binds []uiBind, tailnet 
 			closeListeners(append(lns, ln))
 			return nil, nil, fmt.Errorf("%s: --ui-addr %s is publicly reachable; set --ui-token", prefix, ln.Addr())
 		}
-		go serveListener(ln, srv.Handler(!b.bare()), warn)
+		go serveListener(prefix, ln, srv.Handler(!b.bare()), warn)
 		fmt.Fprintf(warn, "%s: serving UI at http://%s/ui (API: /pipelines)\n", prefix, ln.Addr())
 		lns = append(lns, ln)
 		if b.primary() {
@@ -191,7 +191,7 @@ func bindAndServe(prefix string, srv *runserver.Server, binds []uiBind, tailnet 
 // hold connections or headers open to exhaust fds/goroutines. WriteTimeout
 // is deliberately left unset: the run's event stream is long-lived. A
 // benign close on shutdown is net.ErrClosed and stays quiet.
-func serveListener(ln net.Listener, h http.Handler, warn io.Writer) {
+func serveListener(prefix string, ln net.Listener, h http.Handler, warn io.Writer) {
 	server := &http.Server{
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -199,7 +199,7 @@ func serveListener(ln net.Listener, h http.Handler, warn io.Writer) {
 		IdleTimeout:       120 * time.Second,
 	}
 	if err := server.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintf(warn, "run: --ui serve on %s stopped: %v\n", ln.Addr(), err)
+		fmt.Fprintf(warn, "%s: --ui serve on %s stopped: %v\n", prefix, ln.Addr(), err)
 	}
 }
 

@@ -197,7 +197,7 @@ func Run(args []string) error {
 		// trusted the same regardless of --ui. Only the automatic second
 		// bind is gated on --ui, so an announce-only run opens no extra port.
 		tailnet := hostTailnetIPs()
-		lns, primary, err := serveRunUI(srv, *uiAddr, flagSet(fs, "ui-addr"), *ui, tailnet, os.Stderr)
+		lns, primary, err := serveRunUI("run", srv, *uiAddr, flagSet(fs, "ui-addr"), *ui, tailnet, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -230,21 +230,18 @@ func Run(args []string) error {
 func nodeMeta(g *graph.Graph) map[string]runview.NodeMeta {
 	meta := make(map[string]runview.NodeMeta, len(g.Nodes))
 	for id, n := range g.Nodes {
-		typ := n.Attrs["type"]
-		if typ == "" {
+		// Resolve the handler type the same way the graph does — an
+		// explicit `type=` wins, else the canonical shape→type map (which
+		// covers tool/parallel.fan_in, unlike a hand-rolled switch). The
+		// id-based fallback names a start/exit node that carries neither an
+		// explicit type nor a distinguishing shape.
+		typ := n.Type()
+		if n.Attrs["type"] == "" {
 			switch {
-			case n.Shape() == "Mdiamond" || id == "start" || id == "Start":
+			case id == "start" || id == "Start":
 				typ = "start"
-			case n.Shape() == "Msquare" || id == "exit" || id == "end":
+			case id == "exit" || id == "end":
 				typ = "exit"
-			case n.Shape() == "hexagon":
-				typ = "wait.human"
-			case n.Shape() == "diamond":
-				typ = "conditional"
-			case n.Shape() == "component":
-				typ = "parallel"
-			default:
-				typ = "codergen"
 			}
 		}
 		class := "flow"
@@ -308,7 +305,7 @@ func runEngineFull(prepared *engine.PreparedGraph, cb backend.CodergenBackend, i
 	if logsRoot != "" {
 		// Persist the executed topology so the run server's /graph
 		// endpoint (and the archive) can render it. Best-effort.
-		_ = os.WriteFile(filepath.Join(logsRoot, "graph.dot"), render.MinimalDOT(prepared.Graph), 0o644)
+		_ = os.WriteFile(filepath.Join(logsRoot, "graph.dot"), render.TopologyDOT(prepared.Graph), 0o644)
 	}
 	eng := engine.New(cfg)
 	done := make(chan struct{})

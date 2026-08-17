@@ -95,8 +95,12 @@ func Runs(args []string) error {
 	fs := flag.NewFlagSet("runs", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	root := fs.String("root", "", "runs root to list (default: $XDG_DATA_HOME/attractor/runs or ~/.attractor/runs)")
-	if _, err := parseFlexible(fs, args); err != nil {
+	positional, err := parseFlexible(fs, args)
+	if err != nil {
 		return err
+	}
+	if len(positional) > 0 {
+		return fmt.Errorf("runs: unexpected arguments: %v (did you mean --root %s?)", positional, positional[0])
 	}
 	dir := *root
 	if dir == "" {

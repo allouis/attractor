@@ -312,7 +312,7 @@ func TestServeRunUIWiring(t *testing.T) {
 	t.Run("dual bind when tailnet present", func(t *testing.T) {
 		srv := runserver.New(t.TempDir())
 		var buf bytes.Buffer
-		lns, primary, err := serveRunUI(srv, "127.0.0.1:0", false, true, fakeTailnet, &buf)
+		lns, primary, err := serveRunUI("run", srv, "127.0.0.1:0", false, true, fakeTailnet, &buf)
 		if err != nil {
 			t.Fatalf("serveRunUI: %v", err)
 		}
@@ -330,7 +330,7 @@ func TestServeRunUIWiring(t *testing.T) {
 	t.Run("announce-only suppresses tailnet bind", func(t *testing.T) {
 		srv := runserver.New(t.TempDir())
 		var buf bytes.Buffer
-		lns, primary, err := serveRunUI(srv, "127.0.0.1:0", false, false, fakeTailnet, &buf)
+		lns, primary, err := serveRunUI("run", srv, "127.0.0.1:0", false, false, fakeTailnet, &buf)
 		if err != nil {
 			t.Fatalf("serveRunUI: %v", err)
 		}

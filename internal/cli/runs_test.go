@@ -123,6 +123,12 @@ func TestListRuns(t *testing.T) {
 	}
 }
 
+func TestRunsRejectsStrayArgs(t *testing.T) {
+	if err := Runs([]string{"some-run-id"}); err == nil {
+		t.Fatal("Runs with a stray positional arg: want error (it takes --root, not a path)")
+	}
+}
+
 func TestListRunsMissingRoot(t *testing.T) {
 	got := listRuns(filepath.Join(t.TempDir(), "does-not-exist"))
 	if len(got) != 0 {

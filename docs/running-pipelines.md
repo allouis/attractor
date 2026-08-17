@@ -191,7 +191,12 @@ directories are self-contained, so two commands bring a finished run back:
   same `--ui-addr` / `--ui-token` rules and reachability — see [UI
   reachability](#ui-reachability)). It reads the dir instead of driving an
   engine, so gates can't be answered (the `/answer` endpoint returns 409).
-  URLs print to stderr; it blocks until interrupted.
+  URLs print to stderr; it blocks until interrupted. The UI, API, spans,
+  events, artifacts, and per-node metadata (type, model, thread, lane
+  grouping) match the live run — the persisted `graph.dot` carries the
+  node metadata the UI needs. Like `run --ui`, `view` binds the tailnet IP
+  token-free by default so a tailnet peer can browse it; pass
+  `--no-tailnet` to keep a sensitive run on loopback only.
 
 Typical flow: `attractor runs` to find the run id, then `attractor view
 ~/.attractor/runs/<run-id>` to browse it.
