@@ -59,17 +59,22 @@ review, and opens a draft PR:
 ./result/bin/attractor run --ui --cwd $PWD --stylesheet pipelines/models.css \
   --logs ~/.attractor/runs/<change> \
   -var brief="Implement <milestone> from docs/<spec>.md: …" -var base=main \
-  -var "check.deps=nix develop -c true" \
-  -var "check.typecheck=nix develop -c go vet ./..." \
-  -var "check.lint=nix develop -c gofmt -l ." \
-  -var "check.test=nix develop -c go test ./... -race -count=1" \
+  -var 'check.deps=nix develop -c true' \
+  -var 'check.typecheck=nix build .#attractor' \
+  -var 'check.lint=out=$(nix develop -c gofmt -l .); [ -z "$out" ] || { echo "gofmt drift:"; echo "$out"; exit 1; }' \
+  -var 'check.test=nix develop -c go test ./...' \
   pipelines/plan-build-review/pipeline.dot
 ```
 
-`check.*` commands must PRINT their diagnostics (a silent
-`test -z "$(gofmt -l .)"` leaves the fix agent blind). Debug any run via
-`<logs>/events.jsonl` and the span dirs `<node>@v<visit>.a<attempt>/`; `--ui`
-shows the same live.
+These four checks decompose this repo's CI (`nix flake check` = gofmt-drift +
+`nix build .#attractor` + `go test ./...`) — match CI exactly or the pipeline
+ships a change CI then rejects. `check.*` commands must fail non-zero AND
+PRINT their diagnostics: `gofmt -l .` alone exits 0 on drift (gate never
+fails), and a silent `test -z "$(gofmt -l .)"` fails but prints nothing
+(fix agent blind) — the wrapper above does both. Full dispatch command sheet:
+[.claude/skills/dispatching-pipelines/SKILL.md](.claude/skills/dispatching-pipelines/SKILL.md).
+Debug any run via `<logs>/events.jsonl` and the span dirs
+`<node>@v<visit>.a<attempt>/`; `--ui` shows the same live.
 
 ## The hub (optional)
 
