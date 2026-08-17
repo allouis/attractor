@@ -88,3 +88,50 @@ func TestResolvePipelinePathCwdBeatsEnv(t *testing.T) {
 		t.Errorf("resolve = %q, want cwd copy %q", got, want)
 	}
 }
+
+func TestResolveStylesheetPathEnvFallback(t *testing.T) {
+	bundle := t.TempDir()
+	writeFile(t, filepath.Join(bundle, "models.css"))
+	t.Setenv("ATTRACTOR_PIPELINES", bundle)
+	chdir(t, t.TempDir())
+
+	got, err := resolveStylesheetPath("models.css")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if want := filepath.Join(bundle, "models.css"); got != want {
+		t.Errorf("resolve = %q, want %q", got, want)
+	}
+}
+
+func TestResolveStylesheetPathCwdWins(t *testing.T) {
+	bundle := t.TempDir()
+	writeFile(t, filepath.Join(bundle, "models.css"))
+	cwd := t.TempDir()
+	writeFile(t, filepath.Join(cwd, "models.css"))
+	t.Setenv("ATTRACTOR_PIPELINES", bundle)
+	chdir(t, cwd)
+
+	got, err := resolveStylesheetPath("models.css")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got != "models.css" {
+		t.Errorf("resolve = %q, want cwd-relative %q", got, "models.css")
+	}
+}
+
+func TestResolveStylesheetPathMissing(t *testing.T) {
+	bundle := t.TempDir()
+	t.Setenv("ATTRACTOR_PIPELINES", bundle)
+	chdir(t, t.TempDir())
+
+	if _, err := resolveStylesheetPath("nope.css"); err == nil {
+		t.Fatal("expected error when stylesheet is in neither cwd nor bundle")
+	}
+
+	t.Setenv("ATTRACTOR_PIPELINES", "")
+	if _, err := resolveStylesheetPath("nope.css"); err == nil {
+		t.Fatal("expected error when stylesheet missing and env unset")
+	}
+}
