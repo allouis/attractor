@@ -29,6 +29,8 @@ func main() {
 		exit(cli.HubCmd(os.Args[2:]))
 	case "runs":
 		exit(cli.Runs(os.Args[2:]))
+	case "view":
+		exit(cli.View(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "attractor: unknown command %q\n\n", os.Args[1])
 		printUsage()
@@ -56,6 +58,7 @@ commands:
   render <file>    render a pipeline graph as SVG
   hub              run the pull-based run directory: announce + scrape + archive
   runs             list local runs from the runs root (id, graph, status, started)
+  view <dir>       re-serve a run directory read-only over the run --ui binding
   version          print version
   help             print this message`)
 }

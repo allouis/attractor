@@ -145,7 +145,7 @@ func boundIP(ln net.Listener) net.IP {
 // automatic second bind, so an announce-only run classifies an explicit
 // tailnet --ui-addr the same as a --ui run while opening no extra port.
 func serveRunUI(srv *runserver.Server, uiAddr string, explicitSet, addTailnet bool, tailnet []net.IP, warn io.Writer) ([]net.Listener, net.Listener, error) {
-	return bindAndServe(srv, uiBinds(uiAddr, explicitSet, tailnet, addTailnet), tailnet, warn)
+	return bindAndServe("run", srv, uiBinds(uiAddr, explicitSet, tailnet, addTailnet), tailnet, warn)
 }
 
 // bindAndServe listens on every planned bind and serves srv on each. Trust
@@ -159,7 +159,7 @@ func serveRunUI(srv *runserver.Server, uiAddr string, explicitSet, addTailnet bo
 // fatal; a secondary tailnet bind failure is warned and dropped, so the
 // run keeps serving loopback exactly as with no tailnet present. Returns
 // the live listeners and the primary listener (hub announce target).
-func bindAndServe(srv *runserver.Server, binds []uiBind, tailnet []net.IP, warn io.Writer) ([]net.Listener, net.Listener, error) {
+func bindAndServe(prefix string, srv *runserver.Server, binds []uiBind, tailnet []net.IP, warn io.Writer) ([]net.Listener, net.Listener, error) {
 	var lns []net.Listener
 	var primary net.Listener
 	for _, b := range binds {
@@ -167,17 +167,17 @@ func bindAndServe(srv *runserver.Server, binds []uiBind, tailnet []net.IP, warn 
 		if err != nil {
 			if b.primary() {
 				closeListeners(lns)
-				return nil, nil, fmt.Errorf("run: --ui listen: %w", err)
+				return nil, nil, fmt.Errorf("%s: --ui listen: %w", prefix, err)
 			}
-			fmt.Fprintf(warn, "run: --ui tailnet bind %s failed (skipped): %v\n", b.Addr, err)
+			fmt.Fprintf(warn, "%s: --ui tailnet bind %s failed (skipped): %v\n", prefix, b.Addr, err)
 			continue
 		}
 		if ipIsPublic(boundIP(ln), tailnet) && srv.Token == "" {
 			closeListeners(append(lns, ln))
-			return nil, nil, fmt.Errorf("run: --ui-addr %s is publicly reachable; set --ui-token", ln.Addr())
+			return nil, nil, fmt.Errorf("%s: --ui-addr %s is publicly reachable; set --ui-token", prefix, ln.Addr())
 		}
 		go serveListener(ln, srv.Handler(!b.bare()), warn)
-		fmt.Fprintf(warn, "run: serving UI at http://%s/ui (API: /pipelines)\n", ln.Addr())
+		fmt.Fprintf(warn, "%s: serving UI at http://%s/ui (API: /pipelines)\n", prefix, ln.Addr())
 		lns = append(lns, ln)
 		if b.primary() {
 			primary = ln

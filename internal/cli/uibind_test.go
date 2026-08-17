@@ -172,7 +172,7 @@ func TestBindAndServeDualBindAndPrimary(t *testing.T) {
 	srv := runserver.New(t.TempDir())
 	var buf bytes.Buffer
 	binds := []uiBind{{Addr: "127.0.0.1:0", Kind: bindLoopback}, {Addr: "127.0.0.1:0", Kind: bindTailnet}}
-	lns, primary, err := bindAndServe(srv, binds, nil, &buf)
+	lns, primary, err := bindAndServe("run", srv, binds, nil, &buf)
 	if err != nil {
 		t.Fatalf("bindAndServe: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestBindAndServeLoopbackEnforcesToken(t *testing.T) {
 	srv := runserver.New(t.TempDir())
 	srv.Token = "secret"
 	var buf bytes.Buffer
-	lns, _, err := bindAndServe(srv, []uiBind{{Addr: "127.0.0.1:0", Kind: bindLoopback}}, nil, &buf)
+	lns, _, err := bindAndServe("run", srv, []uiBind{{Addr: "127.0.0.1:0", Kind: bindLoopback}}, nil, &buf)
 	if err != nil {
 		t.Fatalf("bindAndServe: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestBindAndServeTailnetBindStaysBare(t *testing.T) {
 	srv := runserver.New(t.TempDir())
 	srv.Token = "secret"
 	var buf bytes.Buffer
-	lns, _, err := bindAndServe(srv, []uiBind{{Addr: "127.0.0.1:0", Kind: bindTailnet}}, nil, &buf)
+	lns, _, err := bindAndServe("run", srv, []uiBind{{Addr: "127.0.0.1:0", Kind: bindTailnet}}, nil, &buf)
 	if err != nil {
 		t.Fatalf("bindAndServe: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestBindAndServeTailnetBindStaysBare(t *testing.T) {
 func TestBindAndServeZeroConfigLoopbackTokenless(t *testing.T) {
 	srv := runserver.New(t.TempDir())
 	var buf bytes.Buffer
-	lns, _, err := bindAndServe(srv, []uiBind{{Addr: "127.0.0.1:0", Kind: bindLoopback}}, nil, &buf)
+	lns, _, err := bindAndServe("run", srv, []uiBind{{Addr: "127.0.0.1:0", Kind: bindLoopback}}, nil, &buf)
 	if err != nil {
 		t.Fatalf("bindAndServe: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestBindAndServePublicBindNeedsToken(t *testing.T) {
 	srv := runserver.New(t.TempDir())
 	var buf bytes.Buffer
 	binds := []uiBind{{Addr: "0.0.0.0:0", Kind: bindExplicit}}
-	lns, _, err := bindAndServe(srv, binds, nil, &buf)
+	lns, _, err := bindAndServe("run", srv, binds, nil, &buf)
 	if err == nil {
 		closeAllLns(lns)
 		t.Fatalf("public bind without token: no error; want one")
@@ -256,7 +256,7 @@ func TestBindAndServePublicBindWithToken(t *testing.T) {
 	srv := runserver.New(t.TempDir())
 	srv.Token = "secret"
 	var buf bytes.Buffer
-	lns, _, err := bindAndServe(srv, []uiBind{{Addr: "0.0.0.0:0", Kind: bindExplicit}}, nil, &buf)
+	lns, _, err := bindAndServe("run", srv, []uiBind{{Addr: "0.0.0.0:0", Kind: bindExplicit}}, nil, &buf)
 	if err != nil {
 		t.Fatalf("bindAndServe: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestBindAndServeSecondaryBindFailureNonFatal(t *testing.T) {
 	var buf bytes.Buffer
 	busy := occupiedAddr(t)
 	binds := []uiBind{{Addr: "127.0.0.1:0", Kind: bindLoopback}, {Addr: busy, Kind: bindTailnet}}
-	lns, primary, err := bindAndServe(srv, binds, nil, &buf)
+	lns, primary, err := bindAndServe("run", srv, binds, nil, &buf)
 	if err != nil {
 		t.Fatalf("bindAndServe returned error for a droppable bind: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestBindAndServePrimaryBindFailureFatal(t *testing.T) {
 	srv := runserver.New(t.TempDir())
 	var buf bytes.Buffer
 	busy := occupiedAddr(t)
-	lns, _, err := bindAndServe(srv, []uiBind{{Addr: busy, Kind: bindLoopback}}, nil, &buf)
+	lns, _, err := bindAndServe("run", srv, []uiBind{{Addr: busy, Kind: bindLoopback}}, nil, &buf)
 	if err == nil {
 		closeAllLns(lns)
 		t.Fatalf("primary bind failure must be fatal")
