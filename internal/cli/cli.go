@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,9 +107,9 @@ func Run(args []string) error {
 	baseDir := fs.String("base-dir", "", "directory @file prompts and child pipelines resolve against (default: the .dot file's directory)")
 	cwd := fs.String("cwd", "", "working tree the pipeline operates in (graph-level cwd default)")
 	ui := fs.Bool("ui", false, "serve this run's own read-only API + waterfall UI while it runs (local-first single-run server)")
-	uiAddr := fs.String("ui-addr", "127.0.0.1:0", "listen address for --ui (default: an ephemeral localhost port)")
+	uiAddr := fs.String("ui-addr", "127.0.0.1:0", "listen address for --ui; overrides the default auto behaviour (ephemeral loopback port, plus the Tailscale tailnet IP when present). A public/LAN --ui-addr requires --ui-token")
 	announce := fs.String("announce", "", "hub base URL: register this run's --ui URL at start and ship the run-dir archive on completion (implies --ui)")
-	uiToken := fs.String("ui-token", "", "require `Authorization: Bearer <token>` on the run's own server (unlocks non-loopback --ui-addr); shared with the hub via announce")
+	uiToken := fs.String("ui-token", "", "require `Authorization: Bearer <token>` on the loopback and any public/LAN bind (mandatory for a public/LAN --ui-addr); the tailnet bind stays token-free. Shared with the hub via announce")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
 	var stylesheets stringListFlag
@@ -191,17 +189,23 @@ func Run(args []string) error {
 			srv.Answer = gate.Answer
 			iv = gate
 		}
-		ln, err := net.Listen("tcp", *uiAddr)
+		// Classify trust against the host's tailnet whenever the UI server
+		// starts (--ui or --announce), so an explicit tailnet --ui-addr is
+		// trusted the same regardless of --ui. Only the automatic second
+		// bind is gated on --ui, so an announce-only run opens no extra port.
+		tailnet := hostTailnetIPs()
+		lns, primary, err := serveRunUI(srv, *uiAddr, flagSet(fs, "ui-addr"), *ui, tailnet, os.Stderr)
 		if err != nil {
-			return fmt.Errorf("run: --ui listen: %w", err)
+			return err
 		}
-		defer ln.Close()
-		go func() { _ = http.Serve(ln, srv.Handler(true)) }()
-		fmt.Fprintf(os.Stderr, "run: serving UI at http://%s/ui (API: /pipelines)\n", ln.Addr())
+		for _, ln := range lns {
+			defer ln.Close()
+		}
 		if *announce != "" {
 			// One-shot registration (not telemetry): the hub pulls
-			// everything else from this run's own API.
-			if err := hub.Announce(*announce, localRunID, "http://"+ln.Addr().String(), *uiToken); err != nil {
+			// everything else from this run's own API. Announce the
+			// primary (loopback) URL + token, as today.
+			if err := hub.Announce(*announce, localRunID, "http://"+primary.Addr().String(), *uiToken); err != nil {
 				fmt.Fprintf(os.Stderr, "run: hub announce failed (continuing standalone): %v\n", err)
 			}
 		}

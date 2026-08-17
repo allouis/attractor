@@ -1,6 +1,15 @@
 package cli
 
-import "net"
+import (
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/allouis/attractor/internal/runserver"
+)
 
 // tailnetCGNAT is the 100.64.0.0/10 CGNAT range (RFC 6598) Tailscale
 // assigns tailnet addresses from. It is only a detection filter for the
@@ -110,4 +119,92 @@ func ipIsPublic(ip net.IP, tailnet []net.IP) bool {
 		}
 	}
 	return true
+}
+
+// hostTailnetIPs returns the host's tailnet interface addresses, or nil if
+// the interfaces cannot be read (best-effort; a host with no tailnet
+// interface plans loopback only).
+func hostTailnetIPs() []net.IP {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	return tailnetIfaceIPs(addrs)
+}
+
+// boundIP returns the concrete IP a listener actually bound to.
+func boundIP(ln net.Listener) net.IP {
+	if a, ok := ln.Addr().(*net.TCPAddr); ok {
+		return a.IP
+	}
+	return nil
+}
+
+// serveRunUI plans the --ui listeners and serves them. tailnet classifies
+// trust for every bind; addTailnet (the --ui flag) gates only the
+// automatic second bind, so an announce-only run classifies an explicit
+// tailnet --ui-addr the same as a --ui run while opening no extra port.
+func serveRunUI(srv *runserver.Server, uiAddr string, explicitSet, addTailnet bool, tailnet []net.IP, warn io.Writer) ([]net.Listener, net.Listener, error) {
+	return bindAndServe(srv, uiBinds(uiAddr, explicitSet, tailnet, addTailnet), tailnet, warn)
+}
+
+// bindAndServe listens on every planned bind and serves srv on each. Trust
+// is decided from the address net.Listen actually bound (classified
+// against the detected tailnet set): a public bind (not loopback/tailnet)
+// with no token is a fatal startup error. The token wraps a bind only when
+// the bind is not bare (loopback / explicit) and srv.Token is set — the
+// bare tailnet bind is never token-wrapped, since a remote browser cannot
+// send a bearer header. srv.Token is the single token carrier. The primary
+// bind (loopback, or the explicit --ui-addr) is mandatory: its failure is
+// fatal; a secondary tailnet bind failure is warned and dropped, so the
+// run keeps serving loopback exactly as with no tailnet present. Returns
+// the live listeners and the primary listener (hub announce target).
+func bindAndServe(srv *runserver.Server, binds []uiBind, tailnet []net.IP, warn io.Writer) ([]net.Listener, net.Listener, error) {
+	var lns []net.Listener
+	var primary net.Listener
+	for _, b := range binds {
+		ln, err := net.Listen("tcp", b.Addr)
+		if err != nil {
+			if b.primary() {
+				closeListeners(lns)
+				return nil, nil, fmt.Errorf("run: --ui listen: %w", err)
+			}
+			fmt.Fprintf(warn, "run: --ui tailnet bind %s failed (skipped): %v\n", b.Addr, err)
+			continue
+		}
+		if ipIsPublic(boundIP(ln), tailnet) && srv.Token == "" {
+			closeListeners(append(lns, ln))
+			return nil, nil, fmt.Errorf("run: --ui-addr %s is publicly reachable; set --ui-token", ln.Addr())
+		}
+		go serveListener(ln, srv.Handler(!b.bare()), warn)
+		fmt.Fprintf(warn, "run: serving UI at http://%s/ui (API: /pipelines)\n", ln.Addr())
+		lns = append(lns, ln)
+		if b.primary() {
+			primary = ln
+		}
+	}
+	return lns, primary, nil
+}
+
+// serveListener serves h on ln through an http.Server with header/read/
+// idle timeouts, so a reachable (now possibly remote/tailnet) peer cannot
+// hold connections or headers open to exhaust fds/goroutines. WriteTimeout
+// is deliberately left unset: the run's event stream is long-lived. A
+// benign close on shutdown is net.ErrClosed and stays quiet.
+func serveListener(ln net.Listener, h http.Handler, warn io.Writer) {
+	server := &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := server.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+		fmt.Fprintf(warn, "run: --ui serve on %s stopped: %v\n", ln.Addr(), err)
+	}
+}
+
+func closeListeners(lns []net.Listener) {
+	for _, ln := range lns {
+		_ = ln.Close()
+	}
 }
