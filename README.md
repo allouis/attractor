@@ -176,6 +176,10 @@ attractor run --ui --cwd /path/to/target-repo --stylesheet pipelines/models.css 
 - Bare pipeline names resolve under `./pipelines/` then
   `~/.attractor/pipelines/`.
 
+For the full flag list, per-pipeline var contracts, the `--json` event
+schema, and dispatch gotchas, see the runbook:
+[docs/running-pipelines.md](./docs/running-pipelines.md).
+
 The `--ui` waterfall shows one lane per node with live spans (parallel
 branches run side by side), tool-call tick marks, token counts, and
 click-through to every stage's actual prompt, response, and status.
