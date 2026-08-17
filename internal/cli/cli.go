@@ -564,6 +564,11 @@ func (v *varFlags) Set(raw string) error {
 //  2. ./pipelines/<name>.dot
 //  3. ~/.attractor/pipelines/<name>/pipeline.dot
 //  4. ~/.attractor/pipelines/<name>.dot
+//  5. $ATTRACTOR_PIPELINES/<name>/pipeline.dot   (the shipped bundle)
+//  6. $ATTRACTOR_PIPELINES/<name>.dot
+//
+// The bundle candidates (5, 6) come last so cwd and ~/.attractor still
+// win; they are skipped entirely when ATTRACTOR_PIPELINES is unset.
 //
 // Paths with a separator or .dot extension are returned verbatim
 // (relative paths resolved against the current working directory).
@@ -588,6 +593,12 @@ func resolvePipelinePath(arg string) (string, error) {
 		candidates = append(candidates,
 			filepath.Join(home, ".attractor", "pipelines", arg, "pipeline.dot"),
 			filepath.Join(home, ".attractor", "pipelines", arg+".dot"),
+		)
+	}
+	if bundle := os.Getenv("ATTRACTOR_PIPELINES"); bundle != "" {
+		candidates = append(candidates,
+			filepath.Join(bundle, arg, "pipeline.dot"),
+			filepath.Join(bundle, arg+".dot"),
 		)
 	}
 	for _, c := range candidates {
