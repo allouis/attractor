@@ -512,7 +512,11 @@ func (s *stringListFlag) Set(raw string) error {
 func readStylesheets(paths []string) (string, error) {
 	var b strings.Builder
 	for _, p := range paths {
-		data, err := os.ReadFile(p)
+		resolved, err := resolveStylesheetPath(p)
+		if err != nil {
+			return "", err
+		}
+		data, err := os.ReadFile(resolved)
 		if err != nil {
 			return "", fmt.Errorf("stylesheet %q: %w", p, err)
 		}
@@ -520,6 +524,26 @@ func readStylesheets(paths []string) (string, error) {
 		b.WriteByte('\n')
 	}
 	return b.String(), nil
+}
+
+// resolveStylesheetPath resolves a --stylesheet argument. It prefers the
+// path relative to the current working directory; if that file does not
+// exist and ATTRACTOR_PIPELINES is set, it falls back to
+// $ATTRACTOR_PIPELINES/<path> (where the shipped models.css lives). The
+// fallback is skipped for absolute paths, which would join to nonsense.
+func resolveStylesheetPath(path string) (string, error) {
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	bundle := os.Getenv("ATTRACTOR_PIPELINES")
+	if bundle != "" && !filepath.IsAbs(path) {
+		candidate := filepath.Join(bundle, path)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+		return "", fmt.Errorf("stylesheet %q not found (tried cwd and %s)", path, candidate)
+	}
+	return "", fmt.Errorf("stylesheet %q not found", path)
 }
 
 type varFlags map[string]string
