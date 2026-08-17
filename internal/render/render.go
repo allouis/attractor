@@ -101,9 +101,10 @@ func graphvizSafe(src []byte) []byte {
 }
 
 // MinimalDOT re-emits a built graph as minimal graphviz-clean DOT:
-// nodes with shape + label, labelled edges, Attractor-only attributes
-// dropped. Used for rendering and as the run's persisted graph.dot
-// (the executed, transform-applied topology).
+// styled header, nodes with shape + label (quoted ids), labelled edges,
+// Attractor-only attributes dropped. This is the rendering form, fed to
+// graphviz; it is NOT re-parseable by the Attractor dot parser (the
+// graphviz styling header and quoted ids are outside its subset).
 func MinimalDOT(g *graph.Graph) []byte {
 	var b strings.Builder
 	writeGraphHeader(&b, false)
@@ -120,6 +121,48 @@ func MinimalDOT(g *graph.Graph) []byte {
 	}
 	b.WriteString("}\n")
 	return []byte(b.String())
+}
+
+// TopologyDOT is the run's persisted graph.dot: Attractor-dialect DOT the
+// Attractor dot parser round-trips (bare node ids, no graphviz styling
+// header) so `attractor view` can rebuild the graph — and from it the
+// per-node metadata — identical to the live run. Node role round-trips
+// through shape (displayShape is the inverse of graph.TypeFromShape); the
+// codergen routing attributes (llm_model, thread_id) that shape cannot
+// carry are emitted explicitly. render.SVG re-cleans this through
+// MinimalDOT, so /graph still renders styled.
+func TopologyDOT(g *graph.Graph) []byte {
+	var b strings.Builder
+	b.WriteString("digraph pipeline {\n")
+	for _, id := range g.NodeOrder {
+		n := g.Nodes[id]
+		fmt.Fprintf(&b, "  %s [shape=%q", id, displayShape(n))
+		// An explicit type= wins over shape in graph.Node.Type(), so shape
+		// alone cannot round-trip a codergen subtype (codergen.acp, …) — every
+		// codergen* maps to shape=box. Persist the explicit type verbatim so
+		// the re-served view reconstructs it; a shape-only node carries no
+		// type= and round-trips through shape, keeping view meta == live meta.
+		writeAttr(&b, "type", n.Attrs["type"])
+		writeAttr(&b, "llm_model", n.Attrs["llm_model"])
+		writeAttr(&b, "thread_id", n.Attrs["thread_id"])
+		b.WriteString("];\n")
+	}
+	for _, e := range g.Edges {
+		if label := edgeLabel(e); label != "" {
+			fmt.Fprintf(&b, "  %s -> %s [label=%q];\n", e.From, e.To, label)
+		} else {
+			fmt.Fprintf(&b, "  %s -> %s;\n", e.From, e.To)
+		}
+	}
+	b.WriteString("}\n")
+	return []byte(b.String())
+}
+
+// writeAttr appends a `, key="val"` attribute when val is non-empty.
+func writeAttr(b *strings.Builder, key, val string) {
+	if val != "" {
+		fmt.Fprintf(b, ", %s=%q", key, val)
+	}
 }
 
 // edgeLabel is the edge's label or, failing that, its condition.
