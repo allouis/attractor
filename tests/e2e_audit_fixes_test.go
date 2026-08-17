@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/allouis/attractor/internal/backend"
@@ -33,10 +34,14 @@ func TestParallel_BranchesGetDistinctStageDirs(t *testing.T) {
 		b -> synth
 		synth -> done
 	}`
+	var mu sync.Mutex
 	stages := map[string]string{}
 	be := backend.Func(func(env engine.HandlerEnv, _ string) (backend.Result, error) {
 		if env.Stage != nil {
+			// Parallel branches run concurrently, so guard the shared map.
+			mu.Lock()
 			stages[env.Node.ID] = env.Stage.Root()
+			mu.Unlock()
 		}
 		// Each branch self-reports a DISTINCT verdict via the contract.
 		if env.Node.ID == "a" || env.Node.ID == "b" {
