@@ -140,11 +140,19 @@ func (s *Server) routes() *http.ServeMux {
 	return mux
 }
 
-// manifest reads run.json. The zero Manifest (with empty RunID) means
-// the run dir is not readable yet.
-func (s *Server) manifest() engine.Manifest {
+// manifest reads run.json from the server's run dir.
+func (s *Server) manifest() engine.Manifest { return ReadManifest(s.logsRoot) }
+
+// readEvents streams the server's run dir events.jsonl (Seq > since).
+func (s *Server) readEvents(since int64) []engine.Event { return ReadEvents(s.logsRoot, since) }
+
+// ReadManifest reads run.json from a run directory. The zero Manifest
+// (with empty RunID) means the run dir is not readable yet or malformed —
+// the same tolerant read the server relies on per request, so callers
+// (e.g. the `runs` listing) share one reader instead of duplicating it.
+func ReadManifest(dir string) engine.Manifest {
 	var m engine.Manifest
-	data, err := os.ReadFile(filepath.Join(s.logsRoot, "run.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "run.json"))
 	if err != nil {
 		return m
 	}
@@ -152,12 +160,13 @@ func (s *Server) manifest() engine.Manifest {
 	return m
 }
 
-// readEvents streams events.jsonl, returning events with Seq > since.
-// A scanner error (an over-long line, torn read) truncates the tail; the
-// events read so far are still returned — the poll model self-heals on
-// the next request once the writer finishes the line.
-func (s *Server) readEvents(since int64) []engine.Event {
-	f, err := os.Open(filepath.Join(s.logsRoot, "events.jsonl"))
+// ReadEvents streams a run directory's events.jsonl, returning events
+// with Seq > since. A scanner error (an over-long line, torn read)
+// truncates the tail; the events read so far are still returned — the
+// poll model self-heals on the next request once the writer finishes the
+// line. Malformed lines are skipped.
+func ReadEvents(dir string, since int64) []engine.Event {
+	f, err := os.Open(filepath.Join(dir, "events.jsonl"))
 	if err != nil {
 		return nil
 	}
