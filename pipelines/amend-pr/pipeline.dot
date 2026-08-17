@@ -1,0 +1,97 @@
+// amend-pr — run the full plan → build → review cycle on an EXISTING PR,
+// driven by reviewer feedback, and push the result back to the SAME PR
+// (updating it in place). It is plan-build-review's cycle with the two ends
+// swapped: no fresh base (work lands on the checked-out PR branch), and it
+// pushes the existing bookmark instead of opening a new PR.
+//
+// The workspace MUST be materialized at the PR branch (its commits are the
+// working copy's ancestors) — the launcher seeds workspace_revision to the
+// PR bookmark, or run it with `--cwd` on a `gh pr checkout` of the branch.
+// workspace_revision is declared so a dispatch that forgets it is rejected
+// up front rather than silently amending the host's @.
+//
+//   attractor run amend-pr --stylesheet pipelines/models.css \
+//     -var repo=owner/name -var pr_number=42 -var bookmark=eng-42 \
+//     -var workspace_revision=eng-42 \
+//     -var brief="<the reviewer feedback, + any original issue context>" \
+//     -var check.deps=… -var check.typecheck=… \
+//     -var check.lint=… -var check.test=…
+//
+// The task is a freeform `brief`: the PR feedback the amendments must
+// address (fold in the original issue too if useful). `plan` reads it plus
+// the current PR and plans the amendments (human-gated); `implement` makes
+// them in small jj commits; checks-core + the five-lens review-core gate;
+// a human ship gate; then `push_updates` updates the PR in place.
+//
+// Reuse: the responders and push prompt are shared verbatim from
+// plan-build-review / revise-pr via @../; only plan/implement carry
+// amend-specific framing. Same role classes, so pipelines/models.css
+// covers it.
+digraph amend_pr {
+    // D1: transient backend failures (429/5xx, stalls, network) retry
+    // with backoff instead of killing the run.
+    default_max_retries = 2
+    goal = ""
+    vars = "repo,pr_number,bookmark,workspace_revision,brief"
+    max_node_visits = 10
+
+    start [shape=Mdiamond]
+
+    // Plan the amendments (own prompt: the change already exists on this
+    // branch). revise_plan is plan-build-review's revise responder, reused.
+    plan [class="plan", thread_id="plan", fidelity="full", timeout="30m",
+          prompt="@prompts/plan.md", outputs="plan_markdown"]
+    revise_plan [class="plan, revise", thread_id="plan", fidelity="full",
+                 timeout="30m",
+                 prompt="@../plan-build-review/prompts/revise-plan.md",
+                 outputs="plan_markdown"]
+
+    plan_gate [shape=hexagon, label="Do these amendments make sense?"]
+
+    // Own prompt (amend framing). Failure responders reused from
+    // plan-build-review — both share implement's thread.
+    implement [class="build, coder", thread_id="build", fidelity="full",
+               timeout="120m", prompt="@prompts/implement.md"]
+    fix_checks [class="build, fixer", thread_id="build", fidelity="full",
+                timeout="60m",
+                prompt="@../plan-build-review/prompts/fix-checks.md"]
+    respond_to_review [class="build, responder", thread_id="build",
+                       fidelity="full", timeout="60m",
+                       prompt="@../plan-build-review/prompts/respond-review.md"]
+
+    // Post-implement gate: the shared checks-core; failure routes to
+    // fix_checks (the failing check's output rides $context.tool.output).
+    checks [type="subgraph", graph_ref="../checks-core/pipeline.dot"]
+
+    // Review the WHOLE amended PR (trunk()..@) — pre-existing PR code and
+    // the new amendments are all in scope; unpushed work stays visible on
+    // re-review (`gh pr diff` would only show the pushed state).
+    review_loop [type="subgraph", graph_ref="../review-core/pipeline.dot",
+                 var.diff_cmd="jj diff --from 'trunk()' --to @"]
+
+    ship [shape=hexagon, label="Push these amendments to the PR? (checks + review passed)"]
+
+    // Publish: push the existing bookmark, updating the PR in place. Reused
+    // from revise-pr — same "push, do not open a PR" behaviour.
+    push_updates [class="publish", thread_id="publish", fidelity="full",
+                  timeout="15m",
+                  prompt="@../revise-pr/prompts/push-updates.md"]
+
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> plan_gate
+    plan_gate   -> implement   [label="[A] Approve plan"]
+    plan_gate   -> revise_plan [label="[R] Revise plan"]
+    revise_plan -> plan_gate
+    implement         -> checks
+    fix_checks        -> checks
+    respond_to_review -> checks
+    checks -> review_loop        [condition="outcome=success"]
+    checks -> fix_checks         [condition="outcome=fail", label="Fix checks"]
+    review_loop -> ship              [condition="outcome=success"]
+    review_loop -> respond_to_review [condition="outcome=fail", label="Address findings"]
+    ship -> push_updates      [label="[P] Push amendments"]
+    ship -> respond_to_review [label="[C] Request changes"]
+    push_updates -> done
+}
