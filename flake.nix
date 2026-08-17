@@ -144,6 +144,10 @@
             src = ./.;
             vendorHash = null;
             doCheck = true;
+            # Tests shell out to real tools: `dot` (the /graph SVG endpoint)
+            # and `jj`. Put them on PATH in the check sandbox, matching the
+            # dev shell, so `nix flake check` mirrors a local `go test`.
+            nativeBuildInputs = [ pkgs.graphviz pkgs.jujutsu ];
             checkPhase = ''
               runHook preCheck
               export HOME=$TMPDIR
