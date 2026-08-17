@@ -49,6 +49,7 @@ func must(t *testing.T, err error) {
 func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest("GET", path, nil)
+	req.Host = "127.0.0.1" // an allowed Host for the tokenless browser guard
 	rr := httptest.NewRecorder()
 	s.Handler(true).ServeHTTP(rr, req)
 	return rr
@@ -120,6 +121,14 @@ func TestServer_Artifacts(t *testing.T) {
 	// Traversal out of the run dir must not escape.
 	if rr := get(t, s, "/pipelines/r1/artifacts/../../../etc/passwd"); rr.Code == 200 {
 		t.Fatal("path traversal escaped the run dir")
+	}
+	// Artifacts are served inert so an agent-controlled .html cannot run as
+	// active content under the UI origin (and POST /answer same-origin).
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("artifact X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := rr.Header().Get("Content-Security-Policy"); got != "sandbox" {
+		t.Fatalf("artifact Content-Security-Policy = %q, want sandbox", got)
 	}
 }
 

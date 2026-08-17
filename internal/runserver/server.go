@@ -10,7 +10,9 @@ package runserver
 import (
 	"bufio"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -54,7 +56,10 @@ func New(logsRoot string) *Server {
 func (s *Server) Handler(requireToken bool) http.Handler {
 	mux := s.routes()
 	if !requireToken || s.Token == "" {
-		return mux
+		// Tokenless surface: a bearer cannot authenticate a browser, so
+		// guard the mutable/read endpoints against the browser-borne
+		// attacks Tailscale/loopback packet auth cannot stop.
+		return guardBrowser(mux)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+s.Token {
@@ -63,6 +68,52 @@ func (s *Server) Handler(requireToken bool) http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// guardBrowser protects a tokenless surface from browser-borne attacks
+// that packet-level authentication (Tailscale, loopback) does not stop:
+//   - DNS rebinding: it rejects a Host header that is not an IP literal or
+//     localhost, since rebinding relies on an attacker hostname that
+//     resolves to our address.
+//   - CSRF: it rejects any request carrying a cross-origin Origin,
+//     including the "simple" text/plain POST a page can make to the mutable
+//     /answer endpoint without a preflight.
+//
+// Same-origin requests from the run's own UI (Origin == Host) and
+// non-browser clients (no Origin) pass. The UI is advertised by IP, so a
+// legitimate browser always sends an IP Host.
+func guardBrowser(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !hostAllowed(r.Host) {
+			http.Error(w, "forbidden host", http.StatusForbidden)
+			return
+		}
+		if o := r.Header.Get("Origin"); o != "" && !originMatchesHost(o, r.Host) {
+			http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// hostAllowed accepts only a Host that is an IP literal or localhost — a
+// hostname that could be attacker-controlled (DNS rebinding) is rejected.
+func hostAllowed(host string) bool {
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	return hostname == "localhost" || net.ParseIP(hostname) != nil
+}
+
+// originMatchesHost reports whether an Origin header is same-origin with
+// the request Host (both are host[:port]).
+func originMatchesHost(origin, host string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return u.Host == host
 }
 
 // routes builds the full route mux with no auth wrapping.
@@ -272,6 +323,14 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Serve artifacts inert: an agent- or project-controlled artifact
+	// (e.g. a .html response) must not execute as active content under the
+	// UI origin, or it could POST /answer with a same-origin request the
+	// browser guard would permit. nosniff stops content-type sniffing;
+	// CSP sandbox strips scripts and same-origin, so any embedded request
+	// carries a null Origin the guard rejects.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
 	// Span-dir layout (A4): paths are derived forward from span
 	// identity — no fallbacks needed.
 	http.ServeFile(w, r, filepath.Join(s.logsRoot, filepath.FromSlash(rel)))
