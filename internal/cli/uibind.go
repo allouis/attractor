@@ -1,0 +1,113 @@
+package cli
+
+import "net"
+
+// tailnetCGNAT is the 100.64.0.0/10 CGNAT range (RFC 6598) Tailscale
+// assigns tailnet addresses from. It is only a detection filter for the
+// interface scan (tailnetIfaceIPs); trust for a bind comes from the
+// address being one of the host's own detected tailnet interface IPs, not
+// from range membership alone. CGNAT is not Tailscale-exclusive — carrier
+// NAT, other overlay VPNs (ZeroTier/Nebula), and some CNIs use it too — so
+// any 100.64/10 interface yields an open, tokenless tailnet bind.
+var tailnetCGNAT = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+
+// bindKind is the role of a planned listener; it determines whether the
+// bind is mandatory (announce target, fatal on failure) and whether it is
+// served token-free. Modelling the role as one enum avoids the illegal
+// states a bag of independent bools would admit.
+type bindKind int
+
+const (
+	bindLoopback bindKind = iota // ephemeral loopback (auto)
+	bindTailnet                  // ephemeral Tailscale tailnet IP (auto)
+	bindExplicit                 // the user's --ui-addr
+)
+
+// uiBind is one planned listener.
+type uiBind struct {
+	Addr string
+	Kind bindKind
+}
+
+// primary reports whether the bind is mandatory: the announce target, and
+// fatal if it fails to listen. Loopback and explicit binds are primary; a
+// secondary tailnet bind is best-effort.
+func (b uiBind) primary() bool { return b.Kind != bindTailnet }
+
+// bare reports whether the bind is served without token auth regardless of
+// --ui-token. Only the tailnet bind is bare: it is private but a remote
+// browser over the tailnet cannot send a bearer header. Loopback and
+// explicit binds honour a token when one is set.
+func (b uiBind) bare() bool { return b.Kind == bindTailnet }
+
+// uiBinds plans the listeners for --ui. An explicit --ui-addr forces a
+// single bind to exactly that address (its trust decided later from the
+// address net.Listen actually binds). Otherwise it plans an ephemeral
+// loopback bind and, when addTailnet is set and a tailnet IP was detected,
+// one ephemeral bind on the first. addTailnet is separate from the tailnet
+// set so the set can be computed for trust classification (an explicit
+// tailnet --ui-addr) while the automatic second bind is suppressed — e.g.
+// an announce-only run, which adds no extra port.
+func uiBinds(explicitAddr string, explicitSet bool, tailnet []net.IP, addTailnet bool) []uiBind {
+	if explicitSet {
+		return []uiBind{{Addr: explicitAddr, Kind: bindExplicit}}
+	}
+	binds := []uiBind{{Addr: "127.0.0.1:0", Kind: bindLoopback}}
+	if addTailnet && len(tailnet) > 0 {
+		binds = append(binds, uiBind{Addr: net.JoinHostPort(tailnet[0].String(), "0"), Kind: bindTailnet})
+	}
+	return binds
+}
+
+// tailnetIfaceIPs returns the host's interface addresses (as reported by
+// net.InterfaceAddrs) that fall in the tailnet CGNAT range, in interface
+// order. This scan of local interfaces IS the tailnet-detection method:
+// range membership on a real host interface, per the brief.
+func tailnetIfaceIPs(addrs []net.Addr) []net.IP {
+	var out []net.IP
+	for _, a := range addrs {
+		var ip net.IP
+		switch v := a.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if isTailnetIP(ip) {
+			out = append(out, ip.To4())
+		}
+	}
+	return out
+}
+
+// isTailnetIP reports whether ip is an IPv4 address in the tailnet CGNAT
+// range.
+func isTailnetIP(ip net.IP) bool {
+	ip4 := ip.To4()
+	return ip4 != nil && tailnetCGNAT.Contains(ip4)
+}
+
+// ipIsPublic reports whether a bound address is reachable beyond the
+// private, authenticated boundaries that need no --ui-token: loopback, and
+// the host's detected tailnet interface IPs (tailnet). A CGNAT address is
+// private ONLY when it is in that detected set — proving interface origin,
+// the same check the auto path uses — so an explicit --ui-addr in the
+// range that is not a detected tailnet interface (or a nonlocal bind) is
+// public and needs a token. Callers pass the address net.Listen actually
+// bound (ln.Addr), so trust derives from the bound address, never a
+// pre-bind lookup that could drift. A nil IP is treated as public: fail
+// closed.
+func ipIsPublic(ip net.IP, tailnet []net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() {
+		return false
+	}
+	for _, t := range tailnet {
+		if t.Equal(ip) {
+			return false
+		}
+	}
+	return true
+}
