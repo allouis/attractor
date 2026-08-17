@@ -5,9 +5,11 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -527,23 +529,34 @@ func readStylesheets(paths []string) (string, error) {
 }
 
 // resolveStylesheetPath resolves a --stylesheet argument. It prefers the
-// path relative to the current working directory; if that file does not
-// exist and ATTRACTOR_PIPELINES is set, it falls back to
-// $ATTRACTOR_PIPELINES/<path> (where the shipped models.css lives). The
-// fallback is skipped for absolute paths, which would join to nonsense.
+// path relative to the current working directory; if that file is absent
+// and ATTRACTOR_PIPELINES is set, it falls back to the shipped bundle
+// (where models.css lives). Only genuine absence (fs.ErrNotExist)
+// triggers the fallback — a permission error or other I/O failure is
+// returned as-is, so callers can errors.Is it, matching the prior
+// behaviour when ATTRACTOR_PIPELINES is unset.
+//
+// The bundle root already IS .../share/attractor/pipelines, so the
+// documented `--stylesheet pipelines/models.css` would double-join; a
+// leading `pipelines/` is stripped to key off the file within the
+// bundle. The fallback is skipped for absolute paths, which would join
+// to nonsense.
 func resolveStylesheetPath(path string) (string, error) {
-	if _, err := os.Stat(path); err == nil {
+	_, err := os.Stat(path)
+	if err == nil {
 		return path, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("stylesheet %q: %w", path, err)
 	}
 	bundle := os.Getenv("ATTRACTOR_PIPELINES")
 	if bundle != "" && !filepath.IsAbs(path) {
-		candidate := filepath.Join(bundle, path)
-		if _, err := os.Stat(candidate); err == nil {
+		candidate := filepath.Join(bundle, strings.TrimPrefix(path, "pipelines/"))
+		if _, cerr := os.Stat(candidate); cerr == nil {
 			return candidate, nil
 		}
-		return "", fmt.Errorf("stylesheet %q not found (tried cwd and %s)", path, candidate)
 	}
-	return "", fmt.Errorf("stylesheet %q not found", path)
+	return "", fmt.Errorf("stylesheet %q not found: %w", path, err)
 }
 
 type varFlags map[string]string
