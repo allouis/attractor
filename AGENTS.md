@@ -47,6 +47,9 @@ routes through the built-in providers (real agents) and per-node models come
 from `--stylesheet`. Passing `--backend acp|claude|simulation` is a run-wide
 override that ignores routing (every node on one model). Full flag / var /
 event reference: [docs/running-pipelines.md](docs/running-pipelines.md).
+Dispatch command sheet (per-pipeline var contracts, gates, remote viewing):
+[.claude/skills/dispatching-pipelines/SKILL.md](.claude/skills/dispatching-pipelines/SKILL.md)
+(a Claude Code agent picks it up automatically).
 
 Dogfood attractor on itself — hand `plan-build-review` a brief, pointed at
 this repo. It plans, human-gates, implements, runs the checks + five-lens
