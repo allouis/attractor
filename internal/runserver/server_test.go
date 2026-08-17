@@ -50,7 +50,7 @@ func get(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest("GET", path, nil)
 	rr := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rr, req)
+	s.Handler(true).ServeHTTP(rr, req)
 	return rr
 }
 

@@ -44,8 +44,29 @@ func New(logsRoot string) *Server {
 	return &Server{logsRoot: logsRoot}
 }
 
-// Handler returns the HTTP handler with the full route surface.
-func (s *Server) Handler() http.Handler {
+// Handler returns the full route surface. When requireToken is set and a
+// Token is configured, every request must carry `Authorization: Bearer
+// <Token>`. When it is not — a bind private by construction (loopback,
+// tailnet) where a browser cannot send a bearer header — the surface is
+// served without token auth. Passing the requirement in (rather than
+// inferring it from Token) keeps the caller the single owner of which
+// binds are authenticated.
+func (s *Server) Handler(requireToken bool) http.Handler {
+	mux := s.routes()
+	if !requireToken || s.Token == "" {
+		return mux
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+s.Token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// routes builds the full route mux with no auth wrapping.
+func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /pipelines", s.list)
 	mux.HandleFunc("GET /pipelines/{id}", s.doc)
@@ -65,16 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui", http.StatusFound)
 	})
-	if s.Token == "" {
-		return mux
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+s.Token {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		mux.ServeHTTP(w, r)
-	})
+	return mux
 }
 
 // manifest reads run.json. The zero Manifest (with empty RunID) means

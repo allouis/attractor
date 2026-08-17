@@ -24,7 +24,7 @@ func startRun(t *testing.T, status string) (string, string) {
 	dir := t.TempDir()
 	writeRunDir(t, dir, "r1", status)
 	rs := runserver.New(dir)
-	ts := httptest.NewServer(rs.Handler())
+	ts := httptest.NewServer(rs.Handler(true))
 	t.Cleanup(ts.Close)
 	return ts.URL, "r1"
 }

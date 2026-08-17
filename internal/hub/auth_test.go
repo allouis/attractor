@@ -15,7 +15,7 @@ func TestHub_ScrapesTokenProtectedRun(t *testing.T) {
 	writeRunDir(t, dir, "r1", "running")
 	rs := runserver.New(dir)
 	rs.Token = "s3cret"
-	ts := httptest.NewServer(rs.Handler())
+	ts := httptest.NewServer(rs.Handler(true))
 	t.Cleanup(ts.Close)
 
 	// Bare request → 401.

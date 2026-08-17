@@ -196,7 +196,7 @@ func Run(args []string) error {
 			return fmt.Errorf("run: --ui listen: %w", err)
 		}
 		defer ln.Close()
-		go func() { _ = http.Serve(ln, srv.Handler()) }()
+		go func() { _ = http.Serve(ln, srv.Handler(true)) }()
 		fmt.Fprintf(os.Stderr, "run: serving UI at http://%s/ui (API: /pipelines)\n", ln.Addr())
 		if *announce != "" {
 			// One-shot registration (not telemetry): the hub pulls
