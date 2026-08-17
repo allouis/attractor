@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -118,6 +121,46 @@ func TestResolveStylesheetPathCwdWins(t *testing.T) {
 	}
 	if got != "models.css" {
 		t.Errorf("resolve = %q, want cwd-relative %q", got, "models.css")
+	}
+}
+
+// The docs/README all use `--stylesheet pipelines/models.css`; the
+// bundle root already ends in /pipelines, so the leading segment must be
+// stripped to avoid a .../pipelines/pipelines/models.css double-join.
+func TestResolveStylesheetPathBundlePrefix(t *testing.T) {
+	bundle := t.TempDir()
+	writeFile(t, filepath.Join(bundle, "models.css"))
+	t.Setenv("ATTRACTOR_PIPELINES", bundle)
+	chdir(t, t.TempDir())
+
+	got, err := resolveStylesheetPath("pipelines/models.css")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if want := filepath.Join(bundle, "models.css"); got != want {
+		t.Errorf("resolve = %q, want %q", got, want)
+	}
+}
+
+// A non-absence stat error (here ENOTDIR: a path component is a file)
+// must be returned as-is, not remapped to a synthetic "not found", so
+// the fallback stays reserved for genuine absence and callers keep
+// errors.Is.
+func TestResolveStylesheetPathPreservesNonAbsenceError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "file"))
+	t.Setenv("ATTRACTOR_PIPELINES", "")
+	chdir(t, dir)
+
+	_, err := resolveStylesheetPath("file/nope.css")
+	if err == nil {
+		t.Fatal("expected error stat-ing through a file component")
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("ENOTDIR misreported as absence: %v", err)
+	}
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Errorf("underlying error not preserved, got %v", err)
 	}
 }
 
