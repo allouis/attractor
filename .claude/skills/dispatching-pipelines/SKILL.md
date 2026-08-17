@@ -85,9 +85,15 @@ at the file that broke.
 
 - **Seed `check.*` from the repo's own CI workflow commands**, verbatim.
   Never a hand-picked path subset.
-- Commands must **PRINT their diagnostics** to stdout/stderr — the fix agent
-  is handed that output. A silent `test -z "$(gofmt -l .)"` leaves it blind;
-  use `gofmt -l .` so the offending paths show.
+- Each command must **exit non-zero on a problem AND print diagnostics** to
+  stdout/stderr — the fix agent is handed that output. Watch the two traps:
+  `gofmt -l .` alone **exits 0** even with drift (it only lists paths), so
+  the gate never fails; a silent `test -z "$(gofmt -l .)"` fails but prints
+  nothing, leaving the agent blind. Use a wrapper that does both:
+
+  ```bash
+  out=$(gofmt -l .); [ -z "$out" ] || { echo "gofmt drift:"; echo "$out"; exit 1; }
+  ```
 
 ## Human gates
 
@@ -136,14 +142,20 @@ Typical: `attractor runs` to find the id, then `attractor view
 
 ## Worked example — dogfood plan-build-review on this repo
 
+This repo's CI is one command — `nix flake check` — which runs three gates:
+a gofmt-drift check (exits 1 on drift), `nix build .#attractor`, and `go test
+./...` (no `go vet`, no `-race`). The pipeline needs four named checks, so
+decompose CI across the slots to **match it exactly** (deps is a no-op — nix
+supplies deps hermetically):
+
 ```bash
 ./result/bin/attractor run --ui --cwd $PWD --stylesheet pipelines/models.css \
   --logs ~/.attractor/runs/<change> \
   -var brief="Implement <milestone> from docs/<spec>.md: …" -var base=main \
-  -var "check.deps=nix develop -c true" \
-  -var "check.typecheck=nix develop -c go vet ./..." \
-  -var "check.lint=nix develop -c gofmt -l ." \
-  -var "check.test=nix develop -c go test ./... -race -count=1" \
+  -var 'check.deps=nix develop -c true' \
+  -var 'check.typecheck=nix build .#attractor' \
+  -var 'check.lint=out=$(nix develop -c gofmt -l .); [ -z "$out" ] || { echo "gofmt drift:"; echo "$out"; exit 1; }' \
+  -var 'check.test=nix develop -c go test ./...' \
   plan-build-review
 ```
 
