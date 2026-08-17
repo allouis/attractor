@@ -147,9 +147,13 @@ func Run(args []string) error {
 		return err
 	}
 	g := prepared.Graph
+	// Mint the run id once and name the default run dir after it, so the
+	// directory `attractor runs`/`view` operate on matches the RunID the
+	// engine stamps in run.json (and the hub announces/archives under).
+	localRunID := engine.NewRunID()
 	logsRoot := *logs
 	if logsRoot == "" {
-		logsRoot = filepath.Join(defaultLogsRoot(), engine.NewRunID())
+		logsRoot = filepath.Join(defaultLogsRoot(), localRunID)
 	}
 	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
 		return err
@@ -177,7 +181,6 @@ func Run(args []string) error {
 	}
 
 	iv := resolveInterviewer(*humanFlag)
-	localRunID := engine.NewRunID()
 	if *ui || *announce != "" {
 		srv := runserver.New(logsRoot)
 		srv.Meta = nodeMeta(g)
