@@ -177,6 +177,25 @@ attempt named `<node>@v<visit>.a<attempt>/` holding `prompt.md`,
 `response.md`, `status.json` (engine-resolved outcome),
 `agent-status.json` (the agent's own report), and `tool_calls/`.
 
+## Revisiting finished runs
+
+The `--ui` server is in-process — it dies when `attractor run` exits. Run
+directories are self-contained, so two commands bring a finished run back:
+
+- `attractor runs [--root <dir>]` — list local runs from the runs root
+  (`$XDG_DATA_HOME/attractor/runs` or `~/.attractor/runs`), one line each:
+  run id, graph name, status (`running` / `success` / `failed`, or
+  `unknown` for a half-written dir), and start time. Most-recent first.
+- `attractor view <dir>` — re-serve a run directory read-only over the
+  **same** loopback + tailnet binding as `run --ui` (same UI, same API,
+  same `--ui-addr` / `--ui-token` rules and reachability — see [UI
+  reachability](#ui-reachability)). It reads the dir instead of driving an
+  engine, so gates can't be answered (the `/answer` endpoint returns 409).
+  URLs print to stderr; it blocks until interrupted.
+
+Typical flow: `attractor runs` to find the run id, then `attractor view
+~/.attractor/runs/<run-id>` to browse it.
+
 ## Human gates
 
 `wait.human` nodes (plan-build-review's `plan_gate` + `ship`, revise-pr's
