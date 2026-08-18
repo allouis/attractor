@@ -11,4 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
+        with:
+          # Fetch the llm-agents ACP adapters (codex-acp is a large Rust
+          # workspace) from numtide's daily-built cache instead of compiling
+          # them, which otherwise exhausts the runner disk.
+          extra_nix_config: |
+            extra-substituters = https://cache.numtide.com
+            extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
       - run: nix flake check --print-build-logs
