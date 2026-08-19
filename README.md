@@ -112,13 +112,38 @@ hub only pulls, a hub outage can never lose run data.
 
 ### Install
 
+**Nix (recommended)** — one command, no clone. The binary bundles everything
+an agent run needs on its PATH: `graphviz`, `jj`, and the ACP agent adapters
+(`claude-agent-acp`, `codex-acp`). Needs [nix](https://nixos.org) with flakes.
+
 ```bash
-nix build .#attractor     # → ./result/bin/attractor
+nix profile install github:allouis/attractor
+# or run without installing:
+nix run github:allouis/attractor -- run --help
 ```
 
-Needs [nix](https://nixos.org) with flakes. The built binary bundles
-everything agent runs need on its PATH: `graphviz`, `jj`, and the ACP
-agent adapters (`claude-agent-acp`, `codex-acp`).
+**Prebuilt binary** — download the build for your OS/arch from the
+[releases page](https://github.com/allouis/attractor/releases) and put it on
+your PATH. The bare binary bundles no tools, so install what a run needs:
+`graphviz` and `jj` (`brew install graphviz jujutsu`), and either an ACP
+adapter or — if you already have **Claude Code** — nothing extra: run with
+`--backend claude` to drive your existing `claude` CLI:
+
+```bash
+attractor run --backend claude …
+```
+
+Per-node model routing (e.g. the `codex` review lens) needs the ACP adapters on
+PATH, which only the Nix build bundles — so Nix is smoother if you want the
+review pipelines' cross-model setup out of the box.
+
+**From source** — clone and build with Nix (also gets you the `pipelines/` and
+`examples/` to edit):
+
+```bash
+git clone https://github.com/allouis/attractor && cd attractor
+nix build .#attractor     # → ./result/bin/attractor
+```
 
 ### Auth (one-time)
 
