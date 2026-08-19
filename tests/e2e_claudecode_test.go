@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/allouis/attractor/internal/backend/claudecode"
 	"github.com/allouis/attractor/internal/dot"
@@ -139,14 +138,4 @@ func boolStr(b bool) string {
 		return "true"
 	}
 	return "false"
-}
-
-func waitFor(cond func() bool) bool {
-	for i := 0; i < 100; i++ {
-		if cond() {
-			return true
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return false
 }

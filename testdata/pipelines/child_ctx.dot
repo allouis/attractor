@@ -1,9 +1,0 @@
-// Child pipeline that reads a parent context key it does NOT declare in
-// vars=, exercising full-context seeding by the manager loop (R3, C6).
-digraph child_ctx {
-    goal = "child reading undeclared context"
-    start     [shape=Mdiamond]
-    childwork [shape=box, prompt="id=$context.pr_number"]
-    done      [shape=Msquare]
-    start -> childwork -> done
-}

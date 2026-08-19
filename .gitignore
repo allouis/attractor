@@ -1,16 +1,27 @@
+# Nix / build outputs
 /result
 /result-*
+
+# Editor / OS
 *.swp
 .DS_Store
+
+# Local run + tool state
 .playwright-mcp/
 .attractor-runs/
-status.json
 attractor-ui
-result
-ui-runs-dark.png
+
+# Language build artifacts
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Screenshots — ignored by default, but committed doc images are source
 *.png
-# …but committed README/doc screenshots are source:
 !docs/images/*.png
 
-# scratch review-summary written by dogfood record/review nodes; not source
+# Scratch files written by dogfood record/review nodes; not source
+status.json
 response.md

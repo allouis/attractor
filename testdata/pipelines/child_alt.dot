@@ -1,8 +1,0 @@
-// Alternate child pipeline for the node-attr manager-loop tests.
-digraph child_alt {
-    goal = "Hello from alt child"
-    start [shape=Mdiamond]
-    alt   [shape=box, prompt="alt work"]
-    done  [shape=Msquare]
-    start -> alt -> done
-}

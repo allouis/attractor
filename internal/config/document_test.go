@@ -24,15 +24,14 @@ func TestLoadDocumentMissingReturnsDefault(t *testing.T) {
 }
 
 // TestLoadDocumentParsesJSON: the provider registry round-trips through
-// the JSON schema; unknown keys from richer historical configs (linear,
-// repos, vm_images) are ignored rather than erroring.
+// the JSON schema, and unknown keys (from older or future config files)
+// are ignored rather than erroring.
 func TestLoadDocumentParsesJSON(t *testing.T) {
 	home := t.TempDir()
 	writeConfigJSON(t, home, `{
 	  "default_provider": "anthropic",
 	  "providers": {"anthropic": {"backend": "acp", "command": "claude-agent-acp", "model_env": "ANTHROPIC_MODEL"}},
-	  "linear": {"api_key": "lin_abc"},
-	  "repos": {"TryGhost/Ghost": {"path": "/home/agent/Ghost"}}
+	  "an_unknown_key": {"ignored": true}
 	}`)
 
 	doc, err := LoadDocument(home)
