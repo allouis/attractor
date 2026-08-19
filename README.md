@@ -32,6 +32,40 @@ adversarial review, pass a human ship gate, open a draft PR):
 
 ![The plan-build-review pipeline](./docs/images/plan-build-review-pipeline.svg)
 
+## Quickstart
+
+From nothing to a live agent run on your own repo, in five steps.
+
+1. **Get the binary.** Download the build for your OS/arch from the
+   [releases page](https://github.com/allouis/attractor/releases) and put
+   `attractor` on your `PATH`. (Nix users: `nix profile install github:allouis/attractor`.)
+
+2. **Get an agent.** Install a Claude Code ACP adapter so `claude-agent-acp`
+   is on your `PATH`, then log in once — run `claude` and sign in, or
+   `export ANTHROPIC_API_KEY=…`.
+
+3. **Grab the starter pipeline** — the smallest useful run: one agent stage,
+   no gates, no VCS steps.
+
+   ```bash
+   curl -O https://raw.githubusercontent.com/allouis/attractor/main/examples/quickstart/pipeline.dot
+   ```
+
+4. **Run it in a repo you want to change.** Describe the task; watch it live.
+
+   ```bash
+   cd ~/your-repo
+   attractor run pipeline.dot -var task="add a hello() function to the README" \
+     --backend acp --acp-cmd claude-agent-acp --ui
+   ```
+
+5. **Open the printed URL** (`http://…/ui`) to watch the run. The agent edits
+   your working tree in place — nothing is committed or pushed, so you review
+   the diff yourself when it finishes.
+
+From here, browse [`examples/`](./examples/) and the shipped
+[`pipelines/`](./pipelines/) for gates, checks, review loops, and PRs.
+
 ## Relationship to the Attractor spec
 
 The [upstream spec](./docs/spec/attractor.md) is kept pristine in this
