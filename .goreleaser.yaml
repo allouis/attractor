@@ -1,0 +1,39 @@
+# Builds the downloadable binaries attached to each GitHub Release.
+# Pure Go, statically linked (CGO off) — the archives carry only the
+# attractor binary; graphviz, jj and any ACP adapter are installed
+# separately (see the README "Prebuilt binary" install path).
+version: 2
+
+project_name: attractor
+
+builds:
+  - id: attractor
+    main: ./cmd/attractor
+    binary: attractor
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/allouis/attractor/internal/version.Revision={{ .Commit }}
+
+archives:
+  - id: attractor
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  draft: false
+  prerelease: auto
+
+changelog:
+  use: github
+  sort: asc
