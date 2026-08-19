@@ -69,6 +69,10 @@
   .question button:hover { background: var(--accent); color: var(--bg); }
   .question input { background: var(--bg); color: var(--text); border: 1px solid var(--line);
                     border-radius: 4px; padding: .25rem; font: inherit; width: 60%; }
+  .question .cap { color: var(--dim); font-size: .8rem; margin: .4rem 0 .2rem; }
+  .question pre.qcontext { max-height: 40vh; overflow: auto; white-space: pre-wrap;
+                    background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+                    padding: .5rem; margin: 0 0 .4rem; font-size: .85rem; }
   .fail-banner { margin: .6rem 1rem; padding: .5rem .8rem; border: 1px solid var(--bad);
                  border-radius: 6px; color: var(--bad); white-space: pre-wrap; }
   #live { background: var(--bg); border: 1px solid var(--warn); border-radius: 4px;
@@ -125,7 +129,11 @@ let eventCursor = 0;
 // stream (assistant deltas), so a running span can show what the agent
 // is saying right now.
 const liveText = {};
+let lastSpeaker = null; // node_id of the most recent node to emit agent text
 let selected = null; // the span open in the detail panel
+let following = true; // auto-open the running node's detail until the user pins one
+let questionsSig = ""; // signature of the pending questions currently rendered
+const gateContent = {}; // span base -> canonical "what's being reviewed" text (cached)
 const $ = id => document.getElementById(id);
 
 // On the hub, the page is served at /ui/{run_id}; on a single-run
@@ -176,9 +184,11 @@ async function drainEvents() {
       buf.push(ev.message || "");
       // Deltas are fragments; keep a bounded tail.
       if (buf.length > 400) buf.splice(0, buf.length - 400);
+      lastSpeaker = ev.node_id;
     }
   }
   if (selected && selected.outcome === "running") renderLive();
+  if (doc && doc.pending_questions && doc.pending_questions.length) updateGateContexts();
 }
 
 function fmtTokens(u) {
@@ -195,6 +205,14 @@ function fmtDur(ms) {
 const GLYPH = { success: "✓", fail: "✗", retry: "↻", running: "◐", partial_success: "◑", skipped: "⊘" };
 
 function render() {
+  // Re-point `selected` at the fresh span object so its outcome
+  // (running → success) stays current across polls — auto-follow and the
+  // live panel both key off selected.outcome.
+  if (selected) {
+    const fresh = doc.spans.find(x => x.node_id === selected.node_id
+      && x.visit === selected.visit && x.attempt === selected.attempt);
+    if (fresh) selected = fresh;
+  }
   $("name").textContent = doc.graph_name || doc.run_id;
   $("goal").textContent = doc.goal || "";
   $("goal").title = doc.goal || "";
@@ -209,30 +227,111 @@ function render() {
   $("failreason").textContent = doc.failure_reason || "";
   renderQuestions();
   renderWaterfall(start, end);
+  autoFollow();
+}
+
+// autoFollow opens the running node's detail automatically so live agent
+// output is visible without a click. It stops once the user pins a span
+// (clicks one) or closes the panel, so it never fights manual navigation.
+function autoFollow() {
+  if (!following) return;
+  // Follow the running agent node — the one producing live text — not a
+  // gate or tool node, whose detail panel has nothing to stream.
+  const running = doc.spans.filter(s => s.outcome === "running" && s.type === "codergen");
+  if (!running.length) return;
+  const s = running[running.length - 1];
+  if (!selected || selected.node_id !== s.node_id
+    || selected.visit !== s.visit || selected.attempt !== s.attempt) {
+    openDetail(s);
+  }
 }
 
 function renderQuestions() {
-  const host = $("questions");
-  host.innerHTML = "";
-  for (const q of doc.pending_questions || []) {
-    const box = document.createElement("div");
-    box.className = "question";
-    const text = document.createElement("div");
-    text.textContent = "⏸ " + (q.question?.text || q.message || q.id);
-    box.appendChild(text);
-    const note = document.createElement("input");
-    note.placeholder = "optional note to the agent";
-    for (const opt of q.question?.options || []) {
-      const b = document.createElement("button");
-      // Edge labels often embed their own accelerator ("[S] Ship") —
-      // don't prefix a second copy of the key.
-      b.textContent = opt.label.startsWith("[") ? opt.label : "[" + opt.key + "] " + opt.label;
-      b.onclick = () => answer(q.id, opt.key, note.value);
-      box.appendChild(b);
+  const qs = doc.pending_questions || [];
+  const sig = qs.map(q => q.id).join("|");
+  // Build the box only when the set of questions changes. The 500ms poll
+  // calls render() constantly while running; rebuilding every tick would
+  // wipe the note field and steal focus the moment you click into it. The
+  // "what's being reviewed" panel is refreshed separately (updateGateContexts)
+  // so its content can arrive after the box without touching the input.
+  if (sig !== questionsSig) {
+    questionsSig = sig;
+    const host = $("questions");
+    host.innerHTML = "";
+    for (const q of qs) {
+      const box = el("div", "question");
+      box.appendChild(el("div", null, "⏸ " + (q.question?.text || q.message || q.id)));
+      box.appendChild(el("div", "cap", "what's being reviewed — the agent's work leading into this gate"));
+      const pre = el("pre", "qcontext", "(waiting for agent output…)");
+      pre.id = "gatectx-" + q.id;
+      box.appendChild(pre);
+      const note = el("input");
+      note.placeholder = "optional note to the agent";
+      for (const opt of q.question?.options || []) {
+        // Edge labels often embed their own accelerator ("[S] Ship") —
+        // don't prefix a second copy of the key.
+        const b = el("button", null, opt.label.startsWith("[") ? opt.label : "[" + opt.key + "] " + opt.label);
+        b.onclick = () => answer(q.id, opt.key, note.value);
+        box.appendChild(b);
+      }
+      box.appendChild(note);
+      host.appendChild(box);
     }
-    box.appendChild(note);
-    host.appendChild(box);
   }
+  updateGateContexts();
+}
+
+// updateGateContexts fills each gate's "what's being reviewed" panel with the
+// work leading into it: the CANONICAL structured output of the most recent
+// agent node (plan_markdown for a plan gate, review.summary for a ship gate,
+// else its final response) — not just the streamed narration, which for a
+// plan node is the agent's chatter rather than the plan itself. Refreshed in
+// place so it can arrive after the box without disturbing the note field.
+function latestCodergenSpan() {
+  const done = doc.spans.filter(s => s.type === "codergen" && s.ended_at);
+  if (!done.length) return null;
+  done.sort((a, b) => Date.parse(a.ended_at) - Date.parse(b.ended_at));
+  return done[done.length - 1];
+}
+
+async function fetchGateContent(base) {
+  try {
+    const st = await j(api("/artifacts/" + base + "/status.json"));
+    const cu = (st && typeof st === "object" && st.context_updates) || {};
+    const canonical = cu.plan_markdown || cu["review.summary"]
+      || (cu.review && cu.review.summary) || cu.last_response;
+    if (canonical && String(canonical).trim()) return String(canonical);
+  } catch (e) { /* no structured status for this node */ }
+  try {
+    const resp = await j(api("/artifacts/" + base + "/response.md"));
+    if (typeof resp === "string" && resp.trim()) return resp;
+  } catch (e) { /* no response artifact */ }
+  return "";
+}
+
+function paintGateContexts(text) {
+  if (!text) return;
+  const shown = text.length > 12000 ? text.slice(-12000) : text;
+  for (const q of doc.pending_questions || []) {
+    const pre = $("gatectx-" + q.id);
+    if (pre) pre.textContent = shown;
+  }
+}
+
+function updateGateContexts() {
+  if (!doc.pending_questions || !doc.pending_questions.length) return;
+  const subj = latestCodergenSpan();
+  // Fallback until the canonical artifact resolves: the streamed text.
+  let text = (liveText[(subj && subj.node_id) || lastSpeaker] || []).join("").trim();
+  if (subj) {
+    const base = spanBase(subj.node_id, subj.visit, subj.attempt);
+    if (gateContent[base] === undefined) {
+      gateContent[base] = ""; // in-flight: fetch once
+      fetchGateContent(base).then(t => { if (t) { gateContent[base] = t; paintGateContexts(t); } });
+    }
+    if (gateContent[base]) text = gateContent[base];
+  }
+  paintGateContexts(text);
 }
 
 async function answer(qid, value, note) {
@@ -296,7 +395,7 @@ function renderWaterfall(start, end) {
         tick.title = t.title || "tool call";
         el.appendChild(tick);
       }
-      el.onclick = () => openDetail(s, null);
+      el.onclick = () => { following = false; openDetail(s, null); };
       track.appendChild(el);
     }
     lane.appendChild(track);
@@ -342,7 +441,7 @@ async function openDetail(s, ignored) {
       const active = sib.visit === s.visit && sib.attempt === s.attempt;
       const b = el("button", "tab" + (active ? " active" : ""), label);
       b.title = sib.outcome;
-      b.onclick = () => openDetail(sib);
+      b.onclick = () => { following = false; openDetail(sib); };
       tabs.appendChild(b);
     }
     body.appendChild(tabs);
@@ -410,7 +509,7 @@ function renderLive() {
   live.scrollTop = live.scrollHeight;
 }
 
-function closeDetail() { selected = null; $("detail").classList.remove("open"); }
+function closeDetail() { selected = null; following = false; $("detail").classList.remove("open"); }
 
 // ---- header tabs ----------------------------------------------------------
 
