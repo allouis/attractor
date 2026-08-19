@@ -203,7 +203,8 @@ The same data is served as JSON (`/pipelines/{id}`, `/events?since=N`,
 ### Shipped pipelines
 
 Under `pipelines/`: `plan-build-review` (pictured above: plan → human gate →
-implement → checks → review → draft PR), `review-pr`, `revise-pr`,
+implement → checks → review → draft PR), `amend-pr` (the same plan→build→review
+cycle on an existing PR, pushed back in place), `review-pr`, `revise-pr`,
 `checks`, and two shared sub-pipelines the others embed via `subgraph` —
 `review-core` (the five-reviewer adversarial review) and `checks-core`
 (the deterministic deps/typecheck/lint/test chain).

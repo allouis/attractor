@@ -92,7 +92,7 @@ func providerLintRules(cfg config.Config) []lint.Rule {
 }
 
 // Run executes a pipeline end-to-end. By default each codergen node is
-// routed to a backend via the provider config (docs/provider-config.md); the
+// routed to a backend via the provider config (docs/running-pipelines.md); the
 // --backend / --acp-cmd flags are run-wide overrides that bypass it.
 // The positional argument is either a path to a .dot file or a pipeline
 // name that resolves via lookup (see resolvePipelinePath).
@@ -162,7 +162,7 @@ func Run(args []string) error {
 	// Resolve the codergen backend. Explicit --backend / --acp-cmd are
 	// run-wide overrides (debugging) that bypass provider config;
 	// otherwise each codergen node is routed per its llm_provider /
-	// llm_model through ~/.attractor/config.json (see docs/provider-config.md).
+	// llm_model through ~/.attractor/config.json (see docs/running-pipelines.md).
 	var codergenBackend backend.CodergenBackend
 	if flagSet(fs, "backend") || flagSet(fs, "acp-cmd") {
 		choice, err := parseBackendChoice(*backendFlag)
@@ -266,7 +266,7 @@ func nodeMeta(g *graph.Graph) map[string]runview.NodeMeta {
 }
 
 // providerBackend builds the config-routed codergen backend used when no
-// --backend override is given (docs/provider-config.md), surfacing config-aware
+// --backend override is given (docs/running-pipelines.md), surfacing config-aware
 // warnings (unknown provider, missing model_env) to stderr so --json
 // stdout stays clean.
 func providerBackend(g *graph.Graph, stylesheetProvided bool) (backend.CodergenBackend, error) {
@@ -387,7 +387,7 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 }
 
 // loadProviderConfig reads the provider routing config from
-// ~/.attractor/config.json (see docs/provider-config.md).
+// ~/.attractor/config.json (see docs/running-pipelines.md).
 func loadProviderConfig() (config.Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

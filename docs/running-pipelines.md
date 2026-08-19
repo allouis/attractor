@@ -112,7 +112,8 @@ their diagnostics to stdout/stderr — the fix agent is handed that output.
 | `checks-core` | `check.{deps,typecheck,lint,test}` | Shared subgraph: the deps→typecheck→lint→test chain, embedded by the others. |
 | `review-core` | `diff_cmd` | Shared subgraph: the five-lens review (uses the built-in `anthropic` + `codex` providers). |
 | `review-pr` | `repo,pr_number,title` | Diff-based via `gh pr diff`; no checkout. |
-| `revise-pr` | `repo,pr_number,bookmark,workspace_revision` | `workspace_revision` must be the PR bookmark. Baseline checks + review + fix loop + ship→push. |
+| `revise-pr` | `repo,pr_number,bookmark,workspace_revision` + `check.*` | `workspace_revision` must be the PR bookmark. Baseline checks + review + fix loop + ship→push. |
+| `amend-pr` | `repo,pr_number,bookmark,workspace_revision,brief` + `check.*` | The full plan→build→review cycle on an existing PR: plan (human gate) → implement → checks → review → ship → push back in place. |
 | `plan-build-review` | `brief,base` + `check.*` | plan (human gate) → implement → checks → review → ship → draft PR. `brief` is the freeform task; `base` = target branch. |
 
 ## Models
