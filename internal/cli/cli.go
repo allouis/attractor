@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -181,6 +182,7 @@ func Run(args []string) error {
 	}
 
 	iv := resolveInterviewer(*humanFlag)
+	var uiPrimaryURL string
 	if *ui || *announce != "" {
 		srv := runserver.New(logsRoot)
 		srv.Meta = nodeMeta(g)
@@ -204,6 +206,7 @@ func Run(args []string) error {
 		for _, ln := range lns {
 			defer ln.Close()
 		}
+		uiPrimaryURL = primary.Addr().String()
 		if *announce != "" {
 			// One-shot registration (not telemetry): the hub pulls
 			// everything else from this run's own API. Announce the
@@ -221,7 +224,24 @@ func Run(args []string) error {
 			fmt.Fprintf(os.Stderr, "run: hub archive failed (run dir remains at %s): %v\n", logsRoot, err)
 		}
 	}
+	// Interactive --ui: keep serving the finished run until the user
+	// interrupts, so a run whose last node is an approval gate does not
+	// vanish the instant it is answered. Scripted/agent runs (stderr is not
+	// a terminal) and announced runs (the hub persists them) exit as before.
+	if *ui && *announce == "" && uiPrimaryURL != "" && isInteractiveStderr() {
+		fmt.Fprintf(os.Stderr, "run: complete — UI still serving at http://%s/ui (press Ctrl-C to exit)\n", uiPrimaryURL)
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt)
+		<-sig
+	}
 	return runErr
+}
+
+// isInteractiveStderr reports whether stderr is a terminal, i.e. a human is
+// watching. Used to decide whether --ui should linger after a run completes.
+func isInteractiveStderr() bool {
+	fi, err := os.Stderr.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 // nodeMeta extracts the per-node metadata the run server attaches to
