@@ -49,6 +49,16 @@ Put `attractor` on your `PATH`. The bare binary carries no tools, so
 install `graphviz` yourself (`brew install graphviz`), and an ACP agent
 adapter (see [Set up an agent](#set-up-an-agent)).
 
+On macOS, a binary downloaded through a browser is quarantined by
+Gatekeeper. Since the release isn't notarized, running it as-is gets
+silently killed from a terminal, or blocked with "Apple could not verify
+this app is free of malware" from Finder. Clear the quarantine flag once,
+after verifying the download against `checksums.txt`:
+
+```bash
+xattr -d com.apple.quarantine ./attractor
+```
+
 **From source.** Clone the repository and build it with Nix. This also
 gives you the `pipelines/` and `examples/` directories to edit.
 
@@ -67,6 +77,12 @@ prebuilt binary, install an adapter yourself and put its command on your
 
 - [`claude-agent-acp`](https://github.com/agentclientprotocol/claude-agent-acp) — Claude.
 - [`codex-acp`](https://github.com/agentclientprotocol/codex-acp) — Codex.
+
+`claude-agent-acp` needs Node.js 22+ and installs from npm:
+
+```bash
+npm install -g @agentclientprotocol/claude-agent-acp
+```
 
 Then authenticate once, the same way as Claude Code:
 
@@ -104,7 +120,7 @@ Run it inside a Git repository that you want to change:
 cd ~/your-repo
 attractor run /path/to/quickstart.dot \
   -var task="add a hello() function to the README" \
-  --backend acp --acp-cmd claude-agent-acp --ui
+  --backend acp --acp-cmd claude-agent-acp --cwd "$(pwd)" --ui
 ```
 
 attractor prints a URL. Open it to watch the run. The agent edits the
@@ -117,6 +133,9 @@ pushed, so you review the change yourself and then approve or revise it.
 - `--backend acp --acp-cmd claude-agent-acp` sends every agent node to the
   ACP adapter. To route each node to a different model instead, drop
   `--backend` and pass `--stylesheet` (see [Customise it](#customise-it)).
+- `--cwd "$(pwd)"` points tool and codergen nodes at the repo you want
+  changed. Without it, they run against attractor's own run directory, not
+  your shell's working directory.
 - `--ui` serves the run's live view. In a terminal, the view stays up
   after the run finishes, until you press Ctrl-C.
 
@@ -141,7 +160,7 @@ Then run with the stylesheet:
 
 ```bash
 attractor run /path/to/quickstart.dot -var task="…" \
-  --stylesheet models.css --ui
+  --stylesheet models.css --cwd "$(pwd)" --ui
 ```
 
 Each node now routes through a provider. The model prefix picks the
