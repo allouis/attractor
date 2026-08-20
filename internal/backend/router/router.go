@@ -97,8 +97,6 @@ func (r *Router) construct(name string) (backend.CodergenBackend, error) {
 		return &acpbackend.Backend{Command: p.Command, ModelEnv: p.ModelEnv}, nil
 	case "simulation":
 		return simulation(), nil
-	case "claudecode":
-		return nil, fmt.Errorf("router: provider %q uses backend=claudecode, which the router does not route yet; run with --backend claude", name)
 	case "":
 		return nil, fmt.Errorf("router: provider %q sets no backend", name)
 	default:

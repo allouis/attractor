@@ -17,7 +17,6 @@ import (
 
 	"github.com/allouis/attractor/internal/backend"
 	acpbackend "github.com/allouis/attractor/internal/backend/acp"
-	"github.com/allouis/attractor/internal/backend/claudecode"
 	"github.com/allouis/attractor/internal/backend/router"
 	"github.com/allouis/attractor/internal/config"
 	"github.com/allouis/attractor/internal/engine"
@@ -39,7 +38,6 @@ import (
 type BackendChoice string
 
 const (
-	BackendClaude     BackendChoice = "claude"
 	BackendACP        BackendChoice = "acp"
 	BackendSimulation BackendChoice = "simulation"
 )
@@ -102,7 +100,7 @@ func Run(args []string) error {
 	fs.SetOutput(io.Discard)
 	logs := fs.String("logs", "", "directory for run artefacts (default: $XDG_DATA_HOME/attractor/runs/<run-id> or ~/.attractor/runs/<run-id>)")
 	jsonOut := fs.Bool("json", false, "emit one JSON event per line on stdout")
-	backendFlag := fs.String("backend", "simulation", "codergen backend: claude | acp | simulation")
+	backendFlag := fs.String("backend", "simulation", "codergen backend: acp | simulation")
 	acpCmd := fs.String("acp-cmd", "", "ACP agent command for --backend acp (fallback when the graph sets no acp_command attribute)")
 	humanFlag := fs.String("human", "auto", "interviewer for wait.human nodes: auto | console | approve")
 	baseDir := fs.String("base-dir", "", "directory @file prompts and child pipelines resolve against (default: the .dot file's directory)")
@@ -423,23 +421,21 @@ func loadProviderConfig() (config.Config, error) {
 // parseBackendChoice validates the --backend flag value.
 func parseBackendChoice(raw string) (BackendChoice, error) {
 	switch c := BackendChoice(raw); c {
-	case BackendClaude, BackendACP, BackendSimulation:
+	case BackendACP, BackendSimulation:
 		return c, nil
 	}
-	return "", fmt.Errorf("run: unknown backend %q (valid: claude, acp, simulation)", raw)
+	return "", fmt.Errorf("run: unknown backend %q (valid: acp, simulation)", raw)
 }
 
 // buildCodergen constructs the codergen backend matching `choice`. ACP
-// tool visibility comes over the protocol itself; the claude CLI wrap
-// needs no side channels either.
+// tool visibility comes over the protocol itself, so it needs no side
+// channels.
 func buildCodergen(choice BackendChoice, acpCmd string) (backend.CodergenBackend, error) {
 	switch choice {
 	case BackendSimulation:
 		return nil, nil
 	case BackendACP:
 		return &acpbackend.Backend{Command: acpCmd}, nil
-	case BackendClaude:
-		return &claudecode.Backend{}, nil
 	}
 	return nil, fmt.Errorf("run: unknown backend %q", choice)
 }

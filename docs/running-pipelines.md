@@ -56,7 +56,7 @@ attractor run <name-or-path> [flags]
 | `-var name=value` | Seed a pipeline variable (repeatable). |
 | `--stylesheet <file>` | External model stylesheet (repeatable, cascading). See Models. |
 | `--cwd <dir>` | Working tree the pipeline operates in (graph-level cwd default). |
-| `--backend claude\|acp\|simulation` | Run-wide backend override (bypasses config). |
+| `--backend acp\|simulation` | Run-wide backend override (bypasses config). |
 | `--acp-cmd <cmd>` | ACP agent command for `--backend acp`. |
 | `--human auto\|console\|approve` | How `wait.human` gates are answered. |
 | `--json` | Emit one JSON event per line on stdout (machine-drivable). |

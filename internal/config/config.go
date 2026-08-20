@@ -1,6 +1,6 @@
 // Package config loads Attractor's machine-local provider routing
 // config (docs/provider-config.md). The config maps a provider name to a
-// backend mechanism (acp | claudecode | simulation), an agent command,
+// backend mechanism (acp | simulation), an agent command,
 // and the env var used to pass llm_model to the agent. Codergen nodes
 // declare intent (llm_provider / llm_model); the router resolves that
 // intent to a backend through this config.
@@ -14,7 +14,7 @@ import (
 
 // Provider is one entry in the config's providers map.
 type Provider struct {
-	// Backend selects the mechanism: acp | claudecode | simulation.
+	// Backend selects the mechanism: acp | simulation.
 	Backend string `json:"backend"`
 	// Command is the agent command line (used by acp backends). Node and
 	// graph acp_command attributes still take precedence over this.

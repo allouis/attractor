@@ -1,6 +1,6 @@
 // Package backend defines the CodergenBackend interface (Attractor
 // §4.5) and the small types backends share. Concrete implementations
-// live in sub-packages (fake, claudecode).
+// live in sub-packages (fake, acp).
 package backend
 
 import (

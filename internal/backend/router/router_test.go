@@ -89,16 +89,6 @@ func TestRouter_UnconfiguredProviderErrors(t *testing.T) {
 	}
 }
 
-func TestRouter_ClaudecodeIsDeferred(t *testing.T) {
-	r := New(config.Config{Providers: map[string]config.Provider{
-		"anthropic-cli": {Backend: "claudecode"},
-	}})
-	_, err := r.backendFor(node(map[string]string{"llm_provider": "anthropic-cli"}))
-	if err == nil || !strings.Contains(err.Error(), "claudecode") {
-		t.Fatalf("expected claudecode-deferred error, got %v", err)
-	}
-}
-
 func TestRouter_UnknownBackendErrors(t *testing.T) {
 	r := New(config.Config{Providers: map[string]config.Provider{
 		"weird": {Backend: "telepathy"},
