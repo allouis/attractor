@@ -39,23 +39,23 @@ digraph amend_pr {
 
     // Plan the amendments (own prompt: the change already exists on this
     // branch). revise_plan is plan-build-review's revise responder, reused.
-    plan [class="plan", thread_id="plan", fidelity="full", timeout="30m",
+    plan [type="codergen", class="plan", thread_id="plan", fidelity="full", timeout="30m",
           prompt="@prompts/plan.md", outputs="plan_markdown"]
-    revise_plan [class="plan, revise", thread_id="plan", fidelity="full",
+    revise_plan [type="codergen", class="plan, revise", thread_id="plan", fidelity="full",
                  timeout="30m",
                  prompt="@../plan-build-review/prompts/revise-plan.md",
                  outputs="plan_markdown"]
 
-    plan_gate [shape=hexagon, label="Do these amendments make sense?"]
+    plan_gate [type="wait.human", label="Do these amendments make sense?"]
 
     // Own prompt (amend framing). Failure responders reused from
     // plan-build-review — both share implement's thread.
-    implement [class="build, coder", thread_id="build", fidelity="full",
+    implement [type="codergen", class="build, coder", thread_id="build", fidelity="full",
                timeout="120m", prompt="@prompts/implement.md"]
-    fix_checks [class="build, fixer", thread_id="build", fidelity="full",
+    fix_checks [type="codergen", class="build, fixer", thread_id="build", fidelity="full",
                 timeout="60m",
                 prompt="@../plan-build-review/prompts/fix-checks.md"]
-    respond_to_review [class="build, responder", thread_id="build",
+    respond_to_review [type="codergen", class="build, responder", thread_id="build",
                        fidelity="full", timeout="60m",
                        prompt="@../plan-build-review/prompts/respond-review.md"]
 
@@ -69,11 +69,11 @@ digraph amend_pr {
     review_loop [type="subgraph", graph_ref="../review-core/pipeline.dot",
                  var.diff_cmd="jj diff --from 'trunk()' --to @"]
 
-    ship [shape=hexagon, label="Push these amendments to the PR? (checks + review passed)"]
+    ship [type="wait.human", label="Push these amendments to the PR? (checks + review passed)"]
 
     // Publish: push the existing bookmark, updating the PR in place. Reused
     // from revise-pr — same "push, do not open a PR" behaviour.
-    push_updates [class="publish", thread_id="publish", fidelity="full",
+    push_updates [type="codergen", class="publish", thread_id="publish", fidelity="full",
                   timeout="15m",
                   prompt="@../revise-pr/prompts/push-updates.md"]
 

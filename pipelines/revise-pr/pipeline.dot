@@ -55,18 +55,18 @@ digraph revise_pr {
     // Reached only after a FAIL verdict, so the child's findings are set.
     // Its own thread (not review-core's): a fresh session that reads the
     // findings from context and works in the checked-out branch.
-    fix [class="build, fixer", thread_id="fix",
+    fix [type="codergen", class="build, fixer", thread_id="fix",
          fidelity="full", timeout="120m", prompt="@prompts/fix.md"]
 
     // Post-fix gate: the same checks-core sub-pipeline; a failure routes
     // back to `fix` (the failing check's output is in $context.tool.output).
     checks [type="subgraph", graph_ref="../checks-core/pipeline.dot"]
 
-    ship [shape=hexagon, label="Push these fixes to the PR?"]
+    ship [type="wait.human", label="Push these fixes to the PR?"]
 
     // Publish: push the existing bookmark, updating the PR in place. No PR
     // is created — the branch is already on the remote.
-    push_updates [class="publish", thread_id="publish",
+    push_updates [type="codergen", class="publish", thread_id="publish",
                   fidelity="full", timeout="15m", prompt="@prompts/push-updates.md"]
 
     done [shape=Msquare]
