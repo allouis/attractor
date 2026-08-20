@@ -88,8 +88,8 @@ digraph quickstart {
 
     start   [shape=Mdiamond]
     context [type="tool", tool_command="git status --short"]   // A shell command.
-    work    [prompt="You are working in the current Git repository. Task: $context.task. Make the change, keep it small, and summarise it. Do not commit or push."]   // An agent.
-    review  [shape=hexagon, label="Apply this change?"]        // A human gate.
+    work    [type="codergen", prompt="You are working in the current Git repository. Task: $context.task. Make the change, keep it small, and summarise it. Do not commit or push."]   // An agent.
+    review  [type="wait.human", label="Apply this change?"]    // A human gate.
     done    [shape=Msquare]
 
     start -> context -> work -> review
@@ -288,12 +288,36 @@ and the hub uses it on every poll.
 
 **Choose a model per node with a stylesheet.** A pipeline carries role
 *classes* (`plan`, `build`, `review`), not model names. A stylesheet maps
-classes to models. Drop `--backend` so each node routes through a
-provider, and pass a stylesheet:
+those to models. Drop `--backend` so each node routes through a provider,
+and pass a stylesheet:
 
 ```bash
 attractor run --ui --stylesheet pipelines/models.css … plan-build-review
 ```
+
+A stylesheet targets nodes with four kinds of selector, from least to most
+specific:
+
+```css
+*          { llm_model: claude-fable-5 }    /* Every agent node. */
+box        { llm_model: claude-fable-5 }    /* By graphviz shape. */
+.review    { llm_model: claude-opus-4-8 }   /* By node class. */
+#implement { llm_model: claude-opus-4-8 }   /* One node, by its id. */
+
+/* Mix providers freely — send one node to Codex, the rest stay on Claude. */
+#review_loop.correctness {
+    llm_provider: codex
+    llm_model: gpt-5.6-sol
+    reasoning_effort: high
+}
+```
+
+A more specific selector wins. At equal specificity, the later rule wins.
+An explicit `llm_model` on the node itself always wins, so a mandatory pin
+survives the sheet. The properties are `llm_model`, `llm_provider`, and
+`reasoning_effort`. The provider is inferred from the model prefix
+(`claude…` → anthropic, `gpt…` → openai), so `llm_model` alone is usually
+enough; set `llm_provider` explicitly to route a node to Codex.
 
 The bundled `anthropic` and `codex` providers work with no config file.
 Write `~/.attractor/config.json` only for custom providers or models:

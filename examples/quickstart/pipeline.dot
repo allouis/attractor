@@ -1,13 +1,16 @@
 // The smallest useful pipeline: a shell step, an agent, and a human gate.
 // Run it from inside a Git repository you want to change.
+//
+// Each node declares its `type` explicitly. The terminals use their
+// conventional shapes (Mdiamond = start, Msquare = exit).
 digraph quickstart {
     rankdir = "LR"   // Render left-to-right.
     vars = "task"    // Required. Pass it with -var task="…".
 
     start   [shape=Mdiamond]
     context [type="tool", tool_command="git status --short"]   // A shell command.
-    work    [prompt="You are working in the current Git repository. Task: $context.task. Make the change in the working tree, keep it small, and summarise it. Do not commit or push."]   // An agent.
-    review  [shape=hexagon, label="Apply this change?"]        // A human gate.
+    work    [type="codergen", prompt="You are working in the current Git repository. Task: $context.task. Make the change in the working tree, keep it small, and summarise it. Do not commit or push."]   // An agent.
+    review  [type="wait.human", label="Apply this change?"]    // A human gate.
     done    [shape=Msquare]
 
     start -> context -> work -> review
