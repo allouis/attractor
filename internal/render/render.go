@@ -69,17 +69,29 @@ func runDot(dotSrc []byte, engine string) ([]byte, error) {
 // fallbacks for a raw (CLI-rendered) SVG; in the web UI the .graph-pane
 // stylesheet repaints fill/stroke/text from the theme tokens, and paintNode
 // overrides node stroke by run status — so keep them muted, not black.
-func writeGraphHeader(b *strings.Builder, compound bool) {
+func writeGraphHeader(b *strings.Builder, compound bool, rankdir string) {
 	b.WriteString("digraph pipeline {\n")
 	if compound {
 		b.WriteString("  compound=true;\n")
 	}
-	b.WriteString("  rankdir=TB;\n")
+	b.WriteString("  rankdir=" + safeRankdir(rankdir) + ";\n")
 	b.WriteString("  bgcolor=\"transparent\";\n")
 	b.WriteString("  nodesep=0.35;\n  ranksep=0.55;\n  splines=spline;\n")
 	b.WriteString("  node [shape=box, style=\"rounded,filled\", fillcolor=\"#f6f8fa\", " +
 		"color=\"#c9ced6\", penwidth=1, fontname=\"Helvetica\", fontsize=11, margin=\"0.18,0.09\"];\n")
 	b.WriteString("  edge [color=\"#8a8f98\", penwidth=1.2, arrowsize=0.7, fontname=\"Helvetica\", fontsize=10];\n")
+}
+
+// safeRankdir constrains a pipeline's rankdir to graphviz's four legal
+// directions, defaulting to TB. Allow-listing keeps a pipeline attribute from
+// injecting arbitrary text into the generated DOT header.
+func safeRankdir(rankdir string) string {
+	switch dir := strings.ToUpper(strings.TrimSpace(rankdir)); dir {
+	case "LR", "RL", "BT":
+		return dir
+	default:
+		return "TB"
+	}
 }
 
 // graphvizSafe re-emits an Attractor pipeline as minimal graphviz DOT that
@@ -107,7 +119,7 @@ func graphvizSafe(src []byte) []byte {
 // graphviz styling header and quoted ids are outside its subset).
 func MinimalDOT(g *graph.Graph) []byte {
 	var b strings.Builder
-	writeGraphHeader(&b, false)
+	writeGraphHeader(&b, false, g.Attrs["rankdir"])
 	for _, id := range g.NodeOrder {
 		n := g.Nodes[id]
 		fmt.Fprintf(&b, "  %q [shape=%q, label=%q];\n", id, displayShape(n), id)
