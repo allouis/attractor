@@ -31,9 +31,9 @@ then a human gate:
 ### Install
 
 **Nix (recommended).** One command installs a binary that already carries
-everything a run needs on its `PATH`: `graphviz`, `jj`, and the ACP agent
-adapters (`claude-agent-acp`, `codex-acp`). You need
-[nix](https://nixos.org) with flakes. To install Nix itself, the
+what a run needs on its `PATH`: `graphviz` and the ACP agent adapters
+(`claude-agent-acp`, `codex-acp`). You need [nix](https://nixos.org) with
+flakes. To install Nix itself, the
 [Determinate Nix installer](https://github.com/DeterminateSystems/nix-installer)
 is the simplest option, and it turns on flakes for you.
 
@@ -46,9 +46,8 @@ nix run github:allouis/attractor -- run --help
 **Prebuilt binary.** Download the build for your operating system and
 architecture from the [releases page](https://github.com/allouis/attractor/releases).
 Put `attractor` on your `PATH`. The bare binary carries no tools, so
-install what a run needs yourself: `graphviz` and `jj`
-(`brew install graphviz jujutsu`), and an ACP agent adapter (see
-[Set up an agent](#set-up-an-agent)).
+install `graphviz` yourself (`brew install graphviz`), and an ACP agent
+adapter (see [Set up an agent](#set-up-an-agent)).
 
 **From source.** Clone the repository and build it with Nix. This also
 gives you the `pipelines/` and `examples/` directories to edit.
@@ -128,6 +127,29 @@ attractor validate quickstart.dot                       # Lint: catches typos an
 attractor run --backend simulation -var task=x quickstart.dot   # Wiring test, no agent
 ```
 
+### Next: choose the model with a stylesheet
+
+The run above sent every agent node to one adapter. To choose the model
+instead, write a stylesheet and drop `--backend`. Save this as `models.css`:
+
+```css
+/* Set the model for every agent node. */
+* { llm_model: claude-opus-4-8 }
+```
+
+Then run with the stylesheet:
+
+```bash
+attractor run /path/to/quickstart.dot -var task="…" \
+  --stylesheet models.css --ui
+```
+
+Each node now routes through a provider. The model prefix picks the
+provider (`claude…` → anthropic), so no config file is needed. A larger
+pipeline gives its nodes role classes — `.plan`, `.build`, `.review` — and
+the stylesheet maps each class to a model, so one run can mix models. See
+[Customise it](#customise-it).
+
 ### Where pipelines live
 
 `attractor run <name>` resolves a bare name against these locations, in
@@ -153,19 +175,22 @@ The shipped pipelines live under `pipelines/`:
 | `checks` | Run the repository's deps/typecheck/lint/test chain. |
 | `review-core`, `checks-core` | Shared sub-pipelines that the others embed with `subgraph`. |
 
+The shipped pipelines use [`jj` (Jujutsu)](https://jj-vcs.github.io/jj/) for
+their version-control steps — reading the diff, committing, and pushing.
+The Nix build bundles `jj`; for a prebuilt binary, install it with
+`brew install jujutsu`. Your own pipelines can use any tool you like.
+
 ## How it works
 
-**A run is self-contained.** `attractor run` executes one pipeline and
-owns everything about it. No server or central service is needed to
-launch a run, watch it, answer a gate, or debug it.
+**A run is self-contained.** `attractor run` starts the engine, serves the
+run's own read-only API and UI (`--ui`), and writes everything to one
+directory. It needs no server. You launch a run, watch it, answer its
+gates, and debug it — all from that one process. A run works the same on a
+laptop, a remote box, CI, or a VM.
 
-```
-attractor run --ui            # Engine plus the run's own read-only API and UI.
-        │                     # Runs anywhere: laptop, remote box, CI, or a VM.
-        │ announce once ────▶ hub (optional): a directory and archive of many runs.
-        │                     # The hub pulls state from live runs. Nothing is pushed.
-        └ on complete: the run directory is packed to a tar and shipped to the hub.
-```
+The hub is optional. It aggregates many runs into one place, and a single
+run needs nothing from it. See [Watch many runs](#watch-many-runs-the-hub)
+below.
 
 **Everything a run is lives in one directory** (`~/.attractor/runs/<id>`):
 
