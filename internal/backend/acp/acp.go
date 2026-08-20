@@ -267,8 +267,13 @@ type turnState struct {
 	env engine.HandlerEnv
 	wd  *watchdog
 
-	mu        sync.Mutex
-	buf       strings.Builder
+	mu sync.Mutex
+	// lastMsg holds the most recent contiguous run of agent text — the
+	// agent's final message once the turn ends. Interim think-aloud text
+	// between tool calls is discarded at the next boundary, so it cannot
+	// leak into ResponseText (and from there into output_key captures).
+	lastMsg   strings.Builder
+	inMsg     bool
 	toolCalls int
 	usage     engine.Usage
 }
@@ -276,7 +281,7 @@ type turnState struct {
 func (t *turnState) text() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.buf.String()
+	return t.lastMsg.String()
 }
 
 func (t *turnState) onUpdate(u acp.SessionUpdate) {
@@ -294,13 +299,20 @@ func (t *turnState) onUpdate(u acp.SessionUpdate) {
 	switch u.Kind {
 	case "agent_message_chunk":
 		t.mu.Lock()
-		t.buf.WriteString(u.Text)
+		if !t.inMsg {
+			t.lastMsg.Reset()
+			t.inMsg = true
+		}
+		t.lastMsg.WriteString(u.Text)
 		t.mu.Unlock()
 		t.emit(engine.Event{
 			Kind: engine.EventStageProgress, NodeID: t.env.Node.ID,
 			Message: u.Text, Detail: map[string]string{"kind": "assistant_delta"},
 		})
 	case "tool_call", "tool_call_update":
+		t.mu.Lock()
+		t.inMsg = false
+		t.mu.Unlock()
 		if u.ToolCall == nil {
 			return
 		}
