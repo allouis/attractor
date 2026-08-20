@@ -91,7 +91,7 @@ runs: pass `--ui-token <t>` (it rides the announce).
 
 - `internal/engine` — traversal, retries, loop guards, event log
 - `internal/handler` — codergen / tool / wait.human / parallel + contract checks
-- `internal/backend` — error classification; `acp`, `claudecode`, `router` (provider routing), `fake`
+- `internal/backend` — error classification; `acp`, `router` (provider routing), `fake`
 - `internal/transform` — subgraph inlining, @file prompts, stylesheet
 - `internal/lint` — validation incl. `context_refs`
 - `internal/runserver` + `internal/runview` — the single-run API/UI + event-log folds

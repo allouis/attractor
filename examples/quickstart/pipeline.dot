@@ -1,43 +1,16 @@
-// quickstart: the smallest useful attractor run, showing the node types
-// you'll use most.
-//
-//   • tool       (`context`) — runs a shell command, output recorded
-//   • codergen   (`work`)    — an LLM agent that edits the working tree
-//   • wait.human (`review`)  — a human approval gate with routed choices
-//   • start / exit           — the Mdiamond / Msquare terminals
-//
-// (attractor also has `parallel` fan-out and `subgraph` embedding — see the
-// shipped pipelines under ../../pipelines for those.)
-//
-// Run from inside a git repo you want to change (needs an ACP agent adapter
-// — claude-agent-acp — on your PATH):
-//
-//   attractor run quickstart.dot -var task="add a hello() to README" \
-//     --backend acp --acp-cmd claude-agent-acp --ui
-//
-// Open the http://…/ui URL it prints to watch it live. The agent edits the
-// working tree in place and stops at the gate; nothing is committed or
-// pushed, so you stay in control.
+// The smallest useful pipeline: a shell step, an agent, and a human gate.
+// Run it from inside a Git repository you want to change.
 digraph quickstart {
-    // The one variable this pipeline needs: pass -var task="…".
-    vars = "task"
+    rankdir = "LR"   // Render left-to-right.
+    vars = "task"    // Required. Pass it with -var task="…".
 
-    start [shape=Mdiamond]
-
-    // tool node: record the repo state before the agent starts.
-    context [type="tool", tool_command="git status --short 2>/dev/null || true"]
-
-    // codergen node: the agent works in the current directory. $context.task
-    // is the -var you pass on the command line.
-    work [prompt="You are working in the user's git repository — the current working directory. The user's task:\n\n$context.task\n\nMake the change directly in the working tree. Keep edits small and focused, and match the surrounding code style. When you are done, summarize what you changed and why. Do not commit or push — the user will review the diff."]
-
-    // wait.human gate: a hexagon with routed choices. The edge labels below
-    // become the buttons; their [X] accelerators are the answer keys.
-    review [shape=hexagon, label="Apply this change? Review the diff in your terminal, then choose."]
-
-    done [shape=Msquare]
+    start   [shape=Mdiamond]
+    context [type="tool", tool_command="git status --short"]   // A shell command.
+    work    [prompt="You are working in the current Git repository. Task: $context.task. Make the change in the working tree, keep it small, and summarise it. Do not commit or push."]   // An agent.
+    review  [shape=hexagon, label="Apply this change?"]        // A human gate.
+    done    [shape=Msquare]
 
     start -> context -> work -> review
-    review -> done [label="[A] Approve"]
-    review -> work [label="[R] Revise - run the task again"]
+    review -> done [label="[A] Approve"]   // The edge labels become the gate buttons.
+    review -> work [label="[R] Revise"]
 }
