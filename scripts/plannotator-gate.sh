@@ -45,13 +45,18 @@ while :; do
   if [ "$q" = "null" ] || [ -z "$q" ]; then sleep 5; continue; fi
   qid=$(jq -r '.id' <<<"$q")
 
-  span=$(latest_plan_status)
-  if [ -z "$span" ]; then echo "no $PLAN_NODE span yet?"; sleep 5; continue; fi
+  # The checkpoint context always holds the CURRENT plan_markdown — a
+  # revised plan lands there from revise_plan's span, which a scan of
+  # $PLAN_NODE's spans alone would miss (a stale round-1 plan once got
+  # re-served at a round-2 gate that way).
   plan_md=$(mktemp --suffix=.md)
-  jq -r '.context_updates.plan_markdown // empty' "$span/status.json" >"$plan_md"
+  jq -r '.context.plan_markdown // empty' "$LOGS/checkpoint.json" >"$plan_md" 2>/dev/null
   if [ ! -s "$plan_md" ]; then
-    # Fall back to the raw response when the agent didn't set the key.
-    cp "$span/response.md" "$plan_md"
+    # Fall back to the newest plan-node span when the context has no key.
+    span=$(latest_plan_status)
+    if [ -z "$span" ]; then echo "no plan in checkpoint and no $PLAN_NODE span yet?"; sleep 5; continue; fi
+    jq -r '.context_updates.plan_markdown // empty' "$span/status.json" >"$plan_md"
+    [ -s "$plan_md" ] || cp "$span/response.md" "$plan_md"
   fi
 
   echo "question $qid pending — review at http://$(hostname):$PORT"
