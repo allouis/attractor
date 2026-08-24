@@ -6,7 +6,7 @@ import "runtime/debug"
 
 // Number is the human-facing release version, bumped by hand at release
 // time. Distinct from Revision, which is the exact build's git commit.
-const Number = "0.1.1"
+const Number = "0.1.2"
 
 // Revision is the git revision, injected at build time via
 // `-ldflags "-X …/internal/version.Revision=<rev>"` (the flake sets it from

@@ -52,7 +52,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        version = "0.1.1";
+        version = "0.1.2";
         # Git revision stamped into the binary. Falls back to "dev" for a
         # dirty tree, where self.rev is absent.
         rev = self.rev or self.dirtyRev or "dev";
