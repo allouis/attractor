@@ -311,7 +311,13 @@ async function fetchGateContent(base) {
 
 function paintGateContexts(text) {
   if (!text) return;
-  const shown = text.length > 12000 ? text.slice(-12000) : text;
+  // A gate context is what the human is being asked to review, so keep the
+  // cap generous and never truncate silently — an unmarked cut reads as the
+  // real document (a 15k plan once showed up starting mid-word).
+  const CAP = 60000;
+  const shown = text.length > CAP
+    ? "… [showing last " + CAP.toLocaleString() + " of " + text.length.toLocaleString() + " characters]\n\n" + text.slice(-CAP)
+    : text;
   for (const q of doc.pending_questions || []) {
     const pre = $("gatectx-" + q.id);
     if (pre) pre.textContent = shown;
