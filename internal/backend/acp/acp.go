@@ -233,8 +233,10 @@ func (b *Backend) runTurn(ctx context.Context, client *acp.Client, turn *turnSta
 	if env.Node != nil {
 		b.lastSession.Store(env.Node.ID, sessionID)
 	}
-	// Session setup is done; arm the stall watchdog for the prompt turn so
-	// the countdown measures only in-turn quiet, not the agent's boot.
+	// Session setup is done; arm the response capture and the stall
+	// watchdog for the prompt turn. Chunks streamed before this point are
+	// session/load replay — history, not this turn's response.
+	turn.arm()
 	if turn.wd != nil {
 		turn.wd.start()
 	}
@@ -268,6 +270,12 @@ type turnState struct {
 	wd  *watchdog
 
 	mu sync.Mutex
+	// armed gates the capture to the live prompt turn: session/load replays
+	// the prior conversation as message chunks BEFORE session/prompt is
+	// sent, and replayed history must never enter ResponseText. arm() is
+	// called at prompt dispatch; everything earlier is history by
+	// construction.
+	armed bool
 	// lastMsg holds the most recent contiguous run of agent text — the
 	// agent's final message once the turn ends. Interim think-aloud text
 	// between tool calls is discarded at the next boundary, so it cannot
@@ -276,6 +284,12 @@ type turnState struct {
 	inMsg     bool
 	toolCalls int
 	usage     engine.Usage
+}
+
+func (t *turnState) arm() {
+	t.mu.Lock()
+	t.armed = true
+	t.mu.Unlock()
 }
 
 func (t *turnState) text() string {
@@ -299,6 +313,10 @@ func (t *turnState) onUpdate(u acp.SessionUpdate) {
 	switch u.Kind {
 	case "agent_message_chunk":
 		t.mu.Lock()
+		if !t.armed {
+			t.mu.Unlock()
+			return
+		}
 		if !t.inMsg {
 			t.lastMsg.Reset()
 			t.inMsg = true
