@@ -58,6 +58,14 @@ func Document(m engine.Manifest, events []engine.Event) RunDoc {
 			doc.LastSeq = ev.Seq
 		}
 		switch ev.Kind {
+		case engine.EventPipelineStarted:
+			// A resumed run appends to the prior incarnation's event log, so
+			// that log still carries the earlier terminal event. Starting
+			// again supersedes it: the run is live, and the old failure is
+			// not this incarnation's outcome.
+			doc.Status = "running"
+			doc.FailureReason = ""
+			doc.EndedAt = time.Time{}
 		case engine.EventPipelineCompleted:
 			doc.Status = "completed"
 			doc.EndedAt = ev.Timestamp

@@ -68,3 +68,25 @@ func TestDocument_PendingQuestions(t *testing.T) {
 		t.Fatalf("question payload missing: %+v", doc.PendingQuestions[0])
 	}
 }
+
+// A resumed run appends to the prior incarnation's events.jsonl, so the
+// earlier pipeline_failed is still in the log. Restarting must clear it:
+// otherwise the run view shows a live run as failed, with the stale reason
+// from the attempt that was resumed (observed on run 3314018d85b9).
+func TestBuildDocPipelineStartedClearsPriorFailure(t *testing.T) {
+	events := []engine.Event{
+		{Seq: 1, Kind: engine.EventPipelineStarted, NodeID: "start"},
+		{Seq: 2, Kind: engine.EventPipelineFailed, Message: "conflicts with the approved plan"},
+		{Seq: 3, Kind: engine.EventPipelineStarted, NodeID: "synth"},
+	}
+	doc := Document(engine.Manifest{RunID: "r1"}, events)
+	if doc.Status != "running" {
+		t.Fatalf("status = %q, want running after a restart", doc.Status)
+	}
+	if doc.FailureReason != "" {
+		t.Fatalf("failure_reason = %q, want it cleared by the restart", doc.FailureReason)
+	}
+	if !doc.EndedAt.IsZero() {
+		t.Fatalf("ended_at = %v, want zero for a running run", doc.EndedAt)
+	}
+}

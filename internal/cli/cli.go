@@ -153,6 +153,12 @@ func Run(args []string) error {
 	logsRoot := *logs
 	if logsRoot == "" {
 		logsRoot = filepath.Join(defaultLogsRoot(), localRunID)
+	} else if prior := priorRunID(logsRoot); prior != "" {
+		// Resuming into an existing run directory: the engine restores that
+		// run's identity from run.json, so announce and archive under it too.
+		// A fresh id here would leave the hub tracking a run the engine never
+		// reports on.
+		localRunID = prior
 	}
 	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
 		return err
@@ -308,6 +314,20 @@ func providerBackend(g *graph.Graph, stylesheetProvided bool) (backend.CodergenB
 // with the `-var` vars so `$context.<var>` resolves at runtime (C3).
 func runEngine(prepared *engine.PreparedGraph, cb backend.CodergenBackend, iv interviewer.Interviewer, logsRoot string, jsonOut bool, initialContext map[string]string) error {
 	return runEngineWithID(prepared, cb, iv, logsRoot, jsonOut, initialContext, "")
+}
+
+// priorRunID reads the run id recorded in a run directory's run.json, or
+// "" when the directory holds no prior run.
+func priorRunID(logsRoot string) string {
+	data, err := os.ReadFile(filepath.Join(logsRoot, "run.json"))
+	if err != nil {
+		return ""
+	}
+	var m engine.Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return ""
+	}
+	return m.RunID
 }
 
 // runEngineWithID is runEngine with an explicit run id, so the single-run
