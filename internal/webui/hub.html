@@ -59,7 +59,7 @@
 </form>
 <table id="runs" style="display:none">
   <thead><tr>
-    <th>run</th><th>pipeline</th><th>goal</th><th>status</th><th></th>
+    <th>run</th><th>pipeline</th><th>name</th><th>status</th><th></th>
     <th>doing</th><th>dur</th><th>where</th><th>started</th><th></th>
   </tr></thead>
   <tbody id="rows"></tbody>
@@ -140,10 +140,13 @@ async function refresh() {
       const end = d.ended_at ? Date.parse(d.ended_at) : Date.now();
       const dur = isNaN(start) ? "" : fmtDur(end - start);
       const doing = status === "running" ? (d.active_nodes || []).join(", ") : "";
+      // Prefer the human --name label; fall back to the goal for unnamed
+      // runs. The full goal stays available on hover either way.
+      const label = d.name || d.goal || "";
       tr.innerHTML =
         `<td class="run"><a href="/ui/${encodeURIComponent(r.run_id)}">${esc(r.run_id)}</a></td>` +
         `<td>${pipelineBadge(d.graph_name)}</td>` +
-        `<td class="goal" title="${esc(d.goal)}">${esc(d.goal)}</td>` +
+        `<td class="goal" title="${esc(d.goal)}">${esc(label)}</td>` +
         `<td><span class="pill ${status}">${status}</span></td>` +
         `<td>${gates ? `<span class="pill running" title="${gates} gate(s) waiting for a human">⏸ ${gates}</span>` : ""}</td>` +
         `<td class="active" title="${esc(doing)}">${esc(doing)}</td>` +
