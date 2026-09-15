@@ -139,6 +139,7 @@ func (h *Hub) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /announce", h.announce)
 	mux.HandleFunc("GET /runs", h.listRuns)
+	mux.HandleFunc("DELETE /runs/{id}", h.dismissRun)
 	mux.HandleFunc("GET /pipelines", h.listPipelines)
 	mux.HandleFunc("GET /pipelines/{id}", h.getPipeline)
 	mux.HandleFunc("GET /pipelines/{id}/events", h.proxyOrArchive("/events"))
@@ -349,6 +350,43 @@ func (h *Hub) listRuns(w http.ResponseWriter, r *http.Request) {
 		return out[i].RunID < out[j].RunID
 	})
 	writeJSON(w, out)
+}
+
+// dismissRun forgets a run for good. An archived run has its unpacked
+// dir deleted; an unreachable live run (announced, but its server is
+// gone) is dropped from the live registry so it stops cluttering the
+// list. A *reachable* live run is refused (409) — it would only
+// re-announce — and an id the hub has never seen is a 404.
+func (h *Hub) dismissRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	h.mu.Lock()
+	lr, live := h.live[id]
+	reachable := live && lr.reachable
+	if live && !reachable {
+		delete(h.live, id)
+	}
+	h.mu.Unlock()
+
+	if reachable {
+		http.Error(w, "run is live; cannot dismiss", http.StatusConflict)
+		return
+	}
+	if live { // forgot an unreachable live entry
+		h.saveAnnounces()
+	}
+
+	dir := h.runDir(id)
+	_, statErr := os.Stat(dir)
+	if statErr == nil {
+		if err := os.RemoveAll(dir); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if !live {
+		http.Error(w, "no such run", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Hub) listPipelines(w http.ResponseWriter, r *http.Request) {

@@ -138,6 +138,85 @@ func TestHub_RunsSortedNewestFirst(t *testing.T) {
 	}
 }
 
+// An archived run can be dismissed for good: DELETE /runs/{id} removes
+// the archive dir and it drops off the listing.
+func TestHub_DismissArchivedRun(t *testing.T) {
+	h, ts := newHub(t)
+	writeArchivedRun(t, h.dir, "r-old", time.Date(2026, 8, 13, 9, 0, 0, 0, time.UTC))
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/runs/r-old", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 204 {
+		t.Fatalf("dismiss status %d, want 204", resp.StatusCode)
+	}
+	if list := getJSON[[]hubRunSummary](t, ts.URL+"/runs"); len(list) != 0 {
+		t.Fatalf("dismissed run still listed: %+v", list)
+	}
+	if _, err := os.Stat(filepath.Join(h.dir, "runs", "r-old")); !os.IsNotExist(err) {
+		t.Fatalf("archive dir not removed: %v", err)
+	}
+}
+
+// A reachable live run cannot be dismissed — it would just re-announce.
+// The hub refuses with 409 and keeps listing it.
+func TestHub_DismissLiveRunRefused(t *testing.T) {
+	runURL, runID := startRun(t, "running")
+	h, ts := newHub(t)
+	postJSON(t, ts.URL+"/announce", map[string]string{"run_id": runID, "url": runURL})
+	h.ScrapeAll()
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/runs/"+runID, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 409 {
+		t.Fatalf("dismiss-live status %d, want 409", resp.StatusCode)
+	}
+	if list := getJSON[[]hubRunSummary](t, ts.URL+"/runs"); len(list) != 1 {
+		t.Fatalf("live run vanished after refused dismiss: %+v", list)
+	}
+}
+
+// An unreachable live run (announced, but its server is dead) is stuck
+// forever otherwise — it never archives and can't be re-listed clean.
+// Dismiss must be able to forget it, dropping it from the live set.
+func TestHub_DismissUnreachableLiveRun(t *testing.T) {
+	runURL, runID := startRun(t, "running")
+	_, ts := newHub(t)
+	postJSON(t, ts.URL+"/announce", map[string]string{"run_id": runID, "url": runURL})
+	// Re-announce a dead URL: the synchronous scrape marks it unreachable.
+	postJSON(t, ts.URL+"/announce", map[string]string{"run_id": runID, "url": "http://127.0.0.1:1"})
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/runs/"+runID, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 204 {
+		t.Fatalf("dismiss-unreachable status %d, want 204", resp.StatusCode)
+	}
+	if list := getJSON[[]hubRunSummary](t, ts.URL+"/runs"); len(list) != 0 {
+		t.Fatalf("unreachable run still listed after dismiss: %+v", list)
+	}
+}
+
+// Dismissing an unknown run is a 404, not a silent success.
+func TestHub_DismissUnknownRun(t *testing.T) {
+	_, ts := newHub(t)
+	req, _ := http.NewRequest("DELETE", ts.URL+"/runs/nope", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 404 {
+		t.Fatalf("dismiss-unknown status %d, want 404", resp.StatusCode)
+	}
+}
+
 // Archive-on-complete: the run ships a tar.gz of its run dir; the hub
 // stores it as the permanent record and serves the archived doc even
 // after the run server is gone.
