@@ -230,5 +230,6 @@ type Manifest struct {
 	RunID     string    `json:"run_id"`
 	GraphName string    `json:"graph_name"`
 	Goal      string    `json:"goal"`
+	Name      string    `json:"name,omitempty"`
 	StartedAt time.Time `json:"started_at"`
 }

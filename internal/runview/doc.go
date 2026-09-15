@@ -15,6 +15,7 @@ type RunDoc struct {
 	RunID     string    `json:"run_id"`
 	GraphName string    `json:"graph_name,omitempty"`
 	Goal      string    `json:"goal,omitempty"`
+	Name      string    `json:"name,omitempty"`
 	StartedAt time.Time `json:"started_at,omitzero"`
 	// Status: running | completed | failed.
 	Status        string    `json:"status"`
@@ -47,6 +48,7 @@ func Document(m engine.Manifest, events []engine.Event) RunDoc {
 	doc := RunDoc{
 		RunID:     m.RunID,
 		GraphName: m.GraphName,
+		Name:      m.Name,
 		Goal:      m.Goal,
 		StartedAt: m.StartedAt,
 		Status:    "running",

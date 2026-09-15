@@ -111,11 +111,21 @@ func Run(args []string) error {
 	uiToken := fs.String("ui-token", "", "require `Authorization: Bearer <token>` on the loopback and any public/LAN bind (mandatory for a public/LAN --ui-addr); the tailnet bind stays token-free. Shared with the hub via announce")
 	var vars varFlags
 	fs.Var(&vars, "var", "set a pipeline variable (repeatable): -var name=value")
+	nameFlag := fs.String("name", "", "human label for this run, shown in the hub listing (else the run id)")
 	var stylesheets stringListFlag
 	fs.Var(&stylesheets, "stylesheet", "external model stylesheet file (repeatable; later files cascade over earlier): --stylesheet models.css")
 	positional, err := parseFlexible(fs, args)
 	if err != nil {
 		return err
+	}
+	if *nameFlag != "" {
+		if vars == nil {
+			vars = varFlags{}
+		}
+		// Reserved key: the engine folds run.name into the manifest as the
+		// run's label (mirrors graph.goal). Kept out of the user var space
+		// by the run.* prefix.
+		vars["run.name"] = *nameFlag
 	}
 	if len(positional) < 1 {
 		return fmt.Errorf("run: expected a pipeline name or .dot path")

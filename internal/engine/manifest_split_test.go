@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,5 +48,35 @@ func TestEngineWritesRunJSONNotManifest(t *testing.T) {
 	}
 	if string(got) != string(daemonManifest) {
 		t.Fatalf("engine clobbered daemon manifest.json: got %q, want %q", got, daemonManifest)
+	}
+}
+
+// The reserved run.name context key (the CLI's --name flag) is stamped
+// into run.json as a human label so the hub can show it instead of an
+// opaque run id.
+func TestEngineStampsRunName(t *testing.T) {
+	logs := t.TempDir()
+	reg := NewRegistry()
+	reg.Register("start", okHandler{})
+	reg.Register("probe", okHandler{})
+	eng := New(Config{
+		Registry:       reg,
+		LogsRoot:       logs,
+		RunID:          "eng123",
+		InitialContext: map[string]string{"run.name": "envconfig bug"},
+	})
+	if _, err := eng.Run(&PreparedGraph{Graph: buildGraph(t, splitGraph)}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(logs, "run.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Name != "envconfig bug" {
+		t.Fatalf("run.json Name = %q, want %q", m.Name, "envconfig bug")
 	}
 }

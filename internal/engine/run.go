@@ -437,7 +437,7 @@ func (e *Engine) loadOrInitState(g *graph.Graph) (state *runState, fresh bool, e
 	if err != nil {
 		return nil, false, err
 	}
-	if err := e.writeManifest(g, ctx.Get("graph.goal")); err != nil {
+	if err := e.writeManifest(g, ctx.Get("graph.goal"), ctx.Get("run.name")); err != nil {
 		return nil, false, err
 	}
 	return &runState{
@@ -842,11 +842,12 @@ func firstResolvedTarget(g *graph.Graph, node *graph.Node, keys ...string) strin
 // writeManifest persists the engine's run identity record to run.json
 // (historically distinct from a daemon-owned manifest.json; the name
 // stuck and old run dirs still load — spec §5.6 amendment A1 notes it).
-func (e *Engine) writeManifest(g *graph.Graph, goal string) error {
+func (e *Engine) writeManifest(g *graph.Graph, goal, name string) error {
 	m := Manifest{
 		RunID:     e.RunID,
 		GraphName: g.Name,
 		Goal:      goal,
+		Name:      name,
 		StartedAt: e.now(),
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
