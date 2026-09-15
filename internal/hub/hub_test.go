@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/allouis/attractor/internal/engine"
 	"github.com/allouis/attractor/internal/runserver"
@@ -114,6 +115,26 @@ func TestHub_UnreachableRunStaysListed(t *testing.T) {
 	}
 	if list[0].Reachable {
 		t.Fatalf("dead run still marked reachable: %+v", list[0])
+	}
+}
+
+// /runs must come back in a stable, newest-first order. Live runs are
+// held in a map, so an unsorted listing shuffles on every poll (spec:
+// the hub row order must not depend on map iteration). Two archived
+// runs whose name order is the reverse of their start-time order pin
+// the sort: started_at desc wins over the ReadDir name order.
+func TestHub_RunsSortedNewestFirst(t *testing.T) {
+	h, ts := newHub(t)
+	// name "aaa" started earlier, "zzz" started later.
+	writeArchivedRun(t, h.dir, "aaa", time.Date(2026, 8, 13, 9, 0, 0, 0, time.UTC))
+	writeArchivedRun(t, h.dir, "zzz", time.Date(2026, 8, 13, 11, 0, 0, 0, time.UTC))
+
+	list := getJSON[[]hubRunSummary](t, ts.URL+"/runs")
+	if len(list) != 2 {
+		t.Fatalf("want 2 runs, got %+v", list)
+	}
+	if list[0].RunID != "zzz" || list[1].RunID != "aaa" {
+		t.Fatalf("runs not newest-first: got %s, %s", list[0].RunID, list[1].RunID)
 	}
 }
 

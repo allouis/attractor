@@ -10,11 +10,27 @@ import (
 	"github.com/allouis/attractor/internal/engine"
 )
 
+// writeArchivedRun materializes a completed run dir under
+// <hubDir>/runs/<runID> with a chosen StartedAt, as archivedDoc would
+// unpack it. Used to pin the /runs ordering.
+func writeArchivedRun(t *testing.T, hubDir, runID string, started time.Time) {
+	t.Helper()
+	dir := filepath.Join(hubDir, "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeRunDirAt(t, dir, runID, "completed", started)
+}
+
 // writeRunDir materializes a minimal run dir: run.json + events.jsonl.
 // status "completed" appends the terminal event.
 func writeRunDir(t *testing.T, dir, runID, status string) {
+	writeRunDirAt(t, dir, runID, status, time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC))
+}
+
+func writeRunDirAt(t *testing.T, dir, runID, status string, started time.Time) {
 	t.Helper()
-	m := engine.Manifest{RunID: runID, GraphName: "g", Goal: "fix", StartedAt: time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)}
+	m := engine.Manifest{RunID: runID, GraphName: "g", Goal: "fix", StartedAt: started}
 	data, _ := json.Marshal(m)
 	if err := os.WriteFile(filepath.Join(dir, "run.json"), data, 0o644); err != nil {
 		t.Fatal(err)

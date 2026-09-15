@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,7 @@ type hubRunSummary struct {
 	Reachable bool      `json:"reachable"`
 	Archived  bool      `json:"archived"`
 	LastSeen  time.Time `json:"last_seen,omitzero"`
+	StartedAt time.Time `json:"started_at,omitzero"`
 }
 
 // New returns a Hub rooted at dir, reloading any announces persisted
@@ -320,6 +322,7 @@ func (h *Hub) listRuns(w http.ResponseWriter, r *http.Request) {
 		s := hubRunSummary{RunID: lr.RunID, URL: lr.URL, Reachable: lr.reachable, LastSeen: lr.lastSeen}
 		if lr.lastDoc != nil {
 			s.Status = lr.lastDoc.Status
+			s.StartedAt = lr.lastDoc.StartedAt
 		}
 		out = append(out, s)
 		seen[lr.RunID] = true
@@ -332,9 +335,19 @@ func (h *Hub) listRuns(w http.ResponseWriter, r *http.Request) {
 		s := hubRunSummary{RunID: id, Archived: true}
 		if doc, err := h.archivedDoc(id); err == nil {
 			s.Status = doc.Status
+			s.StartedAt = doc.StartedAt
 		}
 		out = append(out, s)
 	}
+	// Stable, newest-first order: live runs live in a map, so without this
+	// the listing shuffles on every poll. Tiebreak by run id for runs that
+	// share (or lack) a start time.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].StartedAt.After(out[j].StartedAt)
+		}
+		return out[i].RunID < out[j].RunID
+	})
 	writeJSON(w, out)
 }
 
