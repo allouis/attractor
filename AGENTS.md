@@ -87,6 +87,11 @@ The hub pulls each live run's own API and stores its completion archive as
 the permanent record — pull-only, so a hub outage never loses data. Remote
 runs: pass `--ui-token <t>` (it rides the announce).
 
+Its `/ui` listing shows one row per run, newest first, with a pipeline
+badge, the `--name` label (else goal), duration, and the active node
+while live. `DELETE /runs/{id}` (the `×` button) forgets an archived or
+unreachable-live run; a reachable live run is refused (409).
+
 ## Repo layout
 
 - `internal/engine` — traversal, retries, loop guards, event log

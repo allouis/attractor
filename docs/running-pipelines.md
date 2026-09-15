@@ -54,6 +54,7 @@ attractor run <name-or-path> [flags]
 | Flag | Purpose |
 |---|---|
 | `-var name=value` | Seed a pipeline variable (repeatable). |
+| `--name "<label>"` | Human label for the run, shown in the hub listing / `attractor runs` instead of the opaque run id (unnamed runs fall back to the goal). Seeds a reserved `run.name` context key, not a pipeline var. |
 | `--stylesheet <file>` | External model stylesheet (repeatable, cascading). See Models. |
 | `--cwd <dir>` | Working tree the pipeline operates in (graph-level cwd default). |
 | `--backend acp\|simulation` | Run-wide backend override (bypasses config). |
