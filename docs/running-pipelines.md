@@ -115,7 +115,7 @@ their diagnostics to stdout/stderr — the fix agent is handed that output.
 | `review-pr` | `repo,pr_number,title` | Diff-based via `gh pr diff`; no checkout. |
 | `revise-pr` | `repo,pr_number,bookmark,workspace_revision` + `check.*` | `workspace_revision` must be the PR bookmark. Baseline checks + review + fix loop + ship→push. |
 | `amend-pr` | `repo,pr_number,bookmark,workspace_revision,brief` + `check.*` | The full plan→build→review cycle on an existing PR: plan (human gate) → implement → checks → review → ship → push back in place. |
-| `plan-build-review` | `brief,base` + `check.*` | plan (human gate) → implement → checks → review → ship → draft PR. `brief` is the freeform task; `base` = target branch. |
+| `plan-build-review` | `brief,base` + `check.*` | plan (human gate) → implement → checks → review → ship → pushed branch. `brief` is the freeform task; `base` = target branch. |
 
 ## Models
 
@@ -221,9 +221,9 @@ An unattended dispatch of a gated pipeline needs `--human approve` or a
 - **Auth.** `claude-agent-acp` reads `~/.claude/.credentials.json` (from a
   `claude` login) or `ANTHROPIC_API_KEY`; `codex-acp` needs its own auth.
   Auth/config errors fail the run immediately (not retried).
-- **External side-effects are real.** `plan-build-review`'s `open_pr` opens a draft
-  PR; `revise-pr` pushes the branch. These fire when the ship gate passes —
-  shipping a run performs a GitHub write.
+- **External side-effects are real.** `plan-build-review`'s `push_branch` and
+  `revise-pr` push a branch. These fire when the ship gate passes —
+  shipping a run performs a remote write.
 - **Review pipelines** run the correctness lens on the built-in `codex`
   provider; just pass a `--stylesheet` covering `.review`.
 - **VM / isolation.** The pipeline runs wherever `attractor run` runs;

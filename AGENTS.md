@@ -40,7 +40,7 @@ Use the wrapped `./result/bin/attractor` for agent runs (not a bare
 ## Running pipelines
 
 The task is one freeform `brief` (issue text, a spec milestone, or a plain
-paragraph); `base` is the target branch a draft PR lands on.
+paragraph); `base` is the branch the work is built and reviewed against.
 
 **The one gotcha — backend selection:** with **no** `--backend`, each node
 routes through the built-in providers (real agents) and per-node models come
@@ -53,7 +53,7 @@ Dispatch command sheet (per-pipeline var contracts, gates, remote viewing):
 
 Dogfood attractor on itself — hand `plan-build-review` a brief, pointed at
 this repo. It plans, human-gates, implements, runs the checks + five-lens
-review, and opens a draft PR:
+review, and pushes a branch:
 
 ```bash
 ./result/bin/attractor run --ui --cwd $PWD --stylesheet pipelines/models.css \

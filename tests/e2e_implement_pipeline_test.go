@@ -189,11 +189,11 @@ func TestImplementPipeline_SelfReviewGate(t *testing.T) {
 		t.Fatal("review_loop should route to a human ship gate on outcome=success")
 	}
 
-	// The ship gate approves into a publish (draft-PR) codergen node that
+	// The ship gate approves into a publish (push-branch) tool node that
 	// reaches exit; its other branch requests changes via the responder.
 	var publishID string
 	for _, e := range g.OutgoingEdges(shipID) {
-		if g.Nodes[e.To].Type() != "codergen" {
+		if g.Nodes[e.To].Type() != "tool" {
 			continue
 		}
 		for _, oe := range g.OutgoingEdges(e.To) {

@@ -25,7 +25,7 @@
 .plan    { llm_model: claude-fable-5[1m] }   /* plan, revise_plan            */
 .build   { llm_model: claude-opus-4-8[1m] }  /* implement, fix_checks, respond_to_review */
 .review  { llm_model: claude-opus-4-8[1m] }  /* review-core lenses + synth   */
-.publish { llm_model: claude-fable-5[1m] }   /* open_pr, push_updates, record */
+.publish { llm_model: claude-fable-5[1m] }   /* push_updates, record */
 
 /* Finer classes — nodes carry a second class you can target more tightly:
  *   class="build, coder"      implement

@@ -187,7 +187,7 @@ The shipped pipelines live under `pipelines/`:
 
 | Pipeline | Purpose |
 |---|---|
-| `plan-build-review` | Plan a change, gate the plan, implement it, run checks, review it, gate the ship, open a draft PR. |
+| `plan-build-review` | Plan a change, gate the plan, implement it, run checks, review it, gate the ship, push a branch. |
 | `amend-pr` | The same plan-build-review cycle on an existing PR, pushed back in place. |
 | `review-pr` | Review a PR from its diff, no checkout. |
 | `revise-pr` | Check, review, and fix a PR branch, then push. |

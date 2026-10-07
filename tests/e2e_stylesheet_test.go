@@ -31,7 +31,6 @@ func TestStylesheet_AppliesToImplementIncludingInlinedReview(t *testing.T) {
 		"plan":                    "claude-fable-5[1m]",  // .plan
 		"implement":               "claude-opus-4-8[1m]", // .build
 		"fix_checks":              "claude-opus-4-8[1m]", // .build
-		"open_pr":                 "claude-fable-5[1m]",  // .publish
 		"review_loop.design":      "claude-opus-4-8[1m]", // inlined .review
 		"review_loop.synth":       "claude-opus-4-8[1m]", // inlined .review
 		"review_loop.correctness": "gpt-5.6-sol[high]",   // explicit codex pin wins

@@ -58,9 +58,9 @@ Read from each `pipeline.dot`'s `vars=` line plus checks-core's
 | `checks` | `repo`, `check.*` |
 
 - **plan-build-review** — `brief` is the freeform task (issue text, spec
-  milestone, or a paragraph); `base` is the target branch a draft PR lands
-  on. plan (human gate) → implement → checks → five-lens review → ship gate
-  → draft PR.
+  milestone, or a paragraph); `base` is the branch the work is built and reviewed
+  against. plan (human gate) → implement → checks → five-lens review → ship gate
+  → pushed branch.
 - **amend-pr** — full plan→build→review cycle on an EXISTING PR, pushed back
   to the same PR. The workspace **must be materialized at the PR branch**
   (its commits are `@`'s ancestors), else it silently amends the host's `@`.
@@ -175,6 +175,6 @@ supplies deps hermetically):
   plan-build-review
 ```
 
-`open_pr` opens a draft PR and revise-pr/amend-pr push the branch when the
+`push_branch` and revise-pr/amend-pr push the branch when the
 ship gate passes — shipping performs a GitHub write. Confirm intent before
 shipping a side-effecting run.

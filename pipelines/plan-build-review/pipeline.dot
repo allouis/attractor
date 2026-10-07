@@ -1,6 +1,6 @@
 // plan-build-review — build the change a brief asks for: plan (human-gated),
 // implement in small jj commits, deterministic static checks, an
-// adversarial self-review, a human ship gate, then a draft PR.
+// adversarial self-review, a human ship gate, then a pushed branch.
 //
 // The task is a single freeform `brief` — the orchestrator assembles it
 // however it likes (an issue's title+body+url, a spec milestone, or a plain
@@ -35,7 +35,7 @@
 // `implement` on failure. `review_loop` runs the shared review-core
 // sub-pipeline against everything since `base` — committed work plus any
 // stray working-copy changes. A PASS reaches the human ship gate; shipping
-// opens a draft PR (base = $context.base) on the repo's GitHub remote.
+// pushes the work to a `push-*` bookmark on the remote; no PR is opened.
 digraph plan_build_review {
     // D1: transient backend failures (429/5xx, stalls, network) retry
     // with backoff instead of killing the run.
@@ -122,9 +122,17 @@ digraph plan_build_review {
 
     ship [type="wait.human", label="Ship these changes? (checks + self-review passed)"]
 
-    // Publish: push the committed work and open a draft PR for human review.
-    open_pr [type="codergen", class="publish", thread_id="publish",
-             fidelity="full", timeout="15m", prompt="@prompts/open-pr.md"]
+    // Everything must be committed before review: push ships @- only, so
+    // stray working-copy changes would silently stay behind. A dirty tree
+    // routes to fix_checks to commit them (the failure text lists the files).
+    tree_clean [type="tool", timeout="1m",
+                tool_command="if [ -n \"$(jj diff -r @ --summary)\" ]; then echo 'Uncommitted working-copy changes; commit them with jj:'; jj diff -r @ --summary; exit 1; fi"]
+
+    // Publish: push to an auto-named `push-*` bookmark and print its name
+    // (lands in $context.tool.output). Push chatter goes to stderr so
+    // stdout is just the branch name.
+    push_branch [type="tool", timeout="5m",
+                 tool_command="jj git push --change @- >&2 && jj log -r @- --no-graph -T bookmarks"]
 
     done [shape=Msquare]
 
@@ -138,11 +146,13 @@ digraph plan_build_review {
     implement         -> checks
     fix_checks        -> checks
     respond_to_review -> checks
-    checks -> review_loop        [condition="outcome=success"]
+    checks -> tree_clean         [condition="outcome=success"]
     checks -> fix_checks         [condition="outcome=fail", label="Fix checks"]
+    tree_clean -> review_loop    [condition="outcome=success"]
+    tree_clean -> fix_checks     [condition="outcome=fail", label="Commit stray changes"]
     review_loop -> ship              [condition="outcome=success"]
     review_loop -> respond_to_review [condition="outcome=fail", label="Address findings"]
-    ship -> open_pr           [label="[S] Ship"]
+    ship -> push_branch       [label="[S] Ship"]
     ship -> respond_to_review [label="[C] Request changes"]
-    open_pr -> done
+    push_branch -> done
 }
