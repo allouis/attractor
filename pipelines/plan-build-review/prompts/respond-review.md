@@ -4,6 +4,23 @@ checks and review will run again.
 Blocking findings from the adversarial review (empty if you were sent
 here by the human at the ship gate instead):
 
+You are not obliged to comply with every finding. You can see the approved
+plan and the conversation that produced it; the reviewers saw only the diff,
+so they cannot tell a deliberate decision from an accident.
+
+If a blocking finding objects to something the plan deliberately decided —
+not a mistake in carrying it out, but the decision itself — do NOT change the
+code to satisfy it. Say so plainly instead: name the finding, name the
+decision it contradicts and where the plan states it, and explain why the
+decision stands. Record that in your response so it survives into the next
+round and a human can see it at the ship gate. Changing approved behaviour to
+silence a reviewer is worse than leaving the finding open: it undoes a
+decision a human already made, and nobody involved notices.
+
+Where a finding is right — the code is wrong on its own terms, or does not do
+what the plan decided — fix it as normal.
+
+
 ---
 $context.failure_reason
 ---
