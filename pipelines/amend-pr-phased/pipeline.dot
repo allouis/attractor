@@ -1,0 +1,225 @@
+// amend-pr-phased — amend an existing PR in two phases, because amendment
+// feedback comes in two kinds that need opposite handling.
+//
+// HISTORY feedback ("split this commit", "this message no longer matches")
+// produces NO code change: the tree is byte-identical before and after and
+// absorb is a no-op. It runs FIRST, with jj split / squash / describe.
+//
+// It goes first because of what `jj absorb` does: it places each hunk in the
+// commit that last touched those lines. Restructure afterwards and absorb made
+// its placement decision against a stack shape that is about to stop existing —
+// a hunk absorbed into commit 2 ends up on whichever side of a later split it
+// happens to fall. Split first and absorb targets 2a or 2b precisely.
+//
+// CODE feedback ("this guard is in the wrong place", "delete this hack")
+// produces hunks. It is written as one flat working commit on top of the
+// already-restructured stack, reviewed as an ordinary diff, and only then
+// folded in. Reviewing before folding means the lenses and the human read a
+// normal diff rather than a rewritten stack.
+//
+// The one case that cannot go first is a history point about work the code
+// phase has not written yet ("put the new helper in its own commit"). That is
+// handled at fold, which places newly written work and may create a commit for
+// it — "arrange new work" is fold's job, "rearrange existing work" is
+// restructure's.
+//
+// Each phase has a cheap mechanical invariant:
+//   history phase -> the TREE must not change. Asserted as an EMPTY diff
+//     against <bookmark>@origin, the pushed PR tip, which rewriting cannot
+//     move. Do not assert this by comparing two snapshots of `jj diff`:
+//     it renders files concurrently and emits them in completion order, so
+//     two captures of one unchanged tree differ by block order alone.
+//   code phase    -> no EXISTING commit may vanish or change subject
+// A restructuring that alters the tree smuggled in a code change; a code phase
+// that rewrites existing subjects restructured behind your back. Both are
+// asserted by tool nodes rather than trusted to an agent.
+//
+//   attractor run /path/to/this/pipeline.dot \
+//     --stylesheet /path/to/claude.css --cwd /path/to/repo --ui \
+//     -var repo=owner/name -var pr_number=42 \
+//     -var bookmark=my-branch -var workspace_revision=my-branch \
+//     -var feedback_doc=/path/to/feedback.md \
+//     -var preflight='<command, or empty to skip>' \
+//     -var 'check.deps=…' -var 'check.typecheck=…' \
+//     -var 'check.lint=…'  -var 'check.test=…'
+//
+// The workspace MUST be materialized at the PR branch (its commits are the
+// working copy's ancestors), same rule as amend-pr.
+digraph amend_pr_phased {
+    default_max_retries = 2
+    goal = ""
+    vars = "repo,pr_number,bookmark,workspace_revision,feedback_doc,preflight,check.deps,check.typecheck,check.lint,check.test"
+    max_node_visits = 12
+
+    start [shape=Mdiamond]
+
+    // A full or wedged test environment fails exactly like broken code and
+    // sends the fixer off to repair a diff that was never wrong. Fail here
+    // instead, in seconds, with the actual reason.
+    preflight [type="tool", shape="parallelogram", timeout="5m",
+               tool_command="$context.preflight"]
+
+    // Record the stack shape and the tree, so the phase invariants below have
+    // something to compare against. Written to files rather than context
+    // because tool nodes cannot populate output_key.
+    baseline [type="tool", shape="parallelogram", timeout="5m",
+              tool_command="jj log -r 'trunk()..@' --no-graph --color=never -T 'commit_id.short() ++ \" \" ++ description.first_line() ++ \"\\n\"' > /tmp/amend-stack-before.txt && echo 'baseline stack recorded:' && cat /tmp/amend-stack-before.txt"]
+
+    plan [type="codergen", shape="box", class="plan", thread_id="plan",
+          fidelity="full", timeout="30m",
+          output_key="plan_markdown", prompt="@prompts/plan.md"]
+    revise_plan [type="codergen", shape="box", class="plan, revise", thread_id="plan",
+                 fidelity="full", timeout="30m",
+                 output_key="plan_markdown", prompt="@prompts/revise-plan.md"]
+    plan_gate [type="wait.human", shape="hexagon",
+               label="Does this amendment plan make sense? (code + history phases)"]
+
+    // ---- PHASE 1: history -------------------------------------------------
+
+    implement [type="codergen", shape="box", class="build, coder", thread_id="build",
+               fidelity="full", timeout="120m", prompt="@prompts/implement-code.md"]
+
+    check_deps      [type="tool", shape="parallelogram", timeout="20m", tool_command="$context.check.deps"]
+    check_typecheck [type="tool", shape="parallelogram", timeout="20m", tool_command="$context.check.typecheck"]
+    check_lint      [type="tool", shape="parallelogram", timeout="20m", tool_command="$context.check.lint"]
+    check_test      [type="tool", shape="parallelogram", timeout="60m", tool_command="$context.check.test"]
+    fix_checks [type="codergen", shape="box", class="build, fixer", thread_id="build",
+                fidelity="full", timeout="60m",
+                prompt="@../plan-build-review/prompts/fix-checks.md"]
+
+    // Three lenses, not five. design and simplification judge architecture,
+    // which was settled when the PR's own plan was approved; on a small delta
+    // they cannot see the whole, so they reconstruct it — which is how
+    // amendment rounds turn into re-litigation of the original design.
+    review_fan_out [type="parallel", shape="component"]
+
+    lens_fidelity [type="codergen", shape="box", class="review, lens",
+                   fidelity="truncate", output_key="review.fidelity", timeout="30m",
+                   prompt="@prompts/lens-fidelity.md"]
+    lens_correctness [type="codergen", shape="box", class="review, lens",
+                      fidelity="truncate", output_key="review.correctness", timeout="30m",
+                      prompt="@prompts/lens-correctness.md"]
+    lens_tests [type="codergen", shape="box", class="review, lens",
+                fidelity="truncate", output_key="review.tests", timeout="30m",
+                prompt="@prompts/lens-tests.md"]
+
+    synth [type="codergen", shape="box", class="review, synth", require_status="true",
+           timeout="15m", outputs="review.summary,review.verdict,review.blocking",
+           prompt="@prompts/synth.md"]
+
+    respond_to_review [type="codergen", shape="box", class="build, responder",
+                       thread_id="build", fidelity="full", timeout="60m",
+                       prompt="@../plan-build-review/prompts/respond-review.md"]
+
+    code_gate [type="wait.human", shape="hexagon",
+               label="Approve these code amendments? (reviewed as a flat diff, not yet folded)"]
+
+    // ---- FOLD -------------------------------------------------------------
+
+    // absorb places every hunk whose home is unambiguous. What it cannot place
+    // it leaves behind, which is precisely the set that needs judgement.
+    absorb [type="tool", shape="parallelogram", timeout="10m",
+            tool_command="jj absorb && jj log -r 'trunk()..@' --no-graph --color=never -T 'commit_id.short() ++ \" \" ++ description.first_line() ++ \"\\n\"'"]
+
+    fold [type="codergen", shape="box", class="build, folder", thread_id="build",
+          fidelity="full", timeout="60m", prompt="@prompts/fold.md"]
+
+    assert_shape [type="tool", shape="parallelogram", timeout="5m",
+                  tool_command="jj log -r 'trunk()..@' --no-graph --color=never -T 'description.first_line() ++ \"\\n\"' > /tmp/amend-stack-after.txt; missing=$(comm -23 <(sort /tmp/amend-stack-restructured.txt) <(sort /tmp/amend-stack-after.txt)); if [ -z \"$missing\" ]; then echo 'no existing commit lost or renamed; new commits (if any):'; comm -13 <(sort /tmp/amend-stack-restructured.txt) <(sort /tmp/amend-stack-after.txt); else echo 'EXISTING COMMITS VANISHED OR WERE RENAMED during the code phase — rearranging existing work is the history phase job, which has already run:'; echo \"$missing\"; exit 1; fi"]
+
+    // ---- PHASE 2: code ----------------------------------------------------
+
+    restructure [type="codergen", shape="box", class="build, historian", thread_id="build",
+                 fidelity="full", timeout="60m", prompt="@prompts/restructure.md"]
+
+    // The safety net for the whole phase: a pure restructuring cannot change
+    // what the branch does. If the tree moved, a code change was smuggled in.
+    assert_tree [type="tool", shape="parallelogram", timeout="5m",
+                 tool_command="changed=$(jj diff --from '$context.bookmark@origin' --to @ --summary --color=never); if [ -z \"$changed\" ]; then jj log -r 'trunk()..@' --no-graph --color=never -T 'description.first_line() ++ \"\\n\"' > /tmp/amend-stack-restructured.txt; echo 'tree unchanged by restructuring; restructured stack recorded:'; cat /tmp/amend-stack-restructured.txt; else echo 'TREE CHANGED during the history phase — restructuring must not alter what the branch does. Files differing from the pushed PR tip:'; echo \"$changed\"; exit 1; fi"]
+
+    review_stack [type="codergen", shape="box", class="review, stack",
+                  require_status="true", fidelity="truncate", timeout="30m",
+                  outputs="stack.summary,stack.verdict",
+                  prompt="@prompts/review-stack.md"]
+
+    // ---- SHIP -------------------------------------------------------------
+
+    recheck_deps      [type="tool", shape="parallelogram", timeout="20m", tool_command="$context.check.deps"]
+    recheck_typecheck [type="tool", shape="parallelogram", timeout="20m", tool_command="$context.check.typecheck"]
+    recheck_lint      [type="tool", shape="parallelogram", timeout="20m", tool_command="$context.check.lint"]
+    recheck_test      [type="tool", shape="parallelogram", timeout="60m", tool_command="$context.check.test"]
+
+    ship [type="wait.human", shape="hexagon",
+          label="Push the folded, restructured stack to the PR?"]
+
+    push_updates [type="tool", shape="parallelogram", timeout="15m",
+                  tool_command="jj git push -b $context.bookmark --remote origin"]
+
+    done [shape=Msquare]
+
+    // ---- edges ------------------------------------------------------------
+
+    start -> preflight
+    preflight -> baseline  [condition="outcome=success"]
+    baseline  -> plan      [condition="outcome=success"]
+
+    plan        -> plan_gate
+    revise_plan -> plan_gate
+    plan_gate   -> restructure [label="[A] Approve plan"]
+    plan_gate   -> revise_plan [label="[R] Revise plan"]
+
+    // Phase 1: rearrange existing work. No code may change.
+    restructure  -> assert_tree
+    assert_tree  -> review_stack [condition="outcome=success"]
+    assert_tree  -> restructure  [condition="outcome=fail", label="Undo the code change"]
+    review_stack -> implement    [condition="outcome=success"]
+    review_stack -> restructure  [condition="outcome=fail", label="Fix the stack"]
+
+    // Phase 2: write the code amendments onto the restructured stack.
+    implement         -> check_deps
+    fix_checks        -> check_deps
+    respond_to_review -> check_deps
+
+    check_deps      -> check_typecheck [condition="outcome=success"]
+    check_deps      -> fix_checks      [condition="outcome=fail"]
+    check_typecheck -> check_lint      [condition="outcome=success"]
+    check_typecheck -> fix_checks      [condition="outcome=fail"]
+    check_lint      -> check_test      [condition="outcome=success"]
+    check_lint      -> fix_checks      [condition="outcome=fail"]
+    check_test      -> review_fan_out  [condition="outcome=success"]
+    check_test      -> fix_checks      [condition="outcome=fail"]
+
+    review_fan_out -> lens_fidelity
+    review_fan_out -> lens_correctness
+    review_fan_out -> lens_tests
+    lens_fidelity    -> synth
+    lens_correctness -> synth
+    lens_tests       -> synth
+
+    synth -> code_gate         [condition="outcome=success"]
+    synth -> respond_to_review [condition="outcome=fail", label="Address findings"]
+
+    code_gate -> absorb            [label="[A] Approve amendments"]
+    code_gate -> respond_to_review [label="[C] Request changes"]
+
+    absorb       -> fold
+    fold         -> assert_shape
+    assert_shape -> recheck_deps [condition="outcome=success"]
+    assert_shape -> fold         [condition="outcome=fail", label="Restore the lost commit"]
+
+    recheck_deps      -> recheck_typecheck [condition="outcome=success"]
+    recheck_typecheck -> recheck_lint      [condition="outcome=success"]
+    recheck_lint      -> recheck_test      [condition="outcome=success"]
+    recheck_test      -> ship              [condition="outcome=success"]
+
+    // A post-fold breakage re-enters the code phase: fix, re-review, re-gate,
+    // re-absorb. Expensive, but the stack is final by then — a repair has to be
+    // folded like any other amendment, not left sitting on top.
+    recheck_deps      -> fix_checks [condition="outcome=fail"]
+    recheck_typecheck -> fix_checks [condition="outcome=fail"]
+    recheck_lint      -> fix_checks [condition="outcome=fail"]
+    recheck_test      -> fix_checks [condition="outcome=fail"]
+
+    ship -> push_updates [label="[P] Push"]
+    push_updates -> done
+}
