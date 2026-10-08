@@ -49,13 +49,30 @@ Use the user's intended feature name, source checkout and checks.
 
 ## Pipeline files and starting revision
 
-The launcher currently takes an **existing DOT file path**, not a bare pipeline
-name. It copies only that file's parent directory to
-`/mnt/runtime-config/pipeline`. Sibling directories outside it are not copied.
-Before using standard pipelines, make a self-contained variant containing all
-referenced subgraphs, prompts and stylesheets, with their references adjusted.
-Do not launch a standard pipeline that references `../checks-core` or
-`../review-core` and assume the launcher copies those siblings.
+The launcher takes a **bare pipeline name or a DOT file path**.
+
+- **Bare name** (`ghost-vm run plan-build-review …`): nothing is copied;
+  the guest's wrapped attractor resolves the name from its bundled
+  pipeline set (`ATTRACTOR_PIPELINES`), which ships checks-core,
+  review-core and all prompts as one consistent tree. This is the way to
+  run any standard pipeline — version-pinned to the staged binary.
+- **DOT path**: the file's parent directory is copied to
+  `/mnt/runtime-config/pipeline`. If any `.dot` there references `../`
+  siblings (`graph_ref="../review-core/…"`), the launcher copies the
+  shared parent ROOT instead so those refs resolve; references escaping
+  even that root are rejected loudly. Use a path for custom/one-off
+  pipelines; prefer the bare name for standard ones.
+
+**Keep the source checkout quiet while dispatching.** The launcher
+copies `GHOST_VM_REPO`'s working copy; if another agent/session is
+moving that checkout mid-copy, the guest gets a torn tree whose git
+index disagrees with its files — the symptom is checks like
+`lint:doc-links` (which walk `git ls-files`) failing on hundreds of
+phantom paths. Prefer a dedicated source checkout for dispatch, not one
+shared with live agents. The same desync can exist on the HOST in a
+non-colocated jj checkout (git index lagging jj): if a git-walking
+check fails locally on paths that don't exist, suspect the checkout,
+not the repo.
 
 Paths passed after `--` must exist inside the VM. For a stylesheet packaged
 beside the DOT file, use `--stylesheet /mnt/runtime-config/pipeline/models.css`.
