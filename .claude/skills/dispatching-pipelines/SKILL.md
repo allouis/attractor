@@ -6,7 +6,8 @@ description: >-
   (plan-build-review, amend-pr, revise-pr, review-pr, checks), the rule that
   `check.*` must match CI exactly, human gates (`--human`, the plannotator
   plan-review bridge), and remote viewing (`--ui` tailnet bind, `attractor
-  runs`, `attractor view`). Use when asked to run/dispatch a pipeline, plan-
+  runs`, `attractor view`, and `--announce` to register a run with the
+  shared hub). Use when asked to run/dispatch a pipeline, plan-
   build-review a change, amend or revise a PR, run the checks, or watch a run
   from another machine. Also covers `ghost-vm` workers, shared hub
   announcements, persistent workspaces, and host GitHub authentication.
@@ -33,7 +34,8 @@ paths described here do not automatically apply to the VM launcher.
 
 ```
 attractor run <pipeline> [--cwd <target-repo>] [--stylesheet models.css] \
-  [--ui] [--human approve|console] [--logs <dir>] -var name=value ...
+  [--ui] [--human approve|console] [--logs <dir>] [--name "<label>"] \
+  [--announce <hub-url>] -var name=value ...
 ```
 
 - `<pipeline>` — bare name or a `.dot` path. Bare names resolve in order:
@@ -44,6 +46,19 @@ attractor run <pipeline> [--cwd <target-repo>] [--stylesheet models.css] \
 - `--stylesheet models.css` falls back to the bundle too (a leading
   `pipelines/` is stripped). Assigns per-node models by role class.
 - `--cwd <target-repo>` — the working tree the pipeline operates in.
+- `--name "<label>"` — a human label for the run, shown in the hub
+  listing (and `attractor runs`) instead of the opaque run id. Optional;
+  unnamed runs fall back to their goal. Distinct from `-var` — it seeds a
+  reserved `run.name` context key, not a pipeline variable.
+- `--announce <hub-url>` — register this run with the shared hub at start,
+  and ship its run-dir archive there on completion. Implies `--ui`. **This
+  is the only thing that puts a run in the hub listing**; without it a run
+  is invisible there, live and afterwards. Forgetting it is recoverable but
+  lossy — `POST <hub>/announce` with `{"run_id":…,"url":…}` registers a
+  still-running run, but the completion archive is shipped by the run
+  process, so a retro-announced run leaves no permanent record once it
+  exits. Ship that by hand with a gzipped tar of the run dir (relative
+  paths, no top-level directory) to `POST <hub>/pipelines/<id>/archive`.
 - Use the **wrapped** binary so the ACP adapters, `jj`, and `graphviz`
   resolve on PATH — the installed `attractor` (`nix profile install
   .#attractor`) works from anywhere; `./result/bin/attractor` (from `nix
@@ -161,6 +176,16 @@ Needs `curl`, `jq`, `plannotator` on PATH. Defaults: `GATE_NODE=plan_gate`,
 - `attractor runs [--root <dir>]` — list local runs from the runs root
   (`$XDG_DATA_HOME/attractor/runs` or `~/.attractor/runs`): id, graph,
   status, start time, most-recent first.
+- The shared **hub** listing (`/ui`) shows one row per announced/archived
+  run — newest first — with a colour-coded pipeline badge, the `--name`
+  label (else goal), elapsed duration, and the active node while live.
+  Stale rows can be removed: the `×` button (or `DELETE /runs/{id}`)
+  forgets an archived or unreachable-live run; a reachable live run is
+  refused (409). Rows come from `--announce` and nothing else — pass it on
+  every run you want to find again. On dimsum the hub is `attractor hub
+  --bind 127.0.0.1:7799` with `tailscale serve` proxying `/` to it, so it
+  is reachable tailnet-wide at `https://dimsum.platypus-mermaid.ts.net/ui`;
+  that proxy is local config, not something the hub does itself.
 - `attractor view <dir>` — re-serve a **finished** run from its directory,
   read-only, over the same loopback + tailnet binding. Gates return 409
   (no engine attached). `--no-tailnet` keeps a sensitive run loopback-only.
@@ -179,6 +204,7 @@ supplies deps hermetically):
 
 ```bash
 ./result/bin/attractor run --ui --cwd $PWD --stylesheet pipelines/models.css \
+  --announce http://127.0.0.1:7799 --name "<change>" \
   --logs ~/.attractor/runs/<change> \
   -var brief="Implement <milestone> from docs/<spec>.md: …" -var base=main \
   -var 'check.deps=nix develop -c true' \
