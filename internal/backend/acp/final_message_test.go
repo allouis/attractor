@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"strings"
 	"testing"
 
 	acp "github.com/allouis/attractor/internal/acp"
@@ -70,5 +71,33 @@ func TestTurnStateIgnoresReplayBeforeArm(t *testing.T) {
 
 	if got := ts.text(); got != "The new plan." {
 		t.Fatalf("text() = %q, want the post-arm message only", got)
+	}
+}
+
+// codex-acp reports a request failure (unknown model, auth) as ordinary
+// message chunks followed by end_turn, so the stage "succeeded" with an
+// error object as its response: a review lens produced `{"type":"error",
+// ...}` and the run carried on as if it had been reviewed (run
+// 60b867a00b9b, 2026-10-08). An error payload as the final message is a
+// failed stage, so default_max_retries gets its chance.
+func TestResultFromStopFailsOnErrorPayload(t *testing.T) {
+	text := "Warning: Model metadata for `gpt-6.1-sol` not found.\n\n" +
+		`{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6.1-sol' model is not supported"}}` + "\n\n"
+	res := resultFromStop(acp.StopEndTurn, text)
+	if res.Outcome == nil || res.Outcome.Status != engine.StatusFail {
+		t.Fatalf("outcome = %+v, want fail", res.Outcome)
+	}
+	if want := "model is not supported"; !strings.Contains(res.Outcome.FailureReason, want) {
+		t.Fatalf("failure reason %q should carry the error message", res.Outcome.FailureReason)
+	}
+}
+
+// A real review that merely quotes an error object inline is still a
+// response: only a message that IS the error payload fails.
+func TestResultFromStopKeepsProseThatMentionsErrors(t *testing.T) {
+	text := "The handler swallows `{\"type\":\"error\"}` responses at foo.go:12; that is the defect."
+	res := resultFromStop(acp.StopEndTurn, text)
+	if res.Outcome != nil {
+		t.Fatalf("prose response must not be treated as an error payload: %+v", res.Outcome)
 	}
 }

@@ -406,6 +406,18 @@ func (t *turnState) persistToolCall(u acp.SessionUpdate) {
 func resultFromStop(stop acp.StopReason, text string) backend.Result {
 	switch stop {
 	case acp.StopEndTurn:
+		// codex-acp relays a request failure (unknown model, expired auth)
+		// as message chunks + end_turn, so without this an error object
+		// passes as the stage's response.
+		if msg, ok := errorPayload(text); ok {
+			return backend.Result{
+				ResponseText: text,
+				Outcome: &engine.Outcome{
+					Status:        engine.StatusFail,
+					FailureReason: "acp: agent returned an error payload: " + msg,
+				},
+			}
+		}
 		return backend.Result{ResponseText: text}
 	case acp.StopRefusal:
 		return backend.Result{
@@ -424,6 +436,33 @@ func resultFromStop(stop acp.StopReason, text string) backend.Result {
 			},
 		}
 	}
+}
+
+// errorPayload reports whether the final message is an error object rather
+// than a response: some line of it parses as a JSON object with
+// `"type":"error"`. Prose that merely mentions such an object does not
+// parse as one, so a genuine review is never mistaken for a failure.
+func errorPayload(text string) (string, bool) {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var payload struct {
+			Type  string `json:"type"`
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(line), &payload); err != nil || payload.Type != "error" {
+			continue
+		}
+		if payload.Error.Message != "" {
+			return payload.Error.Message, true
+		}
+		return line, true
+	}
+	return "", false
 }
 
 // waitOrKill reaps the agent process, killing it if it outlives the
