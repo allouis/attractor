@@ -8,13 +8,26 @@ description: >-
   plan-review bridge), and remote viewing (`--ui` tailnet bind, `attractor
   runs`, `attractor view`). Use when asked to run/dispatch a pipeline, plan-
   build-review a change, amend or revise a PR, run the checks, or watch a run
-  from another machine.
+  from another machine. Also covers `ghost-vm` workers, shared hub
+  announcements, persistent workspaces, and host GitHub authentication.
 ---
 
 # Dispatching attractor pipelines
 
 Command sheet. For the mental model (run-dir layout, engine loop,
-`status.json`), read [docs/running-pipelines.md](../../../docs/running-pipelines.md).
+`status.json`), read `docs/running-pipelines.md` in the Attractor checkout
+(normally `~/attractor`). The installed Nix skill lives outside that checkout.
+
+## Choose where the pipeline runs
+
+For a VM run, read [VM dispatch](references/vm-dispatch.md) before launching.
+Use `ghost-vm run` on the host; it runs Attractor and the pipeline inside the
+guest. The reference covers `--announce` to the existing shared hub, HTTP human
+gates, `--workspace` for PR feedback runs, `--github-auth host`, code recovery,
+and current pipeline packaging/checkout limits.
+
+For a host run, use `attractor run` as below. Bare-name resolution and host
+paths described here do not automatically apply to the VM launcher.
 
 ## Run command shape
 
