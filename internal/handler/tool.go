@@ -124,11 +124,14 @@ func (Tool) Execute(env engine.HandlerEnv) engine.Outcome {
 			},
 		}
 	}
+	// Overwrite all three keys: a success that left tool.stderr alone let the
+	// previous failure's diagnostic persist in context and reach later stages.
 	return engine.Outcome{
 		Status: engine.StatusSuccess,
 		Notes:  "Tool completed: " + cmd,
 		ContextUpdates: map[string]string{
 			"tool.output":    stdout.String(),
+			"tool.stderr":    stderr.String(),
 			"tool.exit_code": "0",
 		},
 	}

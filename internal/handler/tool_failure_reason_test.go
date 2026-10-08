@@ -39,3 +39,21 @@ func TestToolFailureReasonPrefersStderr(t *testing.T) {
 		t.Fatalf("failure reason lacks stderr: %q", oc.FailureReason)
 	}
 }
+
+// A passing tool must overwrite tool.stderr, not leave it untouched. The
+// success path once set only tool.output and tool.exit_code, so the stderr
+// of the last FAILED check (a vitest failure dump) survived a later green
+// run and reached every review lens as if the suite were still red
+// (run 60b867a00b9b, 2026-10-08).
+func TestToolSuccessClearsStderr(t *testing.T) {
+	env := toolEnv(t, "echo fine")
+	env.Context.Apply(map[string]string{"tool.stderr": "stale failure output"})
+	oc := Tool{}.Execute(env)
+	if oc.Status != engine.StatusSuccess {
+		t.Fatalf("status = %v, want success", oc.Status)
+	}
+	got, ok := oc.ContextUpdates["tool.stderr"]
+	if !ok || got != "" {
+		t.Fatalf("tool.stderr update = %q (present=%v), want an empty overwrite", got, ok)
+	}
+}
