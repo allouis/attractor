@@ -73,6 +73,29 @@ first run · you can't say why the test failed · you're about to run the
 full suite inline instead of in a subagent · you've written a lot of code
 with no failing test driving it.
 
+## History
+
+This pipeline amends an existing PR, so the branch's history is part of
+what you are editing, not a byproduct of it.
+
+- Fold each change into the commit it belongs to, using `jj squash` /
+  `jj edit`. Do not stack corrections on top. A commit whose purpose is
+  to fix or adjust an earlier commit in the same branch does not belong
+  in the result — rewrite that earlier commit instead.
+- When you finish, the branch must read as though it had been written
+  correctly the first time: someone reviewing it commit by commit should
+  see no evidence that a review round happened.
+- A commit may be split into two, or dropped entirely if it stops being
+  necessary. Adding one is fine when the work genuinely stands on its own
+  merits; adding one to carry a correction is not.
+- **Rewrite commit messages to match the code they now contain.** A
+  message describing a design that no longer exists is worse than no
+  message: it tells a future reader something false, and it survives long
+  after the review that changed the design is forgotten. If you change
+  what a commit does, change its subject and body to match — including
+  removing names and concepts the code no longer uses.
+- Each commit must still build and pass its own tests in isolation.
+
 Report your outcome by writing `{stage_dir}/status.json`: `success`
 when every slice is committed and its focused test is green:
 

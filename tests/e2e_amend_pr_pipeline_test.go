@@ -24,6 +24,9 @@ func TestAmendPRPipeline_Structure(t *testing.T) {
 		}
 	}
 	planID := g.OutgoingEdges("start")[0].To
+	if planID == "preflight" { // operator-supplied environment check, then plan
+		planID = g.OutgoingEdges(planID)[0].To
+	}
 	if g.Nodes[planID].Type() != "codergen" {
 		t.Fatalf("start should route straight to a codergen plan (no set_base), got %q (%s)", planID, g.Nodes[planID].Type())
 	}

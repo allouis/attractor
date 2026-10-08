@@ -32,10 +32,18 @@ digraph amend_pr {
     // with backoff instead of killing the run.
     default_max_retries = 2
     goal = ""
-    vars = "repo,pr_number,bookmark,workspace_revision,brief"
+    vars = "repo,pr_number,bookmark,workspace_revision,brief,plan_doc,reference,preflight"
     max_node_visits = 10
 
     start [shape=Mdiamond]
+
+    // A full or wedged test environment fails exactly like broken code —
+    // unrelated suites timing out in setup hooks — and sends the fixer off
+    // to repair a diff that was never wrong. Fail here instead, in seconds,
+    // with the actual reason. `preflight` is operator-supplied because only
+    // the operator knows what this repo's tests need; an empty value skips it.
+    preflight [type="tool", shape="parallelogram", timeout="5m",
+               tool_command="$context.preflight"]
 
     // Plan the amendments (own prompt: the change already exists on this
     // branch). revise_plan is plan-build-review's revise responder, reused.
@@ -79,7 +87,8 @@ digraph amend_pr {
 
     done [shape=Msquare]
 
-    start -> plan
+    start -> preflight
+    preflight -> plan  [condition="outcome=success"]
     plan -> plan_gate
     plan_gate   -> implement   [label="[A] Approve plan"]
     plan_gate   -> revise_plan [label="[R] Revise plan"]

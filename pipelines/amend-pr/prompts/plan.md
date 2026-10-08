@@ -11,6 +11,20 @@ $context.brief
 Plan the amendments the feedback asks for. Planning only — write no code,
 make no commits.
 
+A human may already have done some of this work for you:
+
+- `$context.plan_doc` — if this names a file, read it. It is a plan a human
+  wrote for these amendments, and its decisions are approved: adopt them
+  rather than redesigning. Your job is to check it against the code as it
+  stands now, correct anything that has gone stale, and fill only what it
+  leaves undecided. Note what you corrected and what you filled in. If it
+  is empty, plan from the feedback alone.
+- `$context.reference` — if this names a commit, PR or file, read it first
+  and treat its shape as the default for this work. Copying a proven shape
+  beats inventing one. Where this change genuinely differs, depart
+  deliberately and say in one line what differs and why. If it is empty,
+  ignore this.
+
 1. Understand the current state: read the PR's own change
    (`jj diff --from 'trunk()' --to @`) and the code it touches, plus the
    existing patterns and test coverage — so you plan an amendment, not a

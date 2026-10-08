@@ -52,7 +52,7 @@ Read from each `pipeline.dot`'s `vars=` line plus checks-core's
 | Pipeline | `-var` contract |
 |---|---|
 | `plan-build-review` | `brief`, `base`, `check.{deps,typecheck,lint,test}` |
-| `amend-pr` | `repo`, `pr_number`, `bookmark`, `workspace_revision`, `brief`, `check.*` |
+| `amend-pr` | `repo`, `pr_number`, `bookmark`, `workspace_revision`, `brief`, `plan_doc`, `reference`, `preflight`, `check.*` |
 | `revise-pr` | `repo`, `pr_number`, `bookmark`, `workspace_revision`, `check.*` |
 | `review-pr` | `repo`, `pr_number`, `title` |
 | `checks` | `repo`, `check.*` |
