@@ -585,7 +585,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		threadID = ResolveThread(state.incomingEdge, node, g, state.previousNode)
 	}
 	ctxValues, _ := state.context.Snapshot()
-	preamble := BuildPreamble(PreambleInput{
+	input := PreambleInput{
 		Mode:           fidelity,
 		Goal:           state.context.Get("graph.goal"),
 		RunID:          e.RunID,
@@ -593,7 +593,8 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		NodeOutcomes:   state.nodeOutcomes,
 		Context:        ctxValues,
 		Responses:      e.readRecentResponses(state.completedNodes, 5),
-	})
+	}
+	preamble := BuildPreamble(input)
 	cwd := node.Attrs["cwd"]
 	if cwd == "" {
 		cwd = g.Attrs["cwd"]
@@ -611,7 +612,7 @@ func (e *Engine) executeNodeWithRetry(g *graph.Graph, node *graph.Node, state *r
 		Preamble: preamble,
 		Cwd:      cwd,
 	}
-	env.ExecuteNode = e.branchRunner(g, preamble, cwd)
+	env.ExecuteNode = e.branchRunner(g, input, cwd)
 	if _, err := e.Registry.Resolve(node); err != nil {
 		return Outcome{}, err
 	}
@@ -701,10 +702,12 @@ func (e *Engine) runNodeAttempts(node *graph.Node, env HandlerEnv, policy RetryP
 
 // branchRunner builds the ExecuteNode callback the engine injects into
 // HandlerEnv: it runs any node through runNodeAttempts with its own
-// visit counter bump, retry policy, and span storage. preamble and
-// parentCwd are the values resolved for the invoking node — branches
-// inherit them exactly as they inherited the copied env before.
-func (e *Engine) branchRunner(g *graph.Graph, preamble, parentCwd string) func(string, *Context) Outcome {
+// visit counter bump, retry policy, and span storage. parentInput and
+// parentCwd are the values resolved for the invoking node. A branch
+// inherits the run state the preamble is built from, but renders it under
+// its OWN fidelity: a lens declared fidelity="truncate" must not receive
+// the fan-out node's compact dump of the whole run.
+func (e *Engine) branchRunner(g *graph.Graph, parentInput PreambleInput, parentCwd string) func(string, *Context) Outcome {
 	return func(nodeID string, ctx *Context) Outcome {
 		node, ok := g.Nodes[nodeID]
 		if !ok {
@@ -720,6 +723,9 @@ func (e *Engine) branchRunner(g *graph.Graph, preamble, parentCwd string) func(s
 		if fidelity == FidelityFull {
 			threadID = ResolveThread(nil, node, g, "")
 		}
+		input := parentInput
+		input.Mode = fidelity
+		preamble := BuildPreamble(input)
 		env := HandlerEnv{
 			Node:     node,
 			Graph:    g,
@@ -733,7 +739,7 @@ func (e *Engine) branchRunner(g *graph.Graph, preamble, parentCwd string) func(s
 			Preamble: preamble,
 			Cwd:      cwd,
 		}
-		env.ExecuteNode = e.branchRunner(g, preamble, parentCwd)
+		env.ExecuteNode = e.branchRunner(g, parentInput, parentCwd)
 		return e.runNodeAttempts(node, env, nodeRetryPolicy(node, g), visit, nil)
 	}
 }
