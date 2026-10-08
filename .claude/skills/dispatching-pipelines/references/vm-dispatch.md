@@ -86,11 +86,21 @@ Use `--api-bind VM_HOST_PRIVATE_IPV4` before `--` and a reachable private networ
 `--api-url` is only for an already-configured reverse proxy; it does not create
 one. See the companion hub runbook before changing networking.
 
-The current `scripts/plannotator-gate.sh` bridge selects the first run returned
-by `/pipelines` and does not send bearer authentication. Do not point it at a
-shared hub or the protected guest API and assume it selects this VM run.
-Use the hub UI for VM gates until the bridge supports explicit run selection
-and the required authentication. This limitation does not affect hub UI gates.
+`scripts/plannotator-gate.sh` works for VM runs **through the hub**: it
+reads everything over the run's HTTP API (the hub proxies questions,
+artifacts and answers to the guest with its bearer token) and takes an
+explicit run id — ambiguous listings are refused:
+
+```bash
+scripts/plannotator-gate.sh http://127.0.0.1:7799 <run-id>
+```
+
+Arm it after the launcher announces (the run id is in the launcher
+output and the hub listing). Plan review then happens in Plannotator
+exactly as for local runs; the hub UI gate stays available as the
+fallback. Answer gates promptly: the guest's model-credential snapshot
+goes stale after roughly an hour of host activity, and gate waiting
+counts against `--timeout`.
 
 ## GitHub and subsequent feedback
 
