@@ -18,14 +18,21 @@
  * llm_model is usually enough; mixing providers is free.
  */
 
-/* Catch-all default so no agent node is ever left model-less. */
-* { llm_model: claude-fable-5[1m] }
+/* Claude uses short aliases (fable, opus, sonnet, haiku), which Claude Code
+ * resolves to the latest release. Codex has no aliases: pin the exact slug
+ * from `codex debug models`.
+ *
+ * Aliases defeat prefix inference ("opus" starts with "o" and would route to
+ * openai; "fable" matches nothing), so every Claude rule sets llm_provider.
+ *
+ * Catch-all default so no agent node is ever left model-less. */
+* { llm_provider: anthropic; llm_model: fable }
 
 /* Roles (aligned with the pipelines' thread_ids + review vocabulary). */
-.plan    { llm_model: claude-fable-5[1m] }   /* plan, revise_plan            */
-.build   { llm_model: claude-opus-4-8[1m] }  /* implement, fix_checks, respond_to_review */
-.review  { llm_model: claude-opus-4-8[1m] }  /* review-core lenses + synth   */
-.publish { llm_model: claude-fable-5[1m] }   /* push_updates, record */
+.plan    { llm_provider: anthropic; llm_model: fable }   /* plan, revise_plan            */
+.build   { llm_provider: anthropic; llm_model: opus }  /* implement, fix_checks, respond_to_review */
+.review  { llm_provider: anthropic; llm_model: opus }  /* review-core lenses + synth   */
+.publish { llm_provider: anthropic; llm_model: fable }   /* push_updates, record */
 
 /* Finer classes — nodes carry a second class you can target more tightly:
  *   class="build, coder"      implement
@@ -36,13 +43,13 @@
  *   class="review, synth"     the synth merger
  * e.g. run the cheap check-fix loop on a smaller model while the initial
  * implementation stays large:
- *   .fixer { llm_model: claude-fable-5[1m] }
+ *   .fixer { llm_provider: anthropic; llm_model: fable }
  */
 
 /* One review lens on a different model family, for adversarial diversity —
  * portable across pipelines because it targets the class, not an inlined id. */
-.correctness { llm_provider: codex; llm_model: gpt-5.6-sol[high] }
+.correctness { llm_provider: codex; llm_model: gpt-6.1-sol[high] }
 
 /* Target a single inlined node by id (highest specificity). The synth
  * merges five reviews, so it can warrant the biggest model: */
-#review_loop.synth { llm_model: claude-opus-4-8[1m] }
+#review_loop.synth { llm_provider: anthropic; llm_model: opus }

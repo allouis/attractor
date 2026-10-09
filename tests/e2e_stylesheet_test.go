@@ -10,7 +10,7 @@ import (
 
 // TestStylesheet_AppliesToImplementIncludingInlinedReview proves the
 // external --stylesheet overlay reaches role classes AND inlined subgraph
-// nodes, while an explicit node pin (the codex lens) survives.
+// nodes, while the correctness class selects Codex over the Claude defaults.
 func TestStylesheet_AppliesToImplementIncludingInlinedReview(t *testing.T) {
 	dir, err := filepath.Abs("../pipelines/plan-build-review")
 	must(t, err)
@@ -27,21 +27,24 @@ func TestStylesheet_AppliesToImplementIncludingInlinedReview(t *testing.T) {
 	must(t, err)
 	g := pg.Graph
 
-	want := map[string]string{
-		"plan":                    "claude-fable-5[1m]",  // .plan
-		"implement":               "claude-opus-4-8[1m]", // .build
-		"fix_checks":              "claude-opus-4-8[1m]", // .build
-		"review_loop.design":      "claude-opus-4-8[1m]", // inlined .review
-		"review_loop.synth":       "claude-opus-4-8[1m]", // inlined .review
-		"review_loop.correctness": "gpt-5.6-sol[high]",   // explicit codex pin wins
+	want := map[string]struct{ model, provider string }{
+		"plan":                    {"fable", "anthropic"},         // .plan
+		"implement":               {"opus", "anthropic"},          // .build
+		"fix_checks":              {"opus", "anthropic"},          // .build
+		"review_loop.design":      {"opus", "anthropic"},          // inlined .review
+		"review_loop.synth":       {"opus", "anthropic"},          // explicit stylesheet ID
+		"review_loop.correctness": {"gpt-6.1-sol[high]", "codex"}, // .correctness overrides .review
 	}
-	for id, model := range want {
+	for id, expected := range want {
 		n := g.Nodes[id]
 		if n == nil {
 			t.Fatalf("node %q missing from prepared graph", id)
 		}
-		if got := n.Attrs["llm_model"]; got != model {
-			t.Errorf("node %q llm_model = %q, want %q", id, got, model)
+		if got := n.Attrs["llm_model"]; got != expected.model {
+			t.Errorf("node %q llm_model = %q, want %q", id, got, expected.model)
+		}
+		if got := n.Attrs["llm_provider"]; got != expected.provider {
+			t.Errorf("node %q llm_provider = %q, want %q", id, got, expected.provider)
 		}
 	}
 }
