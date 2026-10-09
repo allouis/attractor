@@ -57,22 +57,12 @@
         # dirty tree, where self.rev is absent.
         rev = self.rev or self.dirtyRev or "dev";
         llmPkgs = llm-agents.packages.${system};
-        # Upstream ships the claude-agent-sdk's bundled dynamically linked
-        # `claude`, which cannot run on NixOS (exit 127 from stub-ld). Wrap so
-        # CLAUDE_CODE_EXECUTABLE defaults to the flake's claude-code.
-        # Drop once merged: https://github.com/numtide/llm-agents.nix/pull/7073
-        claude-agent-acp = llmPkgs.claude-agent-acp.overrideAttrs (old: {
-          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ];
-          postInstall = (old.postInstall or "") + ''
-            wrapProgram $out/bin/claude-agent-acp \
-              --set-default CLAUDE_CODE_EXECUTABLE ${llmPkgs.claude-code}/bin/claude
-          '';
-        });
         # Bundled onto attractor's PATH so the `acp` backend finds its command
-        # without any host config. codex-acp is already self-wrapped upstream
-        # (sets CODEX_PATH to its own bundled codex). jujutsu backs the
-        # pipelines' VCS operations.
-        runtimeDeps = [ pkgs.graphviz claude-agent-acp llmPkgs.codex-acp pkgs.jujutsu ];
+        # without any host config. Both adapters are self-wrapped upstream:
+        # claude-agent-acp defaults CLAUDE_CODE_EXECUTABLE to the flake's
+        # claude-code, codex-acp sets CODEX_PATH to its own bundled codex.
+        # jujutsu backs the pipelines' VCS operations.
+        runtimeDeps = [ pkgs.graphviz llmPkgs.claude-agent-acp llmPkgs.codex-acp pkgs.jujutsu ];
         attractor = pkgs.buildGoModule {
           pname = "attractor";
           inherit version;
