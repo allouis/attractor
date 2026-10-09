@@ -253,20 +253,29 @@ Deterministic guards keep a run from dying or spinning:
 
 ### Watch a run
 
-`--ui` serves a live waterfall: one lane per node, with live spans,
-tool-call marks, token counts, and click-through to each stage. An
-approval gate shows the work leading into it, so you see what you
-approve. Parallel branches run side by side.
+`--ui` opens a job graph with fixed-size cards. The `plan_build_review`
+pipeline has a compact milestone overview; **All steps** shows every
+node and dependency, and **Source SVG** retains the original layout.
+Other pipelines open with all steps. Zoom, Fit, and Focus controls help
+navigate larger graphs.
 
-![The live waterfall, paused at a human gate](./docs/images/waterfall.png)
+![Pipeline job graph](./docs/images/job-graph.png)
 
-Click a span to open its full story: the agent's prompt and response, the
-engine's `status.json`, the agent's own self-report, a tab for each
-execution when a node ran more than once, and every tool call. Header
-tabs switch to the rendered pipeline, the run's context, and a browser
-over the whole run directory.
+**Readable waterfall** keeps short executions selectable and shows gates
+as compact visit markers. Ordinary bars show elapsed duration. A shared
+compressed axis keeps parallel starts aligned, and crowded targets stack
+within their lane. **Accurate timing** retains timestamp-proportional
+bars, including gate waits. Both views support Node, Thread, Class and
+Type lanes; missing metadata falls back to the node.
 
-![Span detail: the agent's status report, prompt, response, and tool calls](./docs/images/detail.png)
+![Readable waterfall with compact gate visits](./docs/images/readable-waterfall.png)
+
+Select a node or execution to inspect its visit and attempt, status,
+model, tokens, recorded output, agent activity and raw execution files.
+Closing the inspector reclaims the graph's width. Human gates show the
+recorded work leading into them and retain optional feedback while
+polling. **Context** searches the last checkpoint's values; **Files**
+groups artifacts by execution and loads previews when opened.
 
 The same data is served as JSON (`/pipelines/{id}`, `/events?since=N`,
 `/artifacts/…`, `/graph`) for scripts and agents.
@@ -278,16 +287,31 @@ once at start with `--announce`. The hub then polls the run's own API for
 live state, proxies gate answers, and stores the run's archive when it
 finishes. Because the hub only pulls, a hub outage never loses run data.
 
+The hub puts runs needing review and current reachable work first, followed
+by results finished in the last seven days. Switch to Today or All to
+browse older results. Archived or disconnected nonterminal runs appear
+under Last known state; they do not imply live work. Optional grouping
+folds exact nonempty name + pipeline matches in history while retaining
+every run link. Matching names do not establish a retry relationship.
+Search and disclosure state survive polling. Preferences stay in this
+browser; no records are hidden or deleted by the history filter.
+
+The frontend is plain HTML, CSS and JavaScript embedded by Go. There is
+no frontend build or package installation. Shared assets live under
+`internal/webui`; `nix develop -c node internal/webui/ui_test.cjs` checks
+UI behavior, and `nix flake check` also checks browser-script syntax.
+
 ```bash
 attractor hub --bind 127.0.0.1:7690 --dir ~/.attractor/hub
 
 attractor run --announce http://127.0.0.1:7690 … plan-build-review   # Self-registers.
 ```
 
-The hub has its own UI at `/ui`: a list of live and archived runs, and
-the same waterfall page for each. Gates are answerable from the hub too.
+The hub has its own UI at `/ui`, with current-work cards and searchable
+run history. Each run opens the shared run dashboard. Gates are
+answerable from the hub too.
 
-![The hub's run list](./docs/images/hub.png)
+![The hub dashboard](./docs/images/hub-dashboard.png)
 
 On a server, run the hub as the one long-lived service. The flake ships
 NixOS and home-manager modules:

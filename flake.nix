@@ -115,6 +115,7 @@
           packages = [
             pkgs.go
             pkgs.gopls
+            pkgs.nodejs
             pkgs.gotools
             pkgs.go-tools
             pkgs.graphviz
@@ -130,6 +131,14 @@
         };
 
         checks = {
+          attractor-ui = pkgs.runCommand "attractor-ui"
+            { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+            cd ${./.}
+            node --check internal/webui/hub.js
+            node --check internal/webui/run.js
+            node internal/webui/ui_test.cjs
+            touch $out
+          '';
           attractor-gofmt = pkgs.runCommand "attractor-gofmt"
             { nativeBuildInputs = [ pkgs.go ]; } ''
             drift=$(cd ${./.} && gofmt -l .)
